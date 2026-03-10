@@ -8,6 +8,7 @@ from typing import Union
 from neuro_pilot.utils.logger import logger, log_system_info
 from neuro_pilot.engine.task import TaskRegistry
 from neuro_pilot.engine.backend.factory import AutoBackend
+from neuro_pilot.utils.torch_utils import select_device
 
 
 class NeuroPilot(nn.Module):
@@ -48,8 +49,6 @@ class NeuroPilot(nn.Module):
         self.task_name = task or "multitask"
 
         # Determine and store device
-        from neuro_pilot.utils.torch_utils import select_device
-
         self.target_device = select_device(kwargs.get("device", ""))
 
         if isinstance(model, nn.Module):
@@ -182,6 +181,9 @@ class NeuroPilot(nn.Module):
             # Restore metadata
             if "names" in ckpt:
                 self.model.names = ckpt["names"]
+                # Sync with task wrapper if it exists
+                if self.task_wrapper:
+                    self.task_wrapper.names = ckpt["names"]
             if "cfg" in ckpt:
                 self.cfg_obj = ckpt["cfg"]
 
@@ -346,7 +348,8 @@ class NeuroPilot(nn.Module):
         if self.predictor is None:
             from neuro_pilot.engine.predictor import Predictor
 
-            self.predictor = Predictor(self.cfg_obj, self.model, self.target_device)
+            # Use backend instead of raw model for optimized inference
+            self.predictor = Predictor(self.cfg_obj, self.backend, self.target_device)
 
         return self.predictor(source, **kwargs)
 
@@ -426,9 +429,31 @@ class NeuroPilot(nn.Module):
                 "state_dict": self.model.state_dict(),
                 "task": self.task_name,
                 "overrides": self.overrides,
+                "scale": self.overrides.get('scale', 'n'),
+                "cfg": self.cfg_obj
             },
             filename,
         )
+
+    def to(self, *args, **kwargs):
+        """Override to move backend as well."""
+        device = select_device(args[0]) if args else select_device(kwargs.get('device', ""))
+        self.target_device = device
+        if hasattr(self, 'backend'):
+            self.backend.device = device
+            if hasattr(self.backend, 'model'):
+                self.backend.model.to(device)
+        return super().to(device)
+
+    def half(self):
+        """Override to set backend to FP16."""
+        if self.model:
+            self.model.half()
+        if hasattr(self, 'backend'):
+            self.backend.fp16 = True
+            if hasattr(self.backend, 'model'):
+                self.backend.model.half()
+        return self
 
     @property
     def device(self):
@@ -441,11 +466,19 @@ class NeuroPilot(nn.Module):
 
     @property
     def names(self):
-        """Returns class names."""
-        if hasattr(self.task_wrapper, "names") and self.task_wrapper.names:
-            return self.task_wrapper.names
-        if hasattr(self.model, "names") and self.model.names:
+        """Returns correctly prioritized class names."""
+        for source in [self.task_wrapper, self.model]:
+            if hasattr(source, "names") and source.names:
+                n = source.names
+                # If first element doesn't start with "class_", it's likely real names
+                first_val = next(iter(n.values())) if isinstance(n, dict) else n[0]
+                if not str(first_val).startswith("class_"):
+                    return n
+
+        # Fallback to model's names (even if default)
+        if hasattr(self.model, "names"):
             return self.model.names
+
         num_classes = getattr(self.cfg_obj.head, "num_classes", 14)
         return {i: f"class_{i}" for i in range(num_classes)}
 

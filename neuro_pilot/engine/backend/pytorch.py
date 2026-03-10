@@ -23,6 +23,12 @@ class PyTorchBackend(BaseBackend):
 
         self.model.to(self.device)
         self.model.eval()
+        if hasattr(self.model, 'names'):
+            self.names = self.model.names
+        if hasattr(self.model, 'nc'):
+            self.nc = self.model.nc
+        elif hasattr(self, 'names') and isinstance(self.names, (list, dict)):
+            self.nc = len(self.names)
 
         if fuse and hasattr(self.model, 'fuse'):
              logger.info("Fusing model layers for standard PyTorch inference...")

@@ -6,7 +6,7 @@ import numpy as np
 
 from neuro_pilot.utils.logger import logger
 from neuro_pilot.utils.metrics import bbox_iou
-from neuro_pilot.utils.ops import xywh2xyxy, make_anchors, dist2bbox
+from neuro_pilot.utils.ops import xywh2xyxy, make_anchors, dist2bbox, get_bathtub_weights
 from neuro_pilot.utils.tal import TaskAlignedAssigner, bbox2dist
 
 class FocalLoss(nn.Module):
@@ -276,13 +276,7 @@ class FDATLoss(nn.Module):
 
     def _positional_weights(self, T, device):
         """Bathtub curve: higher weight at start and end, lower in the middle."""
-        t = torch.arange(T, dtype=torch.float32, device=device)
-        w = (
-            torch.exp(-t / self.tau_start)
-            + torch.exp(-(T - 1 - t) / self.tau_end)
-            + 0.5
-        )
-        return w / w.mean()
+        return get_bathtub_weights(T, self.tau_start, self.tau_end, device)
 
     def _heading_loss(self, pred, gt):
         """Cosine-based heading error. Returns per-sample scalar [B]."""
@@ -362,6 +356,7 @@ class CombinedLoss(nn.Module):
 
         # FDAT Loss (opt-in via config)
         self.use_fdat = getattr(loss_cfg, 'use_fdat', False)
+        self.use_uncertainty = getattr(loss_cfg, 'use_uncertainty', True)
         if self.use_fdat:
             self.fdat_loss = FDATLoss(
                 alpha_lane=getattr(loss_cfg, 'fdat_alpha_lane', 10.0),
@@ -370,12 +365,16 @@ class CombinedLoss(nn.Module):
                 beta_inter=getattr(loss_cfg, 'fdat_beta_inter', 3.0),
                 lambda_heading=getattr(loss_cfg, 'fdat_lambda_heading', 2.0),
                 lambda_endpoint=getattr(loss_cfg, 'fdat_lambda_endpoint', 5.0),
+                tau_start=getattr(loss_cfg, 'fdat_tau_start', 2.0),
+                tau_end=getattr(loss_cfg, 'fdat_tau_end', 2.0),
                 lambda_smooth=self.lambda_smooth,
             )
             logger.info("CombinedLoss: FDAT trajectory loss ENABLED")
 
     def _uncertainty_weight(self, loss, log_var, lambda_val=1.0):
         if lambda_val == 0: return torch.tensor(0.0, device=loss.device)
+        if not self.use_uncertainty:
+             return loss * lambda_val
         # Clamp log_var to prevent precision explosion
         # Range [-2, 2] bounds precision to [0.135, 7.389]
         clamped_log_var = torch.clamp(log_var, -2.0, 2.0)

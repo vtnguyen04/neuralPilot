@@ -89,7 +89,7 @@ class Detect(BaseHead):
 
         # Process each feature map
         one2many_preds = self.forward_head(x, **self.one2many)
-        
+
         if self.training:
             # For training, we return the raw outputs for the loss function
             res = {"one2many": one2many_preds, "detect": {"one2many": one2many_preds}}
@@ -98,7 +98,7 @@ class Detect(BaseHead):
                 one2one_preds = self.forward_head(x_detach, **self.one2one)
                 res["one2one"] = one2one_preds
                 res["detect"]["one2one"] = one2one_preds
-            
+
             # Ensure 'feats' is available for loss calculation
             res['detect']['feats'] = x
             return res
@@ -113,7 +113,7 @@ class Detect(BaseHead):
         if self.dynamic or self.shape != x[0].shape:
             self.anchors, self.strides = (a.transpose(0, 1) for a in make_anchors(x, self.stride, 0.5))
             self.shape = x[0].shape
-        
+
         # Apply DFL
         decoded_boxes = self.decode_bboxes(self.dfl(box_preds), self.anchors.unsqueeze(0)) * self.strides.unsqueeze(0)
 
@@ -127,7 +127,7 @@ class Detect(BaseHead):
             "feats": x,
         }
         return res
-    
+
     def decode_bboxes(self, bboxes, anchors):
         """Decode bounding boxes from distance format."""
         return dist2bbox(bboxes, anchors, xywh=True, dim=1)
@@ -313,8 +313,6 @@ class TrajectoryHead(BaseHead):
 
         # Vision + Command Concatenation
         # Using F.interpolate for better ONNX compatibility
-        pooled = F.interpolate(feat, size=(4, 4), mode='bilinear', align_corners=False).flatten(1)
-
         # Ensure cmd_idx is 1D [B] even if passed as [B, 1] or one-hot
         if cmd_idx.dim() > 1:
             if cmd_idx.shape[-1] == self.num_commands: # One-hot
@@ -322,31 +320,53 @@ class TrajectoryHead(BaseHead):
             else:
                 cmd_idx = cmd_idx.view(-1)
 
-        cmd_emb = self.cmd_embed(cmd_idx.long())
+        # Vision + Command Integration - Ensure same dtype for concatenation
+        dtype = self.vision_stem[0].weight.dtype
+        cmd_emb = self.cmd_embed(cmd_idx.long()).to(dtype)
+        pooled = F.interpolate(feat, size=(4, 4), mode='bilinear', align_corners=False).flatten(1).to(dtype)
+
         combined = torch.cat([pooled, cmd_emb], dim=1) # [B, flatten_dim + 64]
 
         # 2.5 STEM processing
-        h = self.vision_stem(combined) # [B, 512]
+        for layer in self.vision_stem:
+            combined = layer(combined)
+            if torch.is_floating_point(combined):
+                combined = combined.to(dtype)
+        h = combined
 
-        # FiLM Modulation (Strong Command Awareness)
-        film_params = self.film_gen(cmd_emb)
-        gamma, beta = film_params.chunk(2, dim=1) # [B, 512], [B, 512]
-        h = h * (1 + gamma) + beta
+        # FiLM Generator + Modulation
+        h = self._apply_film(h, cmd_emb.to(self.film_gen[0].weight.dtype))
 
         # Predict Control Points
-        cp = torch.tanh(self.traj_head(h)).view(B, 4, 2)
-        
+        h_traj = h
+        for layer in self.traj_head:
+            h_traj = layer(h_traj)
+            if torch.is_floating_point(h_traj):
+                h_traj = h_traj.to(dtype)
+        cp = torch.tanh(h_traj).view(B, 4, 2)
+
         # Predict Trajectory Existence (Logits)
-        has_traj_logit = self.exist_head(h) # [B, 1]
+        h_exist = h
+        for layer in self.exist_head:
+            h_exist = layer(h_exist)
+            if torch.is_floating_point(h_exist):
+                h_exist = h_exist.to(dtype)
+        has_traj_logit = h_exist # [B, 1]
 
         # Bezier Interpolation (Bernstein)
-        waypoints = torch.einsum('nk,bkd->bnd', self.bernstein_m, cp)
+        waypoints = torch.einsum('nk,bkd->bnd', self.bernstein_m.to(cp.dtype), cp)
 
         # Safety
         waypoints = torch.nan_to_num(waypoints, 0.0)
 
         res = {'waypoints': waypoints, 'control_points': cp, 'has_traj_logit': has_traj_logit}
         return {'trajectory': res, **res}
+
+    def _apply_film(self, h, cmd_emb):
+        """Apply FiLM modulation."""
+        film_params = self.film_gen(cmd_emb)
+        gamma, beta = film_params.chunk(2, dim=1)
+        return h * (1 + gamma) + beta
 
 class Segment(Detect):
     """YOLO Segment head for segmentation models."""
@@ -415,5 +435,15 @@ class ClassificationHead(nn.Module):
 
     def forward(self, x):
         if isinstance(x, (list, tuple)): x = x[-1]
-        x = self.pool(x).flatten(1)
-        return {"classes": self.conv(x)}
+
+        # Ensure dtype alignment with weights
+        dtype = self.conv[0].weight.dtype
+        x = self.pool(x).flatten(1).to(dtype)
+
+        # Manual iteration for dtype stability (BatchNorm promotion fix)
+        for layer in self.conv:
+            x = layer(x)
+            if torch.is_floating_point(x):
+                x = x.to(dtype)
+
+        return {"classes": x}

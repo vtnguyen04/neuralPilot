@@ -2,14 +2,17 @@ import cv2
 import numpy as np
 import torch
 import glob
+import threading
+import time
+from queue import Queue
 from pathlib import Path
 from neuro_pilot.data.utils import IMG_FORMATS
 
 VID_FORMATS = 'asf', 'avi', 'gif', 'm4v', 'mkv', 'mov', 'mp4', 'mpeg', 'mpg', 'ts', 'wmv', 'webm'
 
 class LoadImages:
-    """image loader for inference."""
-    def __init__(self, path, imgsz=640, vid_stride=1):
+    """image loader for inference with threaded video support."""
+    def __init__(self, path, imgsz=640, vid_stride=1, auto=False):
         p = str(path)
         if "*" in p:
              files = sorted(glob.glob(p, recursive=True))
@@ -25,65 +28,107 @@ class LoadImages:
         ni, nv = len(images), len(videos)
 
         self.imgsz = imgsz
+        self.auto = auto
         self.files = images + videos
         self.nf = ni + nv
         self.video_flag = [False] * ni + [True] * nv
         self.mode = 'image'
         self.vid_stride = vid_stride
+
+        self.cap = None
+        self.q = Queue(maxsize=32)
+        self.stop = False
+
         if nv > 0:
             self._new_video(str(videos[0]))
-        else:
-            self.cap = None
 
     def __iter__(self):
         self.count = 0
         return self
 
     def __next__(self):
-        # print(f"DEBUG: LoadImages.__next__ called. count={self.count}/{self.nf}")
         if self.count == self.nf:
             raise StopIteration
         path = self.files[self.count]
 
         if self.video_flag[self.count]:
-            # Read video
+            # Read video from queue
             self.mode = 'video'
-            ret_val, img0 = self.cap.read()
-            while not ret_val:
+            if self.q.empty() and self.stop:
                 self.count += 1
                 if self.count == self.nf:
                     raise StopIteration
                 path = self.files[self.count]
                 self._new_video(str(path))
-                ret_val, img0 = self.cap.read()
 
+            # Blocking get
+            data = self.q.get()
+            if data is None: # End of video signal
+                self.count += 1
+                if self.count == self.nf:
+                    raise StopIteration
+                path = self.files[self.count]
+                self._new_video(str(path))
+                return self.__next__()
+
+            img, img0 = data
             self.frame += 1
-            # vid_stride support
-            for _ in range(self.vid_stride - 1):
-                self.cap.read()
         else:
             # Read image
             self.count += 1
             img0 = cv2.imread(str(path))
             if img0 is None:
                 raise FileNotFoundError(f"Image Not Found {path}")
+            img = self.preprocess(img0)
 
-        # Preprocess
-        img = self.preprocess(img0)
-        return str(path), img, img0, self.cap
+        return str(path), img, img0, self.cap, self.frame
 
     def _new_video(self, path):
+        if self.cap:
+            self.stop = True
+            self.cap.release()
+            while not self.q.empty(): self.q.get() # Clear queue
+
         self.frame = 0
         self.cap = cv2.VideoCapture(path)
         self.frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        self.stop = False
+        # Start background thread
+        threading.Thread(target=self._update, args=(self.cap,), daemon=True).start()
+
+    def _update(self, cap):
+        """Background thread for reading and preprocessing frames."""
+        from neuro_pilot.data.augment import LetterBox
+        lb = LetterBox(new_shape=self.imgsz, auto=self.auto, scaleup=True)
+
+        frame_idx = 0
+        while not self.stop and cap.isOpened():
+            if not self.q.full():
+                ret, img0 = cap.read()
+                if ret:
+                    frame_idx += 1
+                    if frame_idx % self.vid_stride != 0:
+                        continue
+
+                    # Preprocess in background thread
+                    data = lb({'img': img0})
+                    img = cv2.cvtColor(data['img'], cv2.COLOR_BGR2RGB)
+                    img = torch.from_numpy(img).permute(2, 0, 1).contiguous()
+                    self.q.put((img, img0))
+                else:
+                    self.stop = True
+                    self.q.put(None) # Signal end
+                    break
+            else:
+                time.sleep(0.005) # Small sleep to avoid CPU spinning
 
     def preprocess(self, img0):
         from neuro_pilot.data.augment import LetterBox
-        lb = LetterBox(new_shape=self.imgsz, auto=False, scaleup=True)
+        lb = LetterBox(new_shape=self.imgsz, auto=self.auto, scaleup=True)
         data = lb({'img': img0})
         img = cv2.cvtColor(data['img'], cv2.COLOR_BGR2RGB)
-        img = img.astype(np.float32) / 255.0
-        img = torch.from_numpy(img).permute(2, 0, 1)
+        # Return as uint8 to save 4x CPU-GPU bandwidth. Normalization moved to Predictor (GPU).
+        img = torch.from_numpy(img).permute(2, 0, 1).contiguous()
         return img
 
     def __len__(self):
@@ -91,10 +136,11 @@ class LoadImages:
 
 class LoadStreams:
     """Stream loader for RTSP, RTMP, HTTP, or camera."""
-    def __init__(self, sources='streams.txt', imgsz=640, vid_stride=1):
+    def __init__(self, sources='streams.txt', imgsz=640, vid_stride=1, auto=False):
         self.mode = 'stream'
         self.imgsz = imgsz
         self.vid_stride = vid_stride
+        self.auto = auto
 
         if Path(sources).is_file():
             with open(sources) as f:
@@ -151,11 +197,11 @@ class LoadStreams:
 
     def preprocess(self, img0):
         from neuro_pilot.data.augment import LetterBox
-        lb = LetterBox(new_shape=self.imgsz, auto=False, scaleup=True)
+        lb = LetterBox(new_shape=self.imgsz, auto=self.auto, scaleup=True)
         data = lb({'img': img0})
         img = cv2.cvtColor(data['img'], cv2.COLOR_BGR2RGB)
-        img = img.astype(np.float32) / 255.0
-        img = torch.from_numpy(img).permute(2, 0, 1)
+        # Return as uint8 to save 4x CPU-GPU bandwidth. Normalization moved to Predictor (GPU).
+        img = torch.from_numpy(img).permute(2, 0, 1).contiguous()
         return img
 
     def __len__(self):
@@ -205,11 +251,11 @@ class LoadTensors:
     def __len__(self):
         return self.nf
 
-def get_dataloader(source, imgsz=640, vid_stride=1):
+def get_dataloader(source, imgsz=640, vid_stride=1, auto=False):
     """Factory for loaders."""
     if isinstance(source, (torch.Tensor, np.ndarray)):
         return LoadTensors(source, imgsz)
     if isinstance(source, (str, Path)) and (str(source).startswith(('rtsp://', 'rtmp://', 'http://', 'https://')) or (Path(source).exists() and Path(source).suffix == '.txt')):
-        return LoadStreams(source, imgsz, vid_stride)
+        return LoadStreams(source, imgsz, vid_stride, auto=auto)
     else:
-        return LoadImages(source, imgsz, vid_stride)
+        return LoadImages(source, imgsz, vid_stride, auto=auto)

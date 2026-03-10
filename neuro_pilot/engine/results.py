@@ -21,32 +21,68 @@ class Results:
         self.boxes = boxes # [N, 6] (xyxy, conf, cls)
         self.waypoints = waypoints # [L, 2]
         self.heatmap = heatmap # [H, W]
+        self.command = None
         self.save_dir = None
 
     def __len__(self):
         return len(self.boxes) if self.boxes is not None else 0
 
     def plot(self, conf=True, line_width=None, font_size=None, font="Arial.ttf",
-             pil=False, labels=True, boxes=True, waypoints=True, heatmap=True):
-        """Plot results on image side-by-side."""
-        # 1. Left Side: RGB + Boxes + Waypoints
-        annotator = Annotator(self.orig_img.copy(), line_width, font_size, font, pil)
+             pil=False, labels=True, boxes=True, waypoints=True, heatmap=True, max_dim=1280):
+        """Plot results on image side-by-side with resolution capping."""
+        h0, w0 = self.orig_img.shape[:2]
+        img = self.orig_img
+
+        # Scale down for visualization if too large (e.g. 4K -> 1080p/720p)
+        if max(h0, w0) > max_dim:
+            gain = max_dim / max(h0, w0)
+            img = cv2.resize(self.orig_img, (int(w0 * gain), int(h0 * gain)))
+            h, w = img.shape[:2]
+        else:
+            h, w = h0, w0
+            gain = 1.0
+
+        # Adjust boxes/waypoints for the plotting resolution
+        plot_boxes = None
+        if self.boxes is not None:
+            plot_boxes = self.boxes.clone() if isinstance(self.boxes, torch.Tensor) else self.boxes.copy()
+            if gain != 1.0:
+                plot_boxes[:, :4] *= gain
+
+        plot_waypoints = None
+        if self.waypoints is not None:
+            plot_waypoints = self.waypoints.clone() if isinstance(self.waypoints, torch.Tensor) else self.waypoints.copy()
+            if gain != 1.0:
+                plot_waypoints *= gain
+
+        # 1. Left Side: Processing
+        annotator = Annotator(img, line_width, font_size, font, pil)
 
         # BBoxes
-        if boxes and self.boxes is not None:
-            boxes_data = self.boxes.cpu().numpy() if isinstance(self.boxes, torch.Tensor) else self.boxes
+        if boxes and plot_boxes is not None:
+            boxes_data = plot_boxes.cpu().numpy() if isinstance(plot_boxes, torch.Tensor) else plot_boxes
             for d in boxes_data:
                 conf_val, id = float(d[4]), int(d[5])
                 name = self.names.get(id, f"class_{id}")
                 label = (f"{name} {conf_val:.2f}" if labels else f"{name}") if conf else ""
-                annotator.box_label(d[:4], label, color=colors(id, True))
+                annotator.box_label(d[:4], label, color=colors(id, bgr=False))
 
         # Waypoints
-        if waypoints and self.waypoints is not None:
-            wp = self.waypoints.cpu().numpy() if isinstance(self.waypoints, torch.Tensor) else self.waypoints
-            annotator.drivable_area(wp, color=(0, 255, 0), alpha=0.35, base_width_bottom=80, base_width_top=15)
-            annotator.trajectory(wp, color=(255, 0, 255), thickness=2)
-            annotator.waypoints(wp, color=(200, 0, 200))
+        if waypoints and plot_waypoints is not None:
+            wp = plot_waypoints.cpu().numpy() if isinstance(plot_waypoints, torch.Tensor) else plot_waypoints
+            # Scale visual markers based on gain
+            bw_bottom = int(80 * gain)
+            bw_top = int(15 * gain)
+            annotator.drivable_area(wp, color=(0, 255, 0), alpha=0.35, base_width_bottom=bw_bottom, base_width_top=bw_top)
+            annotator.trajectory(wp, color=(255, 0, 255), thickness=max(1, int(2 * gain)))
+            annotator.waypoints(wp, color=(200, 0, 200), radius=max(1, int(4 * gain)))
+
+        # Command Display
+        if self.command is not None:
+             cmd_map = {0: "FOLLOW LANE", 1: "LEFT", 2: "RIGHT", 3: "STRAIGHT"}
+             cmd_txt = cmd_map.get(self.command if isinstance(self.command, int) else int(self.command), f"CMD:{self.command}")
+             # Use Yellow (255, 255, 0) for RGB image
+             annotator.text((20, 40), f"GO: {cmd_txt}", color=(255, 255, 0), bg_color=(0,0,0), scale=1.2)
 
         img_left = annotator.result()
 

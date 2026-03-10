@@ -10,6 +10,7 @@ import numpy as np
 import torch
 
 from neuro_pilot.utils.logger import logger as LOGGER
+from neuro_pilot.utils.ops import get_bathtub_weights
 
 
 PROJECT = "NeuroPilot AI"
@@ -562,12 +563,16 @@ class BaseMetric(ABC):
     def reset(self): pass
 
 class TrajectoryMetric(BaseMetric):
-    def __init__(self):
+    def __init__(self, tau_start: float = 2.0, tau_end: float = 2.0):
         self.total_l1 = 0.0
+        self.total_weighted_l1 = 0.0
         self.count = 0
+        self.tau_start = tau_start
+        self.tau_end = tau_end
 
     def reset(self):
         self.total_l1 = 0.0
+        self.total_weighted_l1 = 0.0
         self.count = 0
 
     def update(self, preds, batch):
@@ -579,12 +584,23 @@ class TrajectoryMetric(BaseMetric):
         if gt_wp.shape[1] != pred_wp.shape[1]:
              gt_wp = torch.nn.functional.interpolate(gt_wp.permute(0,2,1), size=pred_wp.shape[1], mode='linear').permute(0,2,1)
 
-        l1 = (pred_wp - gt_wp).abs().mean().item()
+        err_abs = (pred_wp - gt_wp).abs()
+        l1 = err_abs.mean().item()
+
+        # Weighted L1 (Bathtub)
+        T = pred_wp.shape[1]
+        w = get_bathtub_weights(T, self.tau_start, self.tau_end, device=pred_wp.device) # [T]
+        weighted_l1 = (err_abs.mean(-1) * w).mean().item()
+
         self.total_l1 += l1
+        self.total_weighted_l1 += weighted_l1
         self.count += 1
 
     def compute(self):
-        return {'L1': self.total_l1 / max(1, self.count)}
+        return {
+            'L1': self.total_l1 / max(1, self.count),
+            'Weighted_L1': self.total_weighted_l1 / max(1, self.count)
+        }
 
 class HeatmapMetric(BaseMetric):
     def __init__(self):

@@ -32,8 +32,9 @@ def run_real_training():
             "lambda_cls": 2.0,
             "lambda_smooth": 0.1,
             "lambda_gate": 0.5,
+            "use_uncertainty": False,
             # FDAT Loss (Frenet-Decomposed Anisotropic Trajectory Loss)
-            "use_fdat": False,
+            "use_fdat": True,
             "fdat_alpha_lane": 10.0,
             "fdat_beta_lane": 1.0,
             "fdat_alpha_inter": 5.0,
@@ -44,12 +45,13 @@ def run_real_training():
         "trainer": {
             "experiment_name": "train",
             "image_size": 320,
-            "max_epochs": 100,
-            "learning_rate": 1e-3,
+            "max_epochs": 2,
+            "learning_rate": 3e-4,  # Lower LR to compensate for no uncertainty weighting
+            "grad_clip_norm": 5.0,  # Match looseness of debug pipeline (10.0) but keep some safety
             "optimizer": "AdamW",
             "lr_final": 0.01,
             "warmup_epochs": 3.0,
-            "use_ema": True,
+            "use_ema": False,
             "use_amp": False,
         },
     }

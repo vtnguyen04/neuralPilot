@@ -58,15 +58,18 @@ class CommandGate(nn.Module):
             Tensor: [B, 1, 1] gating weight
         """
         B, C, H, W = x.shape
-        with torch.amp.autocast('cuda', enabled=False):
-            x_f32 = x.float()
-            # Prevent extreme values from blowing up the Linear layers
-            x_f32 = torch.clamp(torch.nan_to_num(x_f32, nan=0.0, posinf=10.0, neginf=-10.0), -10.0, 10.0)
-            x_gap = self.gap(x_f32).view(B, C)
-            gate = self.fc(x_gap).view(B, 1, 1)
-            # Ensure the output is clean
-            gate = torch.clamp(torch.nan_to_num(gate, nan=0.5), 0.0, 1.0)
-        return gate if x.dtype != torch.float16 else gate.half()
+        # Global Average Pool
+        x_gap = self.gap(x).view(B, C)
+
+        # Ensure dtype consistency with weights (mat1 mat2 mismatch fix)
+        # fc[0] is nn.Linear, its weight determines the required input dtype
+        dtype = self.fc[0].weight.dtype
+        x_gap = x_gap.to(dtype)
+
+        # Predict gate value [B, 1, 1]
+        gate = self.fc(x_gap).view(B, 1, 1)
+
+        return gate
 
 class VLFusion(nn.Module):
     """Vision-Language Fusion module using Cross-Attention and Context Gating.
@@ -107,6 +110,11 @@ class VLFusion(nn.Module):
 
         # Calculate Context Relevance (Gate)
         gate_score = self.gate(vision) # [B, 1, 1]
+
+        # Ensure dtype consistency for attention
+        dtype = self.q.weight.dtype
+        x_flat = x_flat.to(dtype)
+        lang_feats = lang_feats.to(dtype)
 
         # Cross-Attention
         attn_out, _ = self.mha(self.q(x_flat), self.k(lang_feats), self.v(lang_feats))
@@ -157,6 +165,11 @@ class CFRBridge(nn.Module):
 
         # THE CAUSAL CHOKEPOINT: Stop gradient from flowing back to Perception
         percept_causal = percept_flat.detach()
+
+        # Ensure dtype consistency
+        dtype = self.q.weight.dtype
+        plan_flat = plan_flat.to(dtype)
+        percept_causal = percept_causal.to(dtype)
 
         # Cross-Attention: Planning queries Perception
         q = self.q(plan_flat)
@@ -248,8 +261,13 @@ class LanguagePromptEncoder(nn.Module): # Renamed back for compatibility
             # Gather semantics: [B, clip_dim]
             raw_embeds = self.cached_embeds[indices, syn_idx]
 
-            # Project to vision dimension
-            x = self.projector(raw_embeds) # [B, embed_dim]
+            # Project to vision dimension - Manual iteration for dtype stability
+            # raw_embeds might be float if cached_embeds were promoted or not cast
+            x = raw_embeds.to(self.projector[0].weight.dtype)
+            for layer in self.projector:
+                x = layer(x)
+                if torch.is_floating_point(x):
+                    x = x.to(self.projector[-1].weight.dtype)
         else:
             x = self.embedding(indices) # [B, embed_dim]
 

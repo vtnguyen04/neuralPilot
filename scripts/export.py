@@ -15,9 +15,8 @@ import torch
 
 def export(args):
     # Load model
-    # Load model
     logger.info(f"Loading model from {args.model}...")
-    model = NeuroPilot(args.model)
+    model = NeuroPilot(args.model, scale=args.scale)
     model.model.to('cpu') # Ensure CPU for export stability unless using TRT
 
     # Config
@@ -48,6 +47,7 @@ if __name__ == '__main__':
     parser.add_argument('--dynamic', action='store_true', help='Dynamic axes')
     parser.add_argument('--end2end', action='store_true', help='Export with NMS (End-to-End)')
     parser.add_argument('--output', type=str, default=None, help='Output file path')
+    parser.add_argument('--scale', type=str, default='s', help='Model scale (n, s, m, l, x)')
     args = parser.parse_args()
 
     export(args)
