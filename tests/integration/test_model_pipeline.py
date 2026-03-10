@@ -1,17 +1,46 @@
 
 import unittest
 import torch
+import shutil
+from pathlib import Path
 from neuro_pilot.engine.model import NeuroPilot
 from neuro_pilot.data import prepare_dataloaders
 
 class TestModelPipeline(unittest.TestCase):
     def setUp(self):
+        # Create dummy data directory
+        self.tmp_data = Path("tests/tmp_pipeline_data")
+        self.tmp_data.mkdir(parents=True, exist_ok=True)
+        (self.tmp_data / "train" / "images").mkdir(parents=True, exist_ok=True)
+        (self.tmp_data / "train" / "labels").mkdir(parents=True, exist_ok=True)
+        (self.tmp_data / "val" / "images").mkdir(parents=True, exist_ok=True)
+        (self.tmp_data / "val" / "labels").mkdir(parents=True, exist_ok=True)
+
+        # Create dummy samples
+        waypoints = " ".join(["0.1"] * 20)
+        label_content = f"0 0.5 0.5 1.0 1.0 {waypoints}\n"
+        for i in range(4):
+            (self.tmp_data / "train" / "images" / f"dummy_{i}.jpg").touch()
+            with open(self.tmp_data / "train" / "labels" / f"dummy_{i}.txt", "w") as f:
+                f.write(label_content)
+            (self.tmp_data / "val" / "images" / f"dummy_{i}.jpg").touch()
+            with open(self.tmp_data / "val" / "labels" / f"dummy_{i}.txt", "w") as f:
+                f.write(label_content)
+
+        # Create data.yaml
+        self.yaml_path = self.tmp_data / "data.yaml"
+        with open(self.yaml_path, "w") as f:
+            f.write(f"path: {self.tmp_data.absolute()}\n")
+            f.write("train: train/images\n")
+            f.write("val: val/images\n")
+            f.write("names: {0: class0}\n")
+
         self.model_cfg_path = "neuro_pilot/cfg/models/neuralPilot.yaml"
         self.overrides = {
             "data": {
-                "dataset_yaml": "data/data.yaml",
+                "dataset_yaml": str(self.yaml_path),
                 "batch_size": 4,
-                "image_size": 640,
+                "image_size": 32,
                 "num_workers": 0,
                 "augment": {"mosaic": 0.0}
             },
@@ -23,6 +52,10 @@ class TestModelPipeline(unittest.TestCase):
         self.model = NeuroPilot(self.model_cfg_path, **self.overrides)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
+
+    def tearDown(self):
+        if hasattr(self, 'tmp_data') and self.tmp_data.exists():
+            shutil.rmtree(self.tmp_data)
 
     def test_forward_backward_pass(self):
         """

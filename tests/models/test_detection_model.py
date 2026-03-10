@@ -8,7 +8,7 @@ from neuro_pilot.nn.tasks import DetectionModel
 
 class TestDetectionModel(unittest.TestCase):
     def setUp(self):
-        self.cfg_path = 'neuro_pilot/cfg/models/neuro_pilot_v2.yaml'
+        self.cfg_path = 'neuro_pilot/cfg/models/neuralPilot.yaml'
         # Patch TimmBackbone.get_channels to return valid channels
         self.patcher = patch('neuro_pilot.nn.tasks.TimmBackbone.get_channels')
         self.mock_get_channels = self.patcher.start()

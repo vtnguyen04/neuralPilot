@@ -15,20 +15,29 @@ class TestModelVariants(unittest.TestCase):
 
         # Configure mock timm model to return real tensors
         class MockTimmModel(torch.nn.Module):
-            def __init__(self):
+            def __init__(self, model_name=""):
                 super().__init__()
                 self.feature_info = MagicMock()
-                # Mocking channels for MobileNetV4 variants
-                # Consistent channels across all variants for the mock
-                self.feature_info.channels.return_value = [32, 48, 64, 96, 960]
-            def forward(self, x):
-                return [torch.zeros(x.shape[0], 32, x.shape[2]//2, x.shape[3]//2),
-                        torch.zeros(x.shape[0], 48, x.shape[2]//4, x.shape[3]//4),
-                        torch.zeros(x.shape[0], 64, x.shape[2]//8, x.shape[3]//8),
-                        torch.zeros(x.shape[0], 96, x.shape[2]//16, x.shape[3]//16),
-                        torch.zeros(x.shape[0], 960, x.shape[2]//32, x.shape[3]//32)]
+                # Mocking channels for MobileNetV4 variants to match TimmBackbone.get_channels fallback
+                if 'small' in model_name:
+                    self.chs = [32, 32, 64, 96, 960]
+                elif 'medium' in model_name:
+                    self.chs = [32, 48, 80, 160, 960]
+                elif 'large' in model_name:
+                    self.chs = [24, 48, 96, 192, 960]
+                else:
+                    self.chs = [32, 32, 64, 96, 960]
 
-        self.mock_timm.create_model.return_value = MockTimmModel()
+                self.feature_info.channels.return_value = self.chs
+
+            def forward(self, x):
+                return [torch.zeros(x.shape[0], self.chs[i], x.shape[2]//(2**i), x.shape[3]//(2**i))
+                        for i in range(len(self.chs))]
+
+        def create_mock_model(model_name, **kwargs):
+            return MockTimmModel(model_name)
+
+        self.mock_timm.create_model.side_effect = create_mock_model
 
         # Patch timm in the backbone module where it is used
         self.patcher = patch('neuro_pilot.nn.modules.backbone.timm', self.mock_timm)

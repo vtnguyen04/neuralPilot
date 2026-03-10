@@ -129,6 +129,12 @@ class NeuroPilotDataset(Dataset):
                 else:
                     final_cls.append(c)
                     final_bboxes_norm.append(b)
+                    # Also extract waypoints if available and not yet found
+                    if k and not final_wp_norm:
+                        step = 3 if len(k) % 3 == 0 and len(k) > 0 else 2
+                        for i in range(0, len(k), step):
+                            if i + 1 < len(k):
+                                final_wp_norm.append([k[i], k[i+1]])
 
             final_cmd = cmd if cmd is not None else 0
 

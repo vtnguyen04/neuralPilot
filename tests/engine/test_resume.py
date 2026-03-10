@@ -8,7 +8,35 @@ class TestTrainingResume(unittest.TestCase):
     def setUp(self):
         self.exp_name = "test_resume_unittest"
         self.exp_dir = Path("experiments") / self.exp_name
-        self.data_dict = {'root_dir': 'data', 'dataset_yaml': 'data/data.yaml'}
+
+        # Create dummy data directory
+        self.tmp_data = Path("tests/tmp_resume_data")
+        self.tmp_data.mkdir(parents=True, exist_ok=True)
+        (self.tmp_data / "train" / "images").mkdir(parents=True, exist_ok=True)
+        (self.tmp_data / "train" / "labels").mkdir(parents=True, exist_ok=True)
+        (self.tmp_data / "val" / "images").mkdir(parents=True, exist_ok=True)
+        (self.tmp_data / "val" / "labels").mkdir(parents=True, exist_ok=True)
+
+        # Create dummy samples (need at least as many as batch_size to avoid issues)
+        waypoints = " ".join(["0.1"] * 20)
+        label_content = f"0 0.5 0.5 1.0 1.0 {waypoints}\n"
+        for i in range(4):
+            (self.tmp_data / "train" / "images" / f"dummy_{i}.jpg").touch()
+            with open(self.tmp_data / "train" / "labels" / f"dummy_{i}.txt", "w") as f:
+                f.write(label_content)
+            (self.tmp_data / "val" / "images" / f"dummy_{i}.jpg").touch()
+            with open(self.tmp_data / "val" / "labels" / f"dummy_{i}.txt", "w") as f:
+                f.write(label_content)
+
+        # Create data.yaml
+        self.yaml_path = self.tmp_data / "data.yaml"
+        with open(self.yaml_path, "w") as f:
+            f.write(f"path: {self.tmp_data.absolute()}\n")
+            f.write("train: train/images\n")
+            f.write("val: val/images\n")
+            f.write("names: {0: class0}\n")
+
+        self.data_dict = {'dataset_yaml': str(self.yaml_path)}
 
         # Clean old weights
         if self.exp_dir.exists():
@@ -18,6 +46,8 @@ class TestTrainingResume(unittest.TestCase):
         # Clean up experiment directory after tests
         if self.exp_dir.exists():
             shutil.rmtree(self.exp_dir)
+        if hasattr(self, 'tmp_data') and self.tmp_data.exists():
+            shutil.rmtree(self.tmp_data)
 
     def test_resume_flow(self):
         """Verify that training can stop after 1 epoch and resume correctly."""
