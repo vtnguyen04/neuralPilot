@@ -50,7 +50,7 @@ def main():
 
     # --- Tooling ---
     parser.add_argument('--list-tasks', action='store_true', help='List available registered tasks')
-    
+
     # Global Args / Support for training without 'train' subcommand (Backward Compatibility)
     if len(sys.argv) > 1 and sys.argv[1] not in subparsers.choices and not sys.argv[1].startswith('-'):
         # Assume training if first arg is a path or config
