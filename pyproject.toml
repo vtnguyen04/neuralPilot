@@ -43,6 +43,12 @@ dependencies = [
     "tensorrt>=10.15.1.29",
 ]
 
+[tool.uv]
+dev-dependencies = [
+    "ruff>=0.9.10",
+    "pytest>=8.0.0",
+]
+
 [project.urls]
 Homepage = "https://github.com/vtnguyen04/neuralPilot"
 Repository = "https://github.com/vtnguyen04/neuralPilot"
