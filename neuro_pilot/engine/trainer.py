@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import torch.optim as optim
 import torch.nn as nn
-from copy import deepcopy, copy
+from copy import deepcopy
 from torch.utils.data import DataLoader
 from neuro_pilot.utils.tqdm import TQDM
 from pathlib import Path
@@ -157,7 +157,6 @@ class BaseTrainer:
             'date': __import__('datetime').datetime.now().isoformat(),
         }
 
-        from neuro_pilot.utils.torch_utils import save_checkpoint
         save_checkpoint(state, is_best=is_best, filename=path.name, save_dir=str(path.parent))
 
     def stop_check(self):
@@ -317,8 +316,10 @@ class Trainer(BaseTrainer):
         g2 = list(other_params - decay_params - bias_params)
 
         if name.lower() == 'adamw':
-            # Use hyperparameters aligned with debug_heatmap_pipeline (AdamW, 1e-3, 1e-4)
-            optimizer = optim.AdamW(g2, lr=lr, betas=(momentum, 0.999), weight_decay=0.0)
+            # Use hyperparameters aligned with debug_heatmap_pipeline
+            # momentum (beta1) is usually 0.9 for AdamW
+            beta1 = 0.9 if momentum == 0.937 else momentum
+            optimizer = optim.AdamW(g2, lr=lr, betas=(beta1, 0.999), weight_decay=0.0)
         elif name.lower() == 'sgd':
             optimizer = optim.SGD(g2, lr=lr, momentum=momentum, nesterov=True)
         else:
@@ -453,8 +454,16 @@ class Trainer(BaseTrainer):
             gt = batch['targets']['waypoints']
             if gt.shape[1] != pred_path.shape[1]:
                  gt = torch.nn.functional.interpolate(gt.permute(0,2,1), size=pred_path.shape[1], mode='linear').permute(0,2,1)
-            l1_err = (pred_path - gt).abs().mean().item()
+            err_abs = (pred_path - gt).abs()
+            l1_err = err_abs.mean().item()
             self.batch_metrics['L1'] = l1_err
+
+            # Weighted L1
+            from neuro_pilot.utils.ops import get_bathtub_weights
+            T = pred_path.shape[1]
+            w = get_bathtub_weights(T, self.cfg.loss.fdat_tau_start, self.cfg.loss.fdat_tau_end, device=self.device)
+            weighted_l1 = (err_abs.mean(-1) * w).mean().item()
+            self.batch_metrics['Weighted_L1'] = weighted_l1
 
         # Progress bar update
         self._update_pbar(l1_err, batch['image'])
@@ -469,7 +478,8 @@ class Trainer(BaseTrainer):
             f"{self.batch_metrics.get('cls_det', 0):.4g}",
             f"{self.batch_metrics.get('dfl', 0):.4g}",
             f"{self.batch_metrics.get('heatmap', 0):.4g}",
-            f"{l1_err:.4g}"
+            f"{l1_err:.4g}",
+            f"{self.batch_metrics.get('Weighted_L1', 0):.4g}"
         ]
         pbar_desc = ("%11s" * 2 + "%11s" * len(metrics_vals) + "%11s" * 2) % (
             f"{self.epoch}/{self.cfg.trainer.max_epochs - 1}",

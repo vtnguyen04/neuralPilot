@@ -1,5 +1,4 @@
 import torch
-import numpy as np
 from pathlib import Path
 
 class BaseValidator:
@@ -49,8 +48,6 @@ class BaseValidator:
         return preds
 
 from neuro_pilot.utils.metrics import DetectionEvaluator
-import torch
-import numpy as np
 
 class Validator(BaseValidator):
     """
@@ -61,7 +58,9 @@ class Validator(BaseValidator):
         super().__init__(config, model, criterion, device)
         # Helper for decoding
         from neuro_pilot.utils.losses import DetectionLoss
+        from neuro_pilot.utils.ops import get_bathtub_weights
         self.decoder = DetectionLoss(model)
+        self.get_bathtub_weights = get_bathtub_weights
 
     def init_metrics(self):
         """Initialize metrics and evaluators."""
@@ -69,6 +68,7 @@ class Validator(BaseValidator):
         self.evaluator = DetectionEvaluator(self.cfg.head.num_classes, self.device, self.log_dir, names=names)
         self.total_loss = 0.0
         self.total_l1 = 0.0
+        self.total_weighted_l1 = 0.0
 
     def run_val_loop(self, dataloader):
         """Logic for iterating over the validation set."""
@@ -116,8 +116,15 @@ class Validator(BaseValidator):
                      gt_resampled = torch.nn.functional.interpolate(gt_wp.permute(0,2,1), size=pred_path.shape[1], mode='linear').permute(0,2,1)
                 else:
                     gt_resampled = gt_wp
-                l1_err = (pred_path - gt_resampled).abs().mean().item()
+                err_abs = (pred_path - gt_resampled).abs()
+                l1_err = err_abs.mean().item()
                 self.total_l1 += l1_err
+
+                # Weighted L1
+                T = pred_path.shape[1]
+                w = self.get_bathtub_weights(T, self.cfg.loss.fdat_tau_start, self.cfg.loss.fdat_tau_end, device=self.device)
+                weighted_l1_err = (err_abs.mean(-1) * w).mean().item()
+                self.total_weighted_l1 += weighted_l1_err
 
             # Metrics Calculation (mAP, CM)
             if 'bboxes' in preds:
@@ -181,5 +188,8 @@ class Validator(BaseValidator):
         metric_res = self.evaluator.compute()
         self.evaluator.plot_confusion_matrix()
         metric_res['avg_loss'] = self.total_loss
-        metric_res['avg_l1'] = self.total_l1
+        metric_res['avg_l1'] = self.total_l1 / max(1, self.batch_idx + 1)
+        metric_res['avg_weighted_l1'] = self.total_weighted_l1 / max(1, self.batch_idx + 1)
+        metric_res['L1'] = metric_res['avg_l1'] # Unified key for fitness
+        metric_res['Weighted_L1'] = metric_res['avg_weighted_l1']
         return metric_res

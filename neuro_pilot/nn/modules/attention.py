@@ -58,15 +58,27 @@ class CommandGate(nn.Module):
             Tensor: [B, 1, 1] gating weight
         """
         B, C, H, W = x.shape
-        with torch.amp.autocast('cuda', enabled=False):
-            x_f32 = x.float()
-            # Prevent extreme values from blowing up the Linear layers
-            x_f32 = torch.clamp(torch.nan_to_num(x_f32, nan=0.0, posinf=10.0, neginf=-10.0), -10.0, 10.0)
-            x_gap = self.gap(x_f32).view(B, C)
-            gate = self.fc(x_gap.to(next(self.parameters()).dtype)).view(B, 1, 1)
-            # Ensure the output is clean
-            gate = torch.clamp(torch.nan_to_num(gate, nan=0.5), 0.0, 1.0)
-        return gate if x.dtype != torch.float16 else gate.half()
+        # Use autocast safety if available, otherwise standard
+        try:
+            with torch.amp.autocast(device_type=x.device.type if hasattr(x.device, 'type') else 'cuda', enabled=False):
+                x_f32 = x.float()
+                # Prevent extreme values
+                x_f32 = torch.clamp(torch.nan_to_num(x_f32, nan=0.0, posinf=10.0, neginf=-10.0), -10.0, 10.0)
+                x_gap = self.gap(x_f32).view(B, C)
+                
+                # Use dtype of weights for the linear layer
+                dtype = self.fc[0].weight.dtype
+                gate = self.fc(x_gap.to(dtype)).view(B, 1, 1)
+                
+                # Ensure the output is clean
+                gate = torch.clamp(torch.nan_to_num(gate, nan=0.5), 0.0, 1.0)
+                return gate.to(x.dtype)
+        except:
+             # Fallback
+             x_gap = self.gap(x).view(B, C)
+             dtype = self.fc[0].weight.dtype
+             gate = self.fc(x_gap.to(dtype)).view(B, 1, 1)
+             return gate
 
 class VLFusion(nn.Module):
     """Vision-Language Fusion module using Cross-Attention and Context Gating.
@@ -106,7 +118,12 @@ class VLFusion(nn.Module):
         x_flat = vision.flatten(2).permute(0, 2, 1) # [B, HW, C]
 
         # Calculate Context Relevance (Gate)
-        gate_score = self.gate(vision.to(next(self.parameters()).dtype)) # [B, 1, 1]
+        gate_score = self.gate(vision) # [B, 1, 1]
+
+        # Ensure dtype consistency for attention
+        dtype = self.q.weight.dtype
+        x_flat = x_flat.to(dtype)
+        lang_feats = lang_feats.to(dtype)
 
         # Cross-Attention
         attn_out, _ = self.mha(self.q(x_flat), self.k(lang_feats), self.v(lang_feats))
@@ -115,7 +132,7 @@ class VLFusion(nn.Module):
         x_flat = self.norm(x_flat + self.resid_gain * gate_score * attn_out)
         x_flat = torch.nan_to_num(x_flat, nan=0.0)
 
-        vision = x_flat.permute(0, 2, 1).reshape(B, C, H, W)
+        vision = x_flat.permute(0, 2, 1).reshape(B, C, H, W).to(x.dtype if hasattr(x, 'dtype') else torch.float32)
         return {"feats": vision, "gate_score": gate_score}
 
 class CFRBridge(nn.Module):
@@ -158,6 +175,11 @@ class CFRBridge(nn.Module):
         # THE CAUSAL CHOKEPOINT: Stop gradient from flowing back to Perception
         percept_causal = percept_flat.detach()
 
+        # Ensure dtype consistency
+        dtype = self.q.weight.dtype
+        plan_flat = plan_flat.to(dtype)
+        percept_causal = percept_causal.to(dtype)
+
         # Cross-Attention: Planning queries Perception
         q = self.q(plan_flat)
         k = self.k(percept_causal)
@@ -182,9 +204,6 @@ class LanguagePromptEncoder(nn.Module): # Renamed back for compatibility
             # We store [num_prompts, max_synonyms, clip_dim]
             # For 4 commands, we simulate synonyms to force the model to learn the "semantic cluster"
             # rather than a single point.
-            # Example:
-            # 0 (Straight): "go straight", "forward", "keep lane"
-            # 1 (Left): "turn left", "take a left", "steer left"
             max_synonyms = 5
             self.register_buffer('cached_embeds', torch.randn(num_prompts, max_synonyms, clip_dim))
             self.max_synonyms = max_synonyms
@@ -198,7 +217,7 @@ class LanguagePromptEncoder(nn.Module): # Renamed back for compatibility
             )
         else:
             self.embedding = nn.Embedding(num_prompts, embed_dim)
-            # Dictionary mapping for semantic clarity (kept for non-CLIP mode, or could be removed if CLIP is default)
+            # Dictionary mapping for semantic clarity
             self.prompt_map = {
                 0: "go straight on drivable area",
                 1: "turn left at intersection",
@@ -248,8 +267,12 @@ class LanguagePromptEncoder(nn.Module): # Renamed back for compatibility
             # Gather semantics: [B, clip_dim]
             raw_embeds = self.cached_embeds[indices, syn_idx]
 
-            # Project to vision dimension
-            x = self.projector(raw_embeds) # [B, embed_dim]
+            # Project to vision dimension - Manual iteration for dtype stability
+            x = raw_embeds.to(self.projector[0].weight.dtype)
+            for layer in self.projector:
+                x = layer(x)
+                if torch.is_floating_point(x):
+                    x = x.to(self.projector[-1].weight.dtype)
         else:
             x = self.embedding(indices) # [B, embed_dim]
 

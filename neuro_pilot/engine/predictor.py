@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 import cv2
+from pathlib import Path
 from .results import Results
 
 class BasePredictor:
@@ -10,10 +11,8 @@ class BasePredictor:
     """
     def __init__(self, cfg, model, device):
         self.cfg = cfg
-        self.model = model
+        self.model = model # This should be the Backend (AutoBackend/PyTorchBackend)
         self.device = device
-        self.model.to(device)
-        self.model.eval()
         from .callbacks import CallbackList
         self.callbacks = CallbackList()
 
@@ -41,16 +40,22 @@ class Predictor(BasePredictor):
     def predict(self, source, stream=False, **kwargs):
         """Perform inference on source. If stream=True, returns a generator."""
         imgsz = kwargs.get('imgsz', getattr(self.cfg.data, 'image_size', 640))
+        auto = kwargs.get('auto', True) # Default to True for better aspect ratio
         from .loaders import get_dataloader
-        dataset = get_dataloader(source, imgsz=imgsz)
+        dataset = get_dataloader(source, imgsz=imgsz, auto=auto)
 
         self.callbacks.on_predict_start(self)
 
         def generator():
-            print(f"DEBUG: generator started for dataloader type: {type(dataset)}")
-            for path, img, img0, cap in dataset:
-                yield self._predict_batch(img, img0, path, **kwargs)
-            print("DEBUG: generator reached end of dataset.")
+            # print(f"DEBUG: generator started for dataloader type: {type(dataset)}")
+            for data in dataset:
+                if len(data) == 5:
+                    path, img, img0, cap, frame_index = data
+                else:
+                    path, img, img0, cap = data
+                    frame_index = 0
+                yield self._predict_batch(img, img0, path, frame_index=frame_index, **kwargs)
+            # print("DEBUG: generator reached end of dataset.")
 
         if stream:
             return generator()
@@ -63,7 +68,7 @@ class Predictor(BasePredictor):
         self.callbacks.on_predict_end(self)
         return all_results
 
-    def _predict_batch(self, img, img0, path, **kwargs):
+    def _predict_batch(self, img, img0, path, frame_index=0, **kwargs):
         """Internal single-batch prediction logic."""
         self.callbacks.on_predict_batch_start(self)
 
@@ -72,10 +77,38 @@ class Predictor(BasePredictor):
             img = img.unsqueeze(0)
 
         half = kwargs.get('half', False)
-        img = img.to(self.device).half() if half else img.to(self.device).float()
+        if img.dtype == torch.uint8:
+            # High-performance path: Move uint8 to GPU, then normalize on GPU
+            img = img.to(self.device)
+            img = img.half() if half else img.float()
+            img /= 255.0
+
+            # Standard ImageNet Normalization on GPU
+            mean = torch.tensor([0.485, 0.456, 0.406], device=self.device).view(1, 3, 1, 1)
+            std = torch.tensor([0.229, 0.224, 0.225], device=self.device).view(1, 3, 1, 1)
+            if half:
+                mean, std = mean.half(), std.half()
+            img = (img - mean) / std
+        else:
+            img = img.to(self.device).half() if half else img.to(self.device).float()
 
         # Command handling
-        cmd = self._prepare_command(kwargs.get('command') or kwargs.get('cmd'), img.shape[0], half)
+        command = kwargs.get('command') or kwargs.get('cmd')
+        timeline = kwargs.get('timeline') or kwargs.get('command_timeline')
+        if timeline:
+            if isinstance(timeline, (str, Path)): # Path to JSON
+                import json
+                with open(timeline) as f:
+                    timeline = json.load(f)
+                kwargs['timeline'] = timeline # Cache it
+
+            # Lookup segment
+            for seg in timeline:
+                if seg['start'] <= frame_index <= seg['end']:
+                    command = seg['command']
+                    break
+
+        cmd = self._prepare_command(command, img.shape[0], half)
 
         # Inference
         with torch.no_grad():
@@ -88,7 +121,7 @@ class Predictor(BasePredictor):
         waypoints = self._handle_waypoints(preds.get('waypoints'), img.shape[2:], img0)
 
         # Results Generation
-        results = self.postprocess(preds, img0, [path] if isinstance(path, str) else path, bboxes=bboxes, waypoints=waypoints)
+        results = self.postprocess(preds, img0, [path] if isinstance(path, str) else path, bboxes=bboxes, waypoints=waypoints, command=command)
 
         self.callbacks.on_predict_batch_end(self)
         return results
@@ -99,18 +132,22 @@ class Predictor(BasePredictor):
              cmd = torch.tensor([[1.0, 0.0, 0.0, 0.0]], device=self.device)
         elif not isinstance(cmd, torch.Tensor):
              cmd = torch.tensor(cmd, device=self.device)
-             if cmd.ndim == 1: cmd = cmd.unsqueeze(0)
-        else:
-             cmd = cmd.to(self.device)
+
+        if cmd.ndim == 0:
+             cmd = cmd.unsqueeze(0)
+        if cmd.ndim == 1 and cmd.shape[0] != batch_size:
+             # Assume it's a single index or one-hot and needs batching
+             if cmd.shape[0] == 1:
+                  cmd = cmd.repeat(batch_size)
+             elif cmd.shape[0] == 4: # One-hot
+                  cmd = cmd.unsqueeze(0).repeat(batch_size, 1)
 
         if half and cmd.is_floating_point():
              cmd = cmd.half()
         elif not cmd.is_floating_point():
              cmd = cmd.long()
 
-        if cmd.shape[0] != batch_size:
-            cmd = cmd.repeat(batch_size, 1)
-        return cmd
+        return cmd.to(self.device)
 
     def _handle_bboxes(self, preds, input_shape, img0, **kwargs):
         """Handles bbox detection branch (NMS + Scaling)."""
@@ -120,7 +157,8 @@ class Predictor(BasePredictor):
         if 'one2one' in preds and preds['one2one'] is not None:
             return preds['one2one']
 
-        from neuro_pilot.utils.ops import non_max_suppression, scale_boxes
+        from neuro_pilot.utils.nms import non_max_suppression
+        from neuro_pilot.utils.ops import scale_boxes
         nc = getattr(self.model, 'nc', 14)
         bboxes = non_max_suppression(
             preds['bboxes'],
@@ -153,14 +191,17 @@ class Predictor(BasePredictor):
             return input_shape
         return img0[index].shape if isinstance(img0, list) else img0.shape
 
-    def postprocess(self, preds, imgs, paths, bboxes=None, waypoints=None):
+    def postprocess(self, preds, imgs, paths, bboxes=None, waypoints=None, command=None):
         """Format raw predictions into Results objects."""
         results = []
         imgs_list = self._prepare_imgs_list(imgs)
 
         for i in range(len(imgs_list)):
             img_i = imgs_list[i]
-            img_i = cv2.cvtColor(img_i, cv2.COLOR_RGB2BGR)
+            if isinstance(img_i, np.ndarray) and img_i.shape[-1] == 3:
+                # Ensure it's RGB for Results. Results.plot then treats it as RGB.
+                # From LoadImages, img0 is BGR.
+                img_i = cv2.cvtColor(img_i, cv2.COLOR_BGR2RGB)
 
             res = Results(
                 orig_img=img_i,
@@ -170,6 +211,7 @@ class Predictor(BasePredictor):
                 waypoints=waypoints[i] if waypoints is not None and i < len(waypoints) else None,
                 heatmap=preds.get('heatmap')[i] if 'heatmap' in preds and i < len(preds['heatmap']) else None
             )
+            res.command = command
             results.append(res)
         return results
 
@@ -189,16 +231,31 @@ class Predictor(BasePredictor):
             return [imgs]
         return imgs
 
-    def preprocess(self, source):
+    def preprocess(self, source, imgsz=None):
         """preprocessing for manual inference (non-dataloader)."""
-        imgsz = getattr(self.cfg.data, 'image_size', 640)
+        imgsz = imgsz or getattr(self.cfg.data, 'image_size', 640)
         if isinstance(imgsz, (list, tuple)): imgsz = imgsz[0]
 
-        if isinstance(source, (str, np.ndarray)):
-            img = cv2.imread(source) if isinstance(source, str) else source
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            img = cv2.resize(img, (imgsz, imgsz))
-            img = img.astype(np.float32) / 255.0
-            img = torch.from_numpy(img).permute(2, 0, 1)
-            return img.to(self.device)
+        if isinstance(source, (str, np.ndarray, Path)):
+            from pathlib import Path
+            img0 = cv2.imread(str(source)) if isinstance(source, (str, Path)) else source
+
+            # Use same LetterBox behavior as dataset
+            from neuro_pilot.data.augment import LetterBox
+            lb = LetterBox(new_shape=imgsz, auto=True, scaleup=True)
+            data = lb({'img': img0})
+            img = cv2.cvtColor(data['img'], cv2.COLOR_BGR2RGB)
+
+            # High-performance path: Move uint8 to GPU, then normalize on GPU
+            img = torch.from_numpy(img).permute(2, 0, 1).unsqueeze(0).to(self.device)
+            img = img.half() if getattr(self.model, 'fp16', False) else img.float()
+            img /= 255.0
+
+            mean = torch.tensor([0.485, 0.456, 0.406], device=self.device).view(1, 3, 1, 1)
+            std = torch.tensor([0.229, 0.224, 0.225], device=self.device).view(1, 3, 1, 1)
+            if img.dtype == torch.float16:
+                mean, std = mean.half(), std.half()
+            img = (img - mean) / std
+
+            return img
         return source

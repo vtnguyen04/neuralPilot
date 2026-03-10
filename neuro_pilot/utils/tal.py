@@ -4,7 +4,6 @@ import torch
 import torch.nn as nn
 from neuro_pilot.utils.logger import logger as LOGGER
 from neuro_pilot.utils.metrics import bbox_iou
-from neuro_pilot.utils.ops import xywh2xyxy, xyxy2xywh
 
 class TaskAlignedAssigner(nn.Module):
     """A task-aligned assigner for object detection."""

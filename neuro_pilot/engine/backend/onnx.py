@@ -16,15 +16,28 @@ class ONNXBackend(BaseBackend):
             providers.insert(0, 'CUDAExecutionProvider')
 
         self.session = onnxruntime.InferenceSession(weights, providers=providers)
-        self.input_name = self.session.get_inputs()[0].name
+        self.input_names = [x.name for x in self.session.get_inputs()]
         self.output_names = [x.name for x in self.session.get_outputs()]
 
     def forward(self, im: torch.Tensor, **kwargs) -> Union[torch.Tensor, List[torch.Tensor]]:
         # Convert to numpy for ONNX Runtime (unless IO Binding used)
-        # For simple ONNX, standard numpy is safest.
         im_np = im.cpu().numpy()
 
-        outs = self.session.run(self.output_names, {self.input_name: im_np})
+        inputs = {self.input_names[0]: im_np}
+
+        # Handle secondary inputs like 'cmd' or 'command'
+        if len(self.input_names) > 1:
+            cmd = kwargs.get('cmd') or kwargs.get('command')
+            if cmd is None:
+                # Default command if none provided (straight)
+                cmd = torch.tensor([[1.0, 0.0, 0.0, 0.0]], dtype=torch.float32, device=im.device)
+            if cmd.ndim == 1: cmd = cmd.unsqueeze(0)
+            if cmd.ndim == 0: cmd = cmd.unsqueeze(0).unsqueeze(0)
+            if cmd.shape[0] != im_np.shape[0]:
+                cmd = cmd.repeat(im_np.shape[0], 1)
+            inputs[self.input_names[1]] = cmd.cpu().numpy()
+
+        outs = self.session.run(self.output_names, inputs)
 
         # Convert back to tensor
         outs_torch = [torch.from_numpy(o).to(self.device) for o in outs]

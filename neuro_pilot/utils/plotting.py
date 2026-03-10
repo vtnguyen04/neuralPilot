@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Optional, Union, Dict, Any
 from PIL import Image, ImageDraw, ImageFont
 
-from .ops import decode_and_nms, xywh2xyxy
+from .ops import xywh2xyxy
+from .nms import decode_and_nms
 
 class NeuroPlot:
     """Namespace for NeuroPilot plotting configurations and metadata."""
@@ -202,13 +203,13 @@ class Annotator:
         cv2.fillPoly(mask, np.array([poly], dtype=np.int32), 255)
 
         valid_mask = mask == 255
-
         if np.any(valid_mask):
-            color_mask_fg = np.zeros_like(self.im)
-            color_mask_fg[valid_mask] = color
-            bg = self.im[valid_mask]
-            fg = color_mask_fg[valid_mask]
-            self.im[valid_mask] = cv2.addWeighted(bg, 1 - alpha, fg, alpha, 0).squeeze()
+            # Efficient blending: only blend the region of interest if possible,
+            # but for now, a full-image addWeighted with a mask is safer and often faster than per-pixel loops.
+            color_mask = np.zeros_like(self.im)
+            cv2.fillPoly(color_mask, np.array([poly], dtype=np.int32), color)
+            # Use the mask to only affect the polygon area
+            cv2.addWeighted(self.im, 1.0, color_mask, alpha, 0, dst=self.im)
 
     def text(self, pos: tuple, text: str, color: tuple = (255, 255, 255), bg_color: Optional[tuple] = None, scale: Optional[float] = None):
         if self.pil:

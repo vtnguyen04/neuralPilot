@@ -3,7 +3,7 @@ import cv2
 import numpy as np
 from torch.utils.data import Dataset, DataLoader
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List
 from pydantic import BaseModel
 
 class Sample(BaseModel):
@@ -21,7 +21,6 @@ class Sample(BaseModel):
 from neuro_pilot.data.augment import StandardAugmentor
 from neuro_pilot.data.utils import check_dataset, get_image_files, img2label_paths, parse_yolo_label
 from neuro_pilot.utils.logger import logger
-from PIL import Image
 
 class NeuroPilotDataset(Dataset):
     def __init__(self, root_dir=None, split='train', transform=None, sequence_mode=False, samples=None, dataset_yaml=None, imgsz=640):
@@ -371,14 +370,12 @@ def custom_collate_fn(batch):
     return collated
 
 def create_dummy_dataloader(config):
-    from neuro_pilot.data.augment import StandardAugmentor
     pipeline = StandardAugmentor(training=True, imgsz=config.data.image_size)
     samples = [Sample(image_path="", command=0, waypoints=[[0.5, 0.5]]*10, bboxes=[[0.1, 0.1, 0.2, 0.2]], categories=[1]) for _ in range(10)]
     ds = NeuroPilotDataset(samples=samples, transform=pipeline, imgsz=config.data.image_size, split='val')
     return DataLoader(ds, batch_size=config.data.batch_size, collate_fn=custom_collate_fn)
 
 def create_dataloaders(config, root_dir=None, use_weighted_sampling=True, use_aug=True):
-    from neuro_pilot.data.augment import StandardAugmentor
     from neuro_pilot.data.build import build_dataloader
 
     tr_pipe = StandardAugmentor(training=use_aug, imgsz=config.data.image_size, config=config.data.augment)

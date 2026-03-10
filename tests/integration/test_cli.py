@@ -20,7 +20,7 @@ class TestCLI(unittest.TestCase):
         # Run a quick benchmark (shortened)
         # Pointing to config to avoid loading huge weights
         cmd = [sys.executable, "-m", "neuro_pilot.main", "benchmark",
-               "--model", "neuro_pilot/cfg/models/neuralPilot_yolo11.yaml",
+               "--model", "neuralPilot_yolo11.yaml",
                "--imgsz", "32", "--batch", "1"]
 
         # Force CPU

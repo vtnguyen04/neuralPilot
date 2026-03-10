@@ -14,6 +14,7 @@ class BaseBackend(ABC):
         self.device = device
         self.fp16 = fp16
         self.warmup_done = False
+        self.names = {i: f"class_{i}" for i in range(14)} # Default 14 classes
 
     @abstractmethod
     def forward(self, im: Union[torch.Tensor, np.ndarray], **kwargs) -> Union[torch.Tensor, List[torch.Tensor]]:
@@ -26,6 +27,10 @@ class BaseBackend(ABC):
             Model outputs (raw tensors).
         """
         pass
+
+    def __call__(self, *args, **kwargs):
+        """Allow calling the backend directly."""
+        return self.forward(*args, **kwargs)
 
     @abstractmethod
     def warmup(self, imgsz: Tuple[int, int, int, int] = (1, 3, 640, 640)):

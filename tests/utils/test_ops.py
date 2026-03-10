@@ -2,7 +2,7 @@ import sys
 import unittest
 import torch
 import numpy as np
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 # Localize mock to avoid halting other tests
 def hide_torchvision():
@@ -19,7 +19,7 @@ class TestOps(unittest.TestCase):
         self.assertEqual(anchors.shape, (20, 2))
 
     def test_non_max_suppression(self):
-        from neuro_pilot.utils.ops import non_max_suppression
+        from neuro_pilot.utils.nms import non_max_suppression
         # B, C, N
         prediction = torch.zeros(1, 6, 10)
         prediction[0, 0, 0] = 10.0

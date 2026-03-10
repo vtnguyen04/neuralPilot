@@ -1,5 +1,3 @@
-import sys
-import time
 import re
 import torch
 import numpy as np
@@ -88,6 +86,9 @@ def scale_boxes(img1_shape: tuple, boxes: torch.Tensor, img0_shape: tuple, ratio
         gain = ratio_pad[0][0]
         pad = ratio_pad[1]
 
+    # Use int/round logic consistent with LetterBox for discrete pixel alignment
+    pad = round(pad[0] - 0.1), round(pad[1] - 0.1)
+
     boxes[..., [0, 2]] -= pad[0]  # x padding
     boxes[..., [1, 3]] -= pad[1]  # y padding
     boxes[..., :4] /= gain
@@ -102,9 +103,9 @@ def scale_coords(img1_shape: tuple, coords: torch.Tensor, img0_shape: tuple, rat
         gain = ratio_pad[0][0]
         pad = ratio_pad[1]
 
-    # If coords are normalized [-1, 1], denormalize based on img1_shape first?
-    # No, typically model outputs coords relative to img1_shape.
-    # If they are [-1, 1], we map to [0, 320] first.
+    # Use int/round logic consistent with LetterBox
+    pad = round(pad[0] - 0.1), round(pad[1] - 0.1)
+
     coords[..., 0] = (coords[..., 0] + 1) / 2 * img1_shape[1]
     coords[..., 1] = (coords[..., 1] + 1) / 2 * img1_shape[0]
 
@@ -153,7 +154,6 @@ def clean_str(s: str) -> str:
     """Clean string by replacing special characters with '_'."""
     return re.sub(pattern="[|@#!¡·$€%&()=?¿^*;:,¨`><+]", repl="_", string=s)
 
-from .nms import non_max_suppression, decode_and_nms, TorchNMS
 
 def xywh2ltwh(x):
     """
@@ -163,3 +163,24 @@ def xywh2ltwh(x):
     y[..., 0] = x[..., 0] - x[..., 2] / 2
     y[..., 1] = x[..., 1] - x[..., 3] / 2
     return y
+
+def get_bathtub_weights(T: int, tau_start: float = 2.0, tau_end: float = 2.0, device: str = 'cpu') -> torch.Tensor:
+    """
+    Generate bathtub curve weights: higher weight at start and end, lower in the middle.
+
+    Args:
+        T: number of points (time steps)
+        tau_start: decay constant from the start
+        tau_end: decay constant from the end
+        device: torch device
+
+    Returns:
+        w: Normalized weights [T]
+    """
+    t = torch.arange(T, dtype=torch.float32, device=device)
+    w = (
+        torch.exp(-t / tau_start)
+        + torch.exp(-(T - 1 - t) / tau_end)
+        + 0.5
+    )
+    return w / w.mean()
