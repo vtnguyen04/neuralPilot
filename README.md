@@ -63,7 +63,7 @@ neuro_pilot/
 ├── models/             # High-level Model Architectures
 ├── nn/                 # Low-level Modules (Heads, Blocks, Tasks)
 ├── tasks/              # Task Implementations (Detection, Trajectory)
-└── utils/              # Math, Metrics, Losses (FDAT), Plotting
+└── utils/              # Math, Metrics, Losses, Plotting
 
 scripts/                # Production Scripts (Train, Inference, Export)
 tests/                  # Comprehensive PyTest Suite (Unit, Integration)
