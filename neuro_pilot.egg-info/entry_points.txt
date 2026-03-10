@@ -1,2 +1,0 @@
-[console_scripts]
-neuropilot = neuro_pilot.entrypoint:main
