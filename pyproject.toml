@@ -60,8 +60,8 @@ neuropilot = "neuro_pilot.entrypoint:main"
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = ["neuro_pilot"]
+[tool.setuptools.packages.find]
+include = ["neuro_pilot*"]
 
 [tool.ruff]
 line-length = 120
