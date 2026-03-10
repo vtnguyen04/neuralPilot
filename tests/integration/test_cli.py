@@ -11,7 +11,7 @@ class TestCLI(unittest.TestCase):
         self.python = sys.executable
 
     def test_cli_help(self):
-        result = subprocess.run([self.python, "neuro_pilot/entrypoint.py", "--help"],
+        result = subprocess.run(["neuropilot", "--help"],
                                 capture_output=True, text=True, env=self.env)
         self.assertEqual(result.returncode, 0)
         self.assertIn("NeuroPilot CLI", result.stdout)
@@ -19,8 +19,8 @@ class TestCLI(unittest.TestCase):
     def test_cli_benchmark(self):
         # Run a quick benchmark (shortened)
         # Pointing to config to avoid loading huge weights
-        cmd = [self.python, "neuro_pilot/entrypoint.py", "benchmark",
-               "--model", "neuro_pilot/cfg/models/yolo_style.yaml",
+        cmd = ["neuropilot", "benchmark",
+               "--model", "neuro_pilot/cfg/models/neuralPilot_yolo11.yaml",
                "--imgsz", "32", "--batch", "1"]
 
         # Force CPU
@@ -34,7 +34,7 @@ class TestCLI(unittest.TestCase):
     def test_cli_export_dry_run(self):
         # We don't want to actually export a full model in tests if possible,
         # but let's check if the subcommand is recognized.
-        cmd = [self.python, "neuro_pilot/entrypoint.py", "export", "--help"]
+        cmd = ["neuropilot", "export", "--help"]
         result = subprocess.run(cmd, capture_output=True, text=True, env=self.env)
         self.assertEqual(result.returncode, 0)
         self.assertIn("export", result.stdout.lower())
