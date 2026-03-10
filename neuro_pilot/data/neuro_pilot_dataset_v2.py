@@ -140,7 +140,8 @@ class NeuroPilotDataset(Dataset):
 
     def _load_samples(self) -> List[Sample]:
         """Load and normalize samples from DB (canonical 224 space)."""
-        import json, sqlite3
+        import json
+        import sqlite3
         if self.root_dir:
             db_path = self.root_dir / 'dataset.db'
         else:
@@ -172,7 +173,8 @@ class NeuroPilotDataset(Dataset):
         return loaded_samples
 
     def _inject_robustness_samples(self):
-        import copy, random
+        import copy
+        import random
         aug = []
         for s in self.samples:
             if s.command in [0, 3] and len(s.waypoints) >= 2 and random.random() < 0.5:

@@ -1,3 +1,4 @@
+from neuro_pilot.utils.logger import logger
 import warnings
 import random
 import cv2
@@ -56,7 +57,6 @@ class Mosaic:
         mosaic_bboxes = []
         mosaic_cls = []
         mosaic_waypoints = []
-        has_waypoints = "waypoints" in labels
 
         for i, patch in enumerate([labels] + mix_labels):
             img = patch["img"]

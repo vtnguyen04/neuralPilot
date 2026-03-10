@@ -85,11 +85,11 @@ class Detect(BaseHead):
 
     def forward(self, x: list[torch.Tensor]):
         shape = x[0].shape  # BCHW
-        bs = shape[0]
+        shape[0]
 
         # Process each feature map
         one2many_preds = self.forward_head(x, **self.one2many)
-        
+
         if self.training:
             # For training, we return the raw outputs for the loss function
             res = {"one2many": one2many_preds, "detect": {"one2many": one2many_preds}}
@@ -98,14 +98,14 @@ class Detect(BaseHead):
                 one2one_preds = self.forward_head(x_detach, **self.one2one)
                 res["one2one"] = one2one_preds
                 res["detect"]["one2one"] = one2one_preds
-            
+
             # Ensure 'feats' is available for loss calculation
             res['detect']['feats'] = x
             return res
 
         # INFERENCE
         # Re-organize raw predictions
-        bs = x[0].shape[0]
+        x[0].shape[0]
         box_preds = one2many_preds['boxes']
         score_preds = one2many_preds['scores']
 
@@ -113,7 +113,7 @@ class Detect(BaseHead):
         if self.dynamic or self.shape != x[0].shape:
             self.anchors, self.strides = (a.transpose(0, 1) for a in make_anchors(x, self.stride, 0.5))
             self.shape = x[0].shape
-        
+
         # Apply DFL
         decoded_boxes = self.decode_bboxes(self.dfl(box_preds), self.anchors.unsqueeze(0)) * self.strides.unsqueeze(0)
 
@@ -127,7 +127,7 @@ class Detect(BaseHead):
             "feats": x,
         }
         return res
-    
+
     def decode_bboxes(self, bboxes, anchors):
         """Decode bounding boxes from distance format."""
         return dist2bbox(bboxes, anchors, xywh=True, dim=1)
@@ -335,7 +335,7 @@ class TrajectoryHead(BaseHead):
 
         # Predict Control Points
         cp = torch.tanh(self.traj_head(h)).view(B, 4, 2)
-        
+
         # Predict Trajectory Existence (Logits)
         has_traj_logit = self.exist_head(h) # [B, 1]
 

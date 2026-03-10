@@ -283,7 +283,6 @@ class Trainer(BaseTrainer):
 
     def build_optimizer(self, model, name="auto", lr=0.001, momentum=0.9, decay=1e-5):
         """Construct an optimizer for the given model with parameter grouping."""
-        g = [[], [], []]  # 0: weights with decay, 1: biases, 2: other (norms, gains, etc)
         bn = (nn.BatchNorm2d, nn.BatchNorm1d, nn.LayerNorm)
 
         if name == "auto":

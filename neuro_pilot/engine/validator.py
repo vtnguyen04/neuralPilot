@@ -162,7 +162,7 @@ class Validator(BaseValidator):
 
                 if t_boxes.numel() > 0:
                     h, w = img.shape[2], img.shape[3]
-                    scale = torch.tensor([w, h, w, h], device=self.device)
+                    torch.tensor([w, h, w, h], device=self.device)
                     # Convert normalized xywh to pixel xyxy
                     tx1 = (t_boxes[:, 0] - t_boxes[:, 2]/2) * w
                     ty1 = (t_boxes[:, 1] - t_boxes[:, 3]/2) * h
