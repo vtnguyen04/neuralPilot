@@ -329,7 +329,7 @@ class FDATLoss(nn.Module):
 
         return l_frenet + self.lambda_heading * l_heading + self.lambda_smooth * l_smooth
 
-class CombinedLoss(nn.Module):
+class MultiTaskLossManager(nn.Module):
     """Multi-task loss with uncertainty-aware weighting."""
     def __init__(self, config, model, device=None):
         super().__init__()
@@ -366,7 +366,7 @@ class CombinedLoss(nn.Module):
                 tau_end=getattr(loss_cfg, 'fdat_tau_end', 2.0),
                 lambda_smooth=self.lambda_smooth,
             )
-            logger.info("CombinedLoss: FDAT trajectory loss ENABLED")
+            logger.info("MultiTaskLossManager: FDAT trajectory loss ENABLED")
 
     def _uncertainty_weight(self, loss, log_var, lambda_val=1.0):
         if lambda_val == 0: return torch.tensor(0.0, device=loss.device)
@@ -376,8 +376,8 @@ class CombinedLoss(nn.Module):
         precision = torch.exp(-clamped_log_var)
         return precision * (loss * lambda_val) + clamped_log_var
 
-    def advanced(self, predictions: dict, targets: dict) -> dict:
-        gt_wp = targets['waypoints']
+    def forward(self, predictions: dict, targets: dict) -> dict:
+        gt_wp = targets.get('waypoints')
 
         l_heat_raw = torch.tensor(0.0, device=self.device)
         pred_hm = predictions.get('heatmap')

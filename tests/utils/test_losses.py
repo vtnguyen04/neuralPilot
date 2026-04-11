@@ -2,7 +2,7 @@
 import unittest
 import torch
 import torch.nn as nn
-from neuro_pilot.utils.losses import CombinedLoss
+from neuro_pilot.utils.losses import MultiTaskLossManager
 
 # Helper Classes to replace fragile MagicMocks
 class MockHead(nn.Module):
@@ -42,7 +42,7 @@ class TestLosses(unittest.TestCase):
         self.model = MockModel()
         self.device = 'cpu'
 
-        self.loss_fn = CombinedLoss(self.config, self.model, device=self.device)
+        self.loss_fn = MultiTaskLossManager(self.config, self.model, device=self.device)
 
         # Override sub-loss modules with mocks that are also nn.Modules
         class MockHeatmapLoss(nn.Module):
@@ -98,7 +98,7 @@ class TestLosses(unittest.TestCase):
             'command_idx': torch.tensor([0, 1])
         }
 
-        loss_dict = self.loss_fn.advanced(predictions, targets)
+        loss_dict = self.loss_fn.forward(predictions, targets)
 
         # Expected BCE:
         # Loss 1: BCE(0.9, 0) = -log(1 - 0.9) approx 2.3025
@@ -110,7 +110,7 @@ class TestLosses(unittest.TestCase):
 
         # 2. Prediction with Perfect Gate
         predictions['gate_score'] = torch.tensor([[[0.0]], [[1.0]]])
-        loss_dict_low = self.loss_fn.advanced(predictions, targets)
+        loss_dict_low = self.loss_fn.forward(predictions, targets)
 
         # Expected Gate Loss: approx 0
         expected_low = F.binary_cross_entropy(torch.tensor([[[0.0]], [[1.0]]]), torch.tensor([[[0.0]], [[1.0]]]))

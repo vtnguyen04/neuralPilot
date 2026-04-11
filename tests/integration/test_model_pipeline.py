@@ -83,7 +83,7 @@ class TestModelPipeline(unittest.TestCase):
         # 3. Loss Calculation
         print("Building criterion and calculating Loss components...")
         self.model.task_wrapper.build_criterion() # Ensure criterion is built
-        loss_dict = self.model.task_wrapper.criterion.advanced(preds, batch)
+        loss_dict = self.model.task_wrapper.criterion(preds, batch)
         total_loss = loss_dict['total']
 
         # Monitor the Gate!

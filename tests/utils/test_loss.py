@@ -1,18 +1,18 @@
 
 import unittest
 import torch
-from neuro_pilot.utils.losses import CombinedLoss
+from neuro_pilot.utils.losses import MultiTaskLossManager
 from omegaconf import OmegaConf
 
 class MockModel(torch.nn.Module):
     def __init__(self):
         super().__init__()
-        # Mock what CombinedLoss expects from the model (anchors, strides, etc if needed)
-        # CombinedLoss usually needs 'info' about the model output format or just config.
+        # Mock what MultiTaskLossManager expects from the model (anchors, strides, etc if needed)
+        # MultiTaskLossManager usually needs 'info' about the model output format or just config.
         # Looking at losses.py, it uses self.cfg.
         pass
 
-class TestCombinedLoss(unittest.TestCase):
+class TestMultiTaskLossManager(unittest.TestCase):
     def setUp(self):
         self.cfg = OmegaConf.create({
             'head': {
@@ -35,9 +35,9 @@ class TestCombinedLoss(unittest.TestCase):
         self.model = MockModel()
 
     def test_loss_initialization(self):
-        # We might need a real model or more mocks if CombinedLoss inspects the model structure
+        # We might need a real model or more mocks if MultiTaskLossManager inspects the model structure
         try:
-            criterion = CombinedLoss(self.cfg, self.model)
+            criterion = MultiTaskLossManager(self.cfg, self.model)
             self.assertIsNotNone(criterion)
         except Exception as e:
             # If it fails due to missing model attributes, we know we need a better mock

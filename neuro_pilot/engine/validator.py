@@ -81,13 +81,13 @@ class Validator(BaseValidator):
             from neuro_pilot.utils.torch_utils import prepare_batch
             batch = prepare_batch(batch, self.device)
             img = batch['image']
-            cmd = batch['command']
             gt_wp = batch['waypoints']
             gt_boxes = batch['bboxes']
             gt_classes = batch.get('cls', batch.get('categories'))
 
             with torch.amp.autocast('cuda', enabled=True):
-                preds = self.model(img, cmd=cmd)
+                model_kwargs = {k: v for k, v in batch.items() if k not in ('image', 'targets', 'image_path')}
+                preds = self.model(img, **model_kwargs)
             self.current_output = preds
 
             targets = {
@@ -98,12 +98,13 @@ class Validator(BaseValidator):
                 'batch_idx': batch.get('batch_idx', torch.zeros(0, device=self.device)),
                 'curvature': batch.get('curvature', torch.zeros(img.size(0), device=self.device)),
                 'command_idx': batch.get('command_idx', torch.zeros(img.size(0), dtype=torch.long, device=self.device)),
+                'action_target': batch.get('action_target', None)
             }
             batch['targets'] = targets
             self.current_batch = batch
 
             with torch.amp.autocast('cuda', enabled=True):
-                loss_dict = self.criterion.advanced(preds, targets)
+                loss_dict = self.criterion(preds, targets)
             loss_val = loss_dict['total']
             if torch.isfinite(loss_val):
                 self.total_loss += loss_val.item()

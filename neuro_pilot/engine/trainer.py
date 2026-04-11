@@ -8,7 +8,7 @@ from neuro_pilot.utils.tqdm import TQDM
 from pathlib import Path
 from neuro_pilot.utils.logger import logger, colorstr
 
-from neuro_pilot.utils.losses import CombinedLoss
+from neuro_pilot.utils.losses import MultiTaskLossManager
 from neuro_pilot.utils.torch_utils import select_device, default_names
 from .logger import MetricLogger
 from .callbacks import CallbackList, LoggingCallback, CheckpointCallback, VisualizationCallback, PlottingCallback
@@ -280,7 +280,7 @@ class Trainer(BaseTrainer):
         if hasattr(self.model, 'info'):
             self.model.info()
 
-        self.criterion = CombinedLoss(self.cfg, self.model, device=self.device)
+        self.criterion = MultiTaskLossManager(self.cfg, self.model, device=self.device)
         self.loss_names = ["total", "traj", "box", "cls_det", "dfl", "heatmap", "gate", "L1", "wL1"]
 
         opt_type = getattr(self.cfg.trainer, 'optimizer', 'auto')
@@ -442,8 +442,9 @@ class Trainer(BaseTrainer):
 
             self.optimizer.zero_grad()
             with torch.amp.autocast('cuda', enabled=self.cfg.trainer.use_amp):
-                output = self.model(batch['image'], cmd=batch['command'], return_intermediate=True)
-                loss_dict = self.criterion.advanced(output, batch['targets'])
+                model_kwargs = {k: v for k, v in batch.items() if k not in ('image', 'targets', 'image_path')}
+                output = self.model(batch['image'], return_intermediate=True, **model_kwargs)
+                loss_dict = self.criterion(output, batch.get('targets', batch))
                 loss = loss_dict['total']
 
             if not torch.isfinite(loss):

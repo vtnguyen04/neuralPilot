@@ -49,7 +49,7 @@ class BaseTask(ABC):
         pass
 
 
-from neuro_pilot.utils.losses import CombinedLoss
+from neuro_pilot.utils.losses import MultiTaskLossManager
 from neuro_pilot.engine.trainer import Trainer
 from neuro_pilot.engine.validator import Validator
 from neuro_pilot.utils.torch_utils import load_checkpoint
@@ -108,7 +108,7 @@ class MultiTask(BaseTask):
 
     def build_criterion(self) -> nn.Module:
         device = next(self.model.parameters()).device if self.model else None
-        self.criterion = CombinedLoss(self.cfg, self.model, device=device)
+        self.criterion = MultiTaskLossManager(self.cfg, self.model, device=device)
         return self.criterion
 
     def get_trainer(self) -> Trainer:
