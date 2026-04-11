@@ -40,7 +40,8 @@ class Predictor(BasePredictor):
     def predict(self, source, stream=False, **kwargs):
         """Perform inference on source. If stream=True, returns a generator."""
         imgsz = kwargs.get('imgsz', getattr(self.cfg.data, 'image_size', 640))
-        auto = kwargs.get('auto', True)
+        # auto=False to ensure square input for consistent trajectory prediction
+        auto = False
         from .loaders import get_dataloader
         dataset = get_dataloader(source, imgsz=imgsz, auto=auto)
 
@@ -105,10 +106,15 @@ class Predictor(BasePredictor):
         with torch.no_grad():
             preds = self.model(img, cmd=cmd)
 
-        bboxes = self._handle_bboxes(preds, img.shape[2:], img0, **kwargs)
+        # 3. Postprocess
+        # Map back to original image (img0)
+        input_shape = img.shape[2:]
+        bboxes = self._handle_bboxes(preds, input_shape, img0, **kwargs)
 
-        waypoints = self._handle_waypoints(preds.get('waypoints'), img.shape[2:], img0)
+        # Scale waypoints back to original image coordinates
+        waypoints = self._handle_waypoints(preds.get('waypoints'), input_shape, img0)
 
+        # Create results using ORIGINAL images (img0)
         results = self.postprocess(preds, img0, [path] if isinstance(path, str) else path, bboxes=bboxes, waypoints=waypoints, command=command)
 
         self.callbacks.on_predict_batch_end(self)
@@ -137,7 +143,7 @@ class Predictor(BasePredictor):
         return cmd.to(self.device)
 
     def _handle_bboxes(self, preds, input_shape, img0, **kwargs):
-        """Handles bbox detection branch (NMS + Scaling)."""
+        """Handles bbox detection branch (NMS + Scaling to original image)."""
         if 'bboxes' not in preds:
             return None
 
@@ -161,13 +167,17 @@ class Predictor(BasePredictor):
         return bboxes
 
     def _handle_waypoints(self, waypoints, input_shape, img0):
-        """Handles waypoint scaling."""
+        """Handles waypoint scaling from model space [-1, 1] to original image space."""
         if waypoints is None:
             return None
 
         from neuro_pilot.utils.ops import scale_coords
+        # Clone to avoid in-place modification issues
+        waypoints = waypoints.clone() if isinstance(waypoints, torch.Tensor) else waypoints.copy()
+
         for j in range(len(waypoints)):
              orig_shape = self._get_orig_shape(img0, j, input_shape)
+             # scale_coords in ops.py handles the Inverse LetterBox math
              waypoints[j] = scale_coords(input_shape, waypoints[j], orig_shape)
         return waypoints
 
@@ -175,7 +185,9 @@ class Predictor(BasePredictor):
         """Helper to get original image shape."""
         if img0 is None:
             return input_shape
-        return img0[index].shape if isinstance(img0, list) else img0.shape
+        if isinstance(img0, list):
+            return img0[index].shape
+        return img0.shape
 
     def postprocess(self, preds, imgs, paths, bboxes=None, waypoints=None, command=None):
         """Format raw predictions into Results objects."""
@@ -203,9 +215,9 @@ class Predictor(BasePredictor):
         """Normalizes various image input formats to a list of numpy arrays."""
         if isinstance(imgs, torch.Tensor):
             if imgs.ndim == 3:
-                imgs = imgs.permute(1, 2, 0).cpu().numpy()
+                imgs = imgs.permute(1, 2, 0).contiguous().cpu().numpy()
             else:
-                imgs = imgs.permute(0, 2, 3, 1).cpu().numpy()
+                imgs = imgs.permute(0, 2, 3, 1).contiguous().cpu().numpy()
 
             if imgs.max() <= 1.1: imgs = (imgs * 255).astype(np.uint8)
 
@@ -225,7 +237,8 @@ class Predictor(BasePredictor):
             img0 = cv2.imread(str(source)) if isinstance(source, (str, Path)) else source
 
             from neuro_pilot.data.augment import LetterBox
-            lb = LetterBox(new_shape=imgsz, auto=True, scaleup=True)
+            # Use auto=False to match training (Square images)
+            lb = LetterBox(new_shape=imgsz, auto=False, scaleup=True)
             data = lb({'img': img0})
             img = cv2.cvtColor(data['img'], cv2.COLOR_BGR2RGB)
 

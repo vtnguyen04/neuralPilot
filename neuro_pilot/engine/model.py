@@ -146,6 +146,14 @@ class NeuroPilot(nn.Module):
 
         final_scale = scale if scale != "n" else (ckpt_scale or "n")
 
+        if model_cfg:
+            import neuro_pilot
+            import os
+            basename = Path(model_cfg).name
+            local_path = Path(neuro_pilot.__file__).parent / "cfg" / "models" / basename
+            if local_path.exists():
+                model_cfg = str(local_path)
+
         overrides = {"model_cfg": model_cfg, "scale": final_scale}
         if not model_cfg:
              del overrides["model_cfg"]

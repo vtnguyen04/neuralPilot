@@ -77,7 +77,10 @@ class LoadImages:
             img0 = cv2.imread(str(path))
             if img0 is None:
                 raise FileNotFoundError(f"Image Not Found {path}")
+            # img0 = cv2.resize(img0, (640, 640))#self.preprocess(img0)
             img = self.preprocess(img0)
+            # cv2.imshow("dsfsdf", img0)
+            # cv2.waitKey(0)
 
         return str(path), img, img0, self.cap, self.frame
 
@@ -106,7 +109,6 @@ class LoadImages:
                     frame_idx += 1
                     if frame_idx % self.vid_stride != 0:
                         continue
-
                     data = lb({'img': img0})
                     img = cv2.cvtColor(data['img'], cv2.COLOR_BGR2RGB)
                     img = torch.from_numpy(img).permute(2, 0, 1).contiguous()

@@ -58,7 +58,7 @@ def load_checkpoint(filepath, model, optimizer=None, scaler=None):
     if not Path(filepath).exists():
         raise FileNotFoundError(f"Checkpoint not found at {filepath}")
 
-    checkpoint = torch.load(filepath, weights_only=False)
+    checkpoint = torch.load(filepath, map_location='cpu', weights_only=False)
     model.load_state_dict(checkpoint['state_dict'])
 
     if optimizer and 'optimizer' in checkpoint:

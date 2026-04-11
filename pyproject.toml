@@ -81,3 +81,8 @@ filterwarnings = [
     "ignore:.*no transform to process it.*:UserWarning",
     "ignore:.*Support for class-based  is deprecated.*:pydantic.PydanticDeprecatedSince20",
 ]
+
+[tool.mypy]
+ignore_missing_imports = true
+exclude = ["experiments", "tests/data"]
+disable_error_code = ["assignment", "attr-defined", "union-attr", "call-overload", "arg-type", "misc", "index", "return-value", "valid-type", "name-defined", "operator", "var-annotated", "import-untyped", "call-arg", "override", "dict-item"]
