@@ -13,6 +13,7 @@ class Registry:
     _HEADS: Dict[str, Type] = {}
     _LOSSES: Dict[str, Type] = {}
     _NECKS: Dict[str, Type] = {}
+    _TASKS: Dict[str, Type] = {}
 
     @classmethod
     def register_backbone(cls, name: str = None):
@@ -71,9 +72,33 @@ class Registry:
         if name in cls._HEADS: return cls._HEADS[name]
         if name in cls._NECKS: return cls._NECKS[name]
         if name in cls._LOSSES: return cls._LOSSES[name]
+        if name in cls._TASKS: return cls._TASKS[name]
         return None
+
+    @classmethod
+    def register_task(cls, name: str = None):
+        def decorator(obj):
+            key = name or obj.__name__
+            if key in cls._TASKS:
+                logger.warning(f"Task {key} already registered. Overwriting.")
+            cls._TASKS[key] = obj
+            return obj
+        return decorator
+
+    @classmethod
+    def get_task(cls, name: str) -> Type:
+        if name not in cls._TASKS:
+            raise ValueError(
+                f"Task '{name}' not found in registry. Available: {list(cls._TASKS.keys())}"
+            )
+        return cls._TASKS[name]
+
+    @classmethod
+    def list_tasks(cls) -> list[str]:
+        return list(cls._TASKS.keys())
 
 register_backbone = Registry.register_backbone
 register_head = Registry.register_head
 register_loss = Registry.register_loss
 register_neck = Registry.register_neck
+register_task = Registry.register_task

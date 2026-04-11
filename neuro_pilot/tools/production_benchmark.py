@@ -21,7 +21,7 @@ def run_performance_test(backend_path, imgsz=(1, 3, 640, 640), iterations=200, w
 
     try:
         with console.status(f"[bold cyan]Initializing {Path(backend_path).name} on {device}..."):
-            backend = AutoBackend(backend_path, device=device)
+            backend = AutoBackend.create(backend_path, device=device)
 
         input_shape = (imgsz[0], imgsz[1], imgsz[2], imgsz[3])
         dummy_input = torch.randn(input_shape, device=device)

@@ -10,7 +10,7 @@ from neuro_pilot.engine.backend.pytorch import PyTorchBackend
 class TestBackend(unittest.TestCase):
     def test_autobackend_module(self):
         model = nn.Linear(10, 2)
-        backend = AutoBackend(model)
+        backend = AutoBackend.create(model)
         self.assertIsInstance(backend, PyTorchBackend)
 
     @patch('pathlib.Path.exists')
@@ -22,7 +22,8 @@ class TestBackend(unittest.TestCase):
         with patch('neuro_pilot.engine.backend.pytorch.torch.load') as mock_load:
              mock_load.return_value = nn.Linear(1, 1) # Full model simulation
              # AutoBackend calls PyTorchBackend which loads standard weights
-             backend = AutoBackend("model.pt", device='cpu')
+             import torch
+             backend = AutoBackend.create("model.pt", device=torch.device('cpu'))
              self.assertIsInstance(backend, PyTorchBackend)
 
     @patch('pathlib.Path.exists')
@@ -33,7 +34,8 @@ class TestBackend(unittest.TestCase):
 
         # Need to mock ONNXBackend instantiation to avoid real onnxruntime init
         with patch('neuro_pilot.engine.backend.factory.ONNXBackend') as MockONNX:
-            AutoBackend("model.onnx", device='cpu')
+            import torch
+            AutoBackend.create("model.onnx", device=torch.device('cpu'))
             MockONNX.assert_called()
 
 if __name__ == '__main__':

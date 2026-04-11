@@ -9,7 +9,7 @@ from pathlib import Path
 from neuro_pilot.utils.logger import logger, colorstr
 
 from neuro_pilot.utils.losses import CombinedLoss
-from neuro_pilot.utils.torch_utils import select_device
+from neuro_pilot.utils.torch_utils import select_device, default_names
 from .logger import MetricLogger
 from .callbacks import CallbackList, LoggingCallback, CheckpointCallback, VisualizationCallback, PlottingCallback
 from .validator import Validator
@@ -233,7 +233,7 @@ class BaseTrainer:
             'optimizer': self.optimizer.state_dict() if self.optimizer else None,
             'fitness': fitness,
             'cfg': self.cfg,
-            'names': getattr(self.model, 'names', {i: f"class_{i}" for i in range(14)}),
+            'names': getattr(self.model, 'names', default_names(self.cfg.head.num_classes if hasattr(self.cfg, 'head') else 14)),
             'model_cfg': self.overrides.get('model_cfg'),
             'scaler': self.scaler.state_dict() if getattr(self, 'scaler', None) else None,
             'date': __import__('datetime').datetime.now().isoformat(),
@@ -262,15 +262,15 @@ class Trainer(BaseTrainer):
     def setup(self):
         """Setup model, loss, optimizer, and callbacks."""
         if self.model is None:
-            from neuro_pilot.nn.tasks import DetectionModel
+            from neuro_pilot.nn.factory import build_model
             model_cfg_path = self.overrides.get('model_cfg')
             if model_cfg_path and Path(model_cfg_path).suffix in ['.yaml', '.yml']:
                 logger.info(f"Loading dynamic model from {model_cfg_path}")
-                self.model = DetectionModel(model_cfg_path, ch=3, verbose=True).to(self.device)
+                self.model = build_model(cfg_path=model_cfg_path, ch=3, verbose=True).to(self.device)
             else:
                 logger.info("Loading default yolo_style model")
-                self.model = DetectionModel(
-                    cfg="neuro_pilot/cfg/models/neuralPilot.yaml",
+                self.model = build_model(
+                    cfg_path="neuro_pilot/cfg/models/neuralPilot.yaml",
                     nc=self.num_classes,
                     verbose=True
                 ).to(self.device)
@@ -325,7 +325,7 @@ class Trainer(BaseTrainer):
             else:
                 self.model.names = ds.names
         elif is_default:
-            self.model.names = {i: f"class_{i}" for i in range(self.num_classes)}
+            self.model.names = default_names(self.num_classes)
 
         self.initialize_anchors(self.train_loader)
 
@@ -477,18 +477,19 @@ class Trainer(BaseTrainer):
 
     def _prepare_batch(self, batch):
         """Move batch tensors to device and construct targets dict."""
-        img = batch['image'].to(self.device)
-        cmd = batch['command'].to(self.device)
+        from neuro_pilot.utils.torch_utils import prepare_batch
+        batch = prepare_batch(batch, self.device)
+        img = batch['image']
         targets = {
-            'waypoints': batch['waypoints'].to(self.device),
-            'waypoints_mask': batch.get('waypoints_mask', torch.ones(img.size(0))).to(self.device),
-            'bboxes': batch['bboxes'].to(self.device),
-            'cls': batch.get('cls', batch.get('categories')).to(self.device),
-            'batch_idx': batch.get('batch_idx', torch.zeros(0)).to(self.device),
-            'curvature': batch.get('curvature', torch.zeros(img.size(0))).to(self.device),
-            'command_idx': batch['command_idx'].to(self.device)
+            'waypoints': batch['waypoints'],
+            'waypoints_mask': batch.get('waypoints_mask', torch.ones(img.size(0), device=self.device)),
+            'bboxes': batch['bboxes'],
+            'cls': batch.get('cls', batch.get('categories')),
+            'batch_idx': batch.get('batch_idx', torch.zeros(0, device=self.device)),
+            'curvature': batch.get('curvature', torch.zeros(img.size(0), device=self.device)),
+            'command_idx': batch['command_idx']
         }
-        batch.update({'image': img, 'command': cmd, 'targets': targets})
+        batch['targets'] = targets
         self.current_batch = batch
         return batch
 

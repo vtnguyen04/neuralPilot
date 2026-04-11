@@ -12,7 +12,7 @@ class MockModel(nn.Module):
 class TestAutoBackend(unittest.TestCase):
     def test_pytorch_backend(self):
         model = MockModel()
-        backend = AutoBackend(model, device=torch.device('cpu'))
+        backend = AutoBackend.create(model, device=torch.device('cpu'))
 
         self.assertIsInstance(backend, PyTorchBackend)
 
@@ -27,7 +27,7 @@ class TestAutoBackend(unittest.TestCase):
 
     def test_factory_invalid_path(self):
         with self.assertRaises(FileNotFoundError):
-            AutoBackend("non_existent.pt")
+            AutoBackend.create("non_existent.pt")
 
 if __name__ == '__main__':
     unittest.main()

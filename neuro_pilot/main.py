@@ -3,7 +3,8 @@ import argparse
 import sys
 from pathlib import Path
 from neuro_pilot.engine.model import NeuroPilot
-from neuro_pilot.engine.task import TaskRegistry
+from neuro_pilot.core.registry import Registry
+import neuro_pilot.engine.task  # triggers @Registry.register_task
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -66,7 +67,7 @@ def main():
         args = parser.parse_args()
 
     if args.list_tasks:
-        tasks = TaskRegistry.list_tasks()
+        tasks = Registry.list_tasks()
         print(f"Available Tasks: {tasks}")
         return
 

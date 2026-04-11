@@ -1,8 +1,9 @@
-from neuro_pilot.engine.task import BaseTask, TaskRegistry
+from neuro_pilot.engine.task import BaseTask
+from neuro_pilot.core.registry import Registry
 import torch.nn as nn
 from neuro_pilot.nn.modules import TrajectoryHead
 
-@TaskRegistry.register("trajectory")
+@Registry.register_task("trajectory")
 class TrajectoryTask(BaseTask):
     def build_model(self) -> nn.Module:
         if self.backbone:
@@ -20,7 +21,7 @@ class TrajectoryTask(BaseTask):
         from neuro_pilot.utils.metrics import TrajectoryMetric
         return TrajectoryMetric()
 
-@TaskRegistry.register("heatmap")
+@Registry.register_task("heatmap")
 class HeatmapTask(BaseTask):
     def build_model(self) -> nn.Module:
         if self.backbone:

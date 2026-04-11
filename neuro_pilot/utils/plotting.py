@@ -271,9 +271,8 @@ def plot_batch(batch: Dict[str, Any], output: Optional[Dict[str, Any]], save_pat
     waypoints_gt = targets_root.get('waypoints')
 
     with torch.no_grad():
-        mean = torch.tensor([0.485, 0.456, 0.406], device=img_tensor.device).view(1, 3, 1, 1)
-        std = torch.tensor([0.229, 0.224, 0.225], device=img_tensor.device).view(1, 3, 1, 1)
-        img_denorm = img_tensor * std + mean
+        from neuro_pilot.utils.torch_utils import imagenet_denormalize
+        img_denorm = imagenet_denormalize(img_tensor)
 
         inv_img = torch.clamp(img_denorm, 0, 1)
         img_bgr = (inv_img.permute(0,2,3,1).cpu().numpy() * 255).astype(np.uint8)

@@ -20,7 +20,7 @@ class TestCLI(unittest.TestCase):
         # Run a quick benchmark (shortened)
         # Pointing to config to avoid loading huge weights
         cmd = [sys.executable, "-m", "neuro_pilot.main", "benchmark",
-               "--model", "neuralPilot_yolo11.yaml",
+               "--model", "tests/sample_model.yaml",
                "--imgsz", "32", "--batch", "1"]
 
         # Force CPU
@@ -28,7 +28,7 @@ class TestCLI(unittest.TestCase):
         env["CUDA_VISIBLE_DEVICES"] = ""
 
         result = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=60)
-        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Benchmark Results", result.stdout)
 
     def test_cli_export_dry_run(self):

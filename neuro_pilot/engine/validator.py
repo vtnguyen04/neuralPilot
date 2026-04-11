@@ -77,11 +77,14 @@ class Validator(BaseValidator):
         for i, batch in enumerate(pbar):
             self.batch_idx = i
             self.callbacks.on_val_batch_start(self)
-            img = batch['image'].to(self.device)
-            cmd = batch['command'].to(self.device)
-            gt_wp = batch['waypoints'].to(self.device)
-            gt_boxes = batch['bboxes'].to(self.device)
-            gt_classes = batch.get('cls', batch.get('categories')).to(self.device)
+
+            from neuro_pilot.utils.torch_utils import prepare_batch
+            batch = prepare_batch(batch, self.device)
+            img = batch['image']
+            cmd = batch['command']
+            gt_wp = batch['waypoints']
+            gt_boxes = batch['bboxes']
+            gt_classes = batch.get('cls', batch.get('categories'))
 
             with torch.amp.autocast('cuda', enabled=True):
                 preds = self.model(img, cmd=cmd)
@@ -89,12 +92,12 @@ class Validator(BaseValidator):
 
             targets = {
                 'waypoints': gt_wp,
-                'waypoints_mask': batch.get('waypoints_mask', torch.ones(img.size(0))).to(self.device),
+                'waypoints_mask': batch.get('waypoints_mask', torch.ones(img.size(0), device=self.device)),
                 'bboxes': gt_boxes,
                 'cls': gt_classes,
-                'batch_idx': batch.get('batch_idx', torch.zeros(0)).to(self.device),
-                'curvature': batch.get('curvature', torch.zeros(img.size(0))).to(self.device),
-                'command_idx': batch.get('command_idx', torch.zeros(img.size(0), dtype=torch.long)).to(self.device),
+                'batch_idx': batch.get('batch_idx', torch.zeros(0, device=self.device)),
+                'curvature': batch.get('curvature', torch.zeros(img.size(0), device=self.device)),
+                'command_idx': batch.get('command_idx', torch.zeros(img.size(0), dtype=torch.long, device=self.device)),
             }
             batch['targets'] = targets
             self.current_batch = batch

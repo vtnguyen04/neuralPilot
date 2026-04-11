@@ -24,6 +24,7 @@ dependencies = [
     "matplotlib>=3.10.8",
     "pandas>=2.3.3",
     "opencv-python",
+    "pillow",
     "pyyaml",
     "onnx",
     "onnxscript>=0.5.7",
@@ -79,7 +80,6 @@ ignore = [
 [tool.pytest.ini_options]
 filterwarnings = [
     "ignore:.*no transform to process it.*:UserWarning",
-    "ignore:.*Support for class-based  is deprecated.*:pydantic.PydanticDeprecatedSince20",
 ]
 
 [tool.mypy]

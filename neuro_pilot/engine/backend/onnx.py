@@ -27,7 +27,10 @@ class ONNXBackend(BaseBackend):
         if len(self.input_names) > 1:
             cmd = kwargs.get('cmd') or kwargs.get('command')
             if cmd is None:
-                cmd = torch.tensor([[1.0, 0.0, 0.0, 0.0]], dtype=torch.float32, device=im.device)
+                from neuro_pilot.cfg.schema import HeadConfig
+                _nc = HeadConfig().num_commands
+                cmd = torch.zeros(1, _nc, dtype=torch.float32, device=im.device)
+                cmd[0, 0] = 1.0
             if cmd.ndim == 1: cmd = cmd.unsqueeze(0)
             if cmd.ndim == 0: cmd = cmd.unsqueeze(0).unsqueeze(0)
             if cmd.shape[0] != im_np.shape[0]:

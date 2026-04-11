@@ -137,9 +137,8 @@ class VisualizationCallback(Callback):
         self.names = {}
 
     def _denormalize(self, img_tensor):
-        mean = torch.tensor([0.485, 0.456, 0.406], device=img_tensor.device).view(1, 3, 1, 1)
-        std = torch.tensor([0.229, 0.224, 0.225], device=img_tensor.device).view(1, 3, 1, 1)
-        return img_tensor * std + mean
+        from neuro_pilot.utils.torch_utils import imagenet_denormalize
+        return imagenet_denormalize(img_tensor)
 
     def visualize_batch(self, trainer, batch_idx, mode="train"):
         if not hasattr(trainer, 'current_batch') or not hasattr(trainer, 'current_output'):

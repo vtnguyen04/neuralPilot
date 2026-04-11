@@ -7,7 +7,8 @@ import os
 # Ensure root is in path
 sys.path.append(os.getcwd())
 
-from neuro_pilot.engine.task import BaseTask, TaskRegistry
+from neuro_pilot.engine.task import BaseTask
+from neuro_pilot.core.registry import Registry
 from pathlib import Path
 from neuro_pilot.engine.model import NeuroPilot
 
@@ -20,7 +21,7 @@ class SimpleModel(nn.Module):
         return self.linear(x)
 
 # 2. Define the New Task
-@TaskRegistry.register("simple_test_task")
+@Registry.register_task("simple_test_task")
 class SimpleTask(BaseTask):
     def build_model(self) -> nn.Module:
         return SimpleModel()

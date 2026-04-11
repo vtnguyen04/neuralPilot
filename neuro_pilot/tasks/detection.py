@@ -1,9 +1,10 @@
-from neuro_pilot.engine.task import BaseTask, TaskRegistry
+from neuro_pilot.engine.task import BaseTask
+from neuro_pilot.core.registry import Registry
 import torch.nn as nn
 import torch
 from neuro_pilot.nn.modules import Detect
 
-@TaskRegistry.register("detect")
+@Registry.register_task("detect")
 class DetectionTask(BaseTask):
     def build_model(self) -> nn.Module:
         if self.backbone:

@@ -1,0 +1,32 @@
+[
+    {
+        "start": 0,
+        "end": 1386,
+        "command": 0
+    },
+    {
+        "start": 1393,
+        "end": 1531,
+        "command": 2
+    },
+    {
+        "start": 1531,
+        "end": 1774,
+        "command": 0
+    },
+    {
+        "start": 1774,
+        "end": 1794,
+        "command": 0
+    },
+    {
+        "start": 1794,
+        "end": 1956,
+        "command": 1
+    },
+    {
+        "start": 1956,
+        "end": 4070,
+        "command": 0
+    }
+]
