@@ -605,10 +605,16 @@ class TrajectoryMetric(BaseMetric):
         pred_wp = preds['waypoints'].float()
         gt_wp = batch['waypoints'].to(pred_wp.device).float()
 
+        if gt_wp.shape[1] == 0:
+             return # Skip metrics for empty ground truths
+
         if gt_wp.shape[1] != pred_wp.shape[1]:
-             gt_wp = torch.nn.functional.interpolate(
-                 gt_wp.permute(0,2,1), size=pred_wp.shape[1], mode='linear'
-             ).permute(0,2,1)
+             if gt_wp.shape[1] > 1:
+                 gt_wp = torch.nn.functional.interpolate(
+                     gt_wp.permute(0,2,1), size=pred_wp.shape[1], mode='linear', align_corners=True
+                 ).permute(0,2,1)
+             else:
+                 gt_wp = gt_wp.repeat(1, pred_wp.shape[1], 1)
 
         # L1 Error
         err_abs = (pred_wp - gt_wp).abs()
