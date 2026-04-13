@@ -508,18 +508,24 @@ class MultiTaskLossManager(nn.Module):
         l_smooth = torch.tensor(0.0, device=self.device)
         pred_wp = predictions.get('waypoints')
         if pred_wp is not None:
-            if gt_wp.shape[1] != pred_wp.shape[1]:
-                gt_wp_loss = torch.nn.functional.interpolate(gt_wp.permute(0,2,1).float(), size=pred_wp.shape[1], mode='linear', align_corners=True).permute(0,2,1)
+            if gt_wp.shape[1] == 0:
+                l_traj_raw = torch.tensor(0.0, device=self.device)
             else:
-                gt_wp_loss = gt_wp
+                if gt_wp.shape[1] != pred_wp.shape[1]:
+                    if gt_wp.shape[1] > 1:
+                        gt_wp_loss = torch.nn.functional.interpolate(gt_wp.permute(0,2,1).float(), size=pred_wp.shape[1], mode='linear', align_corners=True).permute(0,2,1)
+                    else:
+                        gt_wp_loss = gt_wp.repeat(1, pred_wp.shape[1], 1)
+                else:
+                    gt_wp_loss = gt_wp
 
-            if self.use_fdat:
-                gate = predictions.get('gate_score')
-                l_traj_raw = self.fdat_loss(pred_wp, gt_wp_loss, gate)
-            else:
-                l_traj_raw = self.traj_loss(pred_wp, gt_wp_loss).mean(dim=(1, 2))
-                diff = pred_wp[:, 1:] - pred_wp[:, :-1]
-                l_smooth = (diff[:, 1:] - diff[:, :-1]).pow(2).mean(dim=(1, 2))
+                if self.use_fdat:
+                    gate = predictions.get('gate_score')
+                    l_traj_raw = self.fdat_loss(pred_wp, gt_wp_loss, gate)
+                else:
+                    l_traj_raw = self.traj_loss(pred_wp, gt_wp_loss).mean(dim=(1, 2))
+                    diff = pred_wp[:, 1:] - pred_wp[:, :-1]
+                    l_smooth = (diff[:, 1:] - diff[:, :-1]).pow(2).mean(dim=(1, 2))
 
         l_cls_raw = torch.tensor(0.0, device=self.device)
         pred_cls = predictions.get('classes')
