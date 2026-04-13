@@ -5,7 +5,7 @@ def run_real_training():
     model = NeuroPilot("neuro_pilot/cfg/models/neuralPilot_deformable.yaml", scale="s")
 
     model.train(
-        data="/home/quynhthu/Documents/multitask_data/data.yaml",
+        data="/home/quynhthu/Documents/waypoint_data/data.yaml",
 
         # Override Trainer parameters
         epochs=2,
