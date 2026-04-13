@@ -49,3 +49,4 @@ tools/labeler/labels.db
 /.mypy_cache
 /.ruff_cache
 neuro_pilot.egg-info/
+test_export.onnx.data
