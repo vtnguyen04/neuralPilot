@@ -53,7 +53,35 @@ def main():
     benchmark.add_argument("--imgsz", type=int, default=640)
     benchmark.add_argument("--batch", type=int, default=1)
 
-    args = parser.parse_args()
+    args, unknown = parser.parse_known_args()
+
+    # Parse extra kwargs dynamically (e.g. --lambda_jepa 1.0 or lambda_jepa=1.0)
+    kwargs = {}
+    i = 0
+    while i < len(unknown):
+        arg = unknown[i]
+        key, val = None, None
+        if "=" in arg:
+            key, val = arg.split("=", 1)
+            key = key.lstrip("-")
+        elif arg.startswith("--"):
+            key = arg[2:]
+            if i + 1 < len(unknown) and not unknown[i+1].startswith("--") and "=" not in unknown[i+1]:
+                val = unknown[i+1]
+                i += 1
+            else:
+                val = "True"
+        if key and val is not None:
+            # Type inference
+            if val.lower() == 'true': val = True
+            elif val.lower() == 'false': val = False
+            else:
+                try:
+                    val = float(val) if '.' in val else int(val)
+                except ValueError:
+                    pass
+            kwargs[key] = val
+        i += 1
 
     if not args.mode:
         parser.print_help()
@@ -68,7 +96,8 @@ def main():
                 max_epochs=args.epochs,
                 batch_size=args.batch,
                 imgsz=args.imgsz,
-                device=args.device
+                device=args.device,
+                **kwargs
             )
         elif args.mode == "predict":
             results = model.predict(
