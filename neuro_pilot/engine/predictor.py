@@ -3,6 +3,7 @@ import numpy as np
 import cv2
 from pathlib import Path
 from .results import Results
+from neuro_pilot.utils.torch_utils import default_names
 
 class BasePredictor:
     """
@@ -79,11 +80,8 @@ class Predictor(BasePredictor):
             img = img.half() if half else img.float()
             img /= 255.0
 
-            mean = torch.tensor([0.485, 0.456, 0.406], device=self.device).view(1, 3, 1, 1)
-            std = torch.tensor([0.229, 0.224, 0.225], device=self.device).view(1, 3, 1, 1)
-            if half:
-                mean, std = mean.half(), std.half()
-            img = (img - mean) / std
+            from neuro_pilot.utils.torch_utils import imagenet_normalize
+            img = imagenet_normalize(img)
         else:
             img = img.to(self.device).half() if half else img.to(self.device).float()
 
@@ -123,7 +121,11 @@ class Predictor(BasePredictor):
     def _prepare_command(self, cmd, batch_size, half):
         """Prepare command tensor for model input."""
         if cmd is None:
-             cmd = torch.tensor([[1.0, 0.0, 0.0, 0.0]], device=self.device)
+             from neuro_pilot.cfg.schema import HeadConfig
+             _nc = HeadConfig().num_commands
+             _default = torch.zeros(1, _nc, device=self.device)
+             _default[0, 0] = 1.0
+             cmd = _default
         elif not isinstance(cmd, torch.Tensor):
              cmd = torch.tensor(cmd, device=self.device)
 
@@ -132,7 +134,7 @@ class Predictor(BasePredictor):
         if cmd.ndim == 1 and cmd.shape[0] != batch_size:
              if cmd.shape[0] == 1:
                   cmd = cmd.repeat(batch_size)
-             elif cmd.shape[0] == 4:
+             elif cmd.shape[0] == _nc:
                   cmd = cmd.unsqueeze(0).repeat(batch_size, 1)
 
         if half and cmd.is_floating_point():
@@ -202,7 +204,7 @@ class Predictor(BasePredictor):
             res = Results(
                 orig_img=img_i,
                 path=str(paths[i]) if not isinstance(paths, (torch.Tensor, list)) else (str(paths[i]) if i < len(paths) else "tensor"),
-                names=getattr(self.model, 'names', {i: f"class_{i}" for i in range(14)}),
+                names=getattr(self.model, 'names', None) or default_names(getattr(self.cfg, 'head', None) and self.cfg.head.num_classes or 14),
                 boxes=bboxes[i] if bboxes is not None and i < len(bboxes) else None,
                 waypoints=waypoints[i] if waypoints is not None and i < len(waypoints) else None,
                 heatmap=preds.get('heatmap')[i] if 'heatmap' in preds and i < len(preds['heatmap']) else None
@@ -246,11 +248,8 @@ class Predictor(BasePredictor):
             img = img.half() if getattr(self.model, 'fp16', False) else img.float()
             img /= 255.0
 
-            mean = torch.tensor([0.485, 0.456, 0.406], device=self.device).view(1, 3, 1, 1)
-            std = torch.tensor([0.229, 0.224, 0.225], device=self.device).view(1, 3, 1, 1)
-            if img.dtype == torch.float16:
-                mean, std = mean.half(), std.half()
-            img = (img - mean) / std
+            from neuro_pilot.utils.torch_utils import imagenet_normalize
+            img = imagenet_normalize(img)
 
             return img
         return source

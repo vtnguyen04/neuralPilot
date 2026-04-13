@@ -329,14 +329,14 @@ class FDATLoss(nn.Module):
 
         return l_frenet + self.lambda_heading * l_heading + self.lambda_smooth * l_smooth
 
-class CombinedLoss(nn.Module):
+class MultiTaskLossManager(nn.Module):
     """Multi-task loss with uncertainty-aware weighting."""
     def __init__(self, config, model, device=None):
         super().__init__()
         self.device = device or next(model.parameters()).device
         self.heatmap_loss = HeatmapLoss(device=self.device)
         self.traj_loss = nn.SmoothL1Loss(reduction='none', beta=0.1)
-        self.det_loss = DetectionLoss(model, config)
+        self.det_loss = DetectionLoss(model, config) if 'detect' in getattr(model, 'heads', {}) else None
         self.ce_cls = nn.CrossEntropyLoss()
 
         self.log_var_heatmap = nn.Parameter(torch.zeros(1, device=self.device))
@@ -366,7 +366,7 @@ class CombinedLoss(nn.Module):
                 tau_end=getattr(loss_cfg, 'fdat_tau_end', 2.0),
                 lambda_smooth=self.lambda_smooth,
             )
-            logger.info("CombinedLoss: FDAT trajectory loss ENABLED")
+            logger.info("MultiTaskLossManager: FDAT trajectory loss ENABLED")
 
     def _uncertainty_weight(self, loss, log_var, lambda_val=1.0):
         if lambda_val == 0: return torch.tensor(0.0, device=loss.device)
@@ -376,12 +376,12 @@ class CombinedLoss(nn.Module):
         precision = torch.exp(-clamped_log_var)
         return precision * (loss * lambda_val) + clamped_log_var
 
-    def advanced(self, predictions: dict, targets: dict) -> dict:
-        gt_wp = targets['waypoints']
+    def forward(self, predictions: dict, targets: dict) -> dict:
+        gt_wp = targets.get('waypoints')
 
         l_heat_raw = torch.tensor(0.0, device=self.device)
         pred_hm = predictions.get('heatmap')
-        if pred_hm is not None:
+        if pred_hm is not None and self.lambda_heatmap > 0:
             if isinstance(pred_hm, dict): pred_hm = pred_hm['heatmap']
             _, _, H, W = pred_hm.shape
             gt_hm = self.heatmap_loss.generate_heatmap(gt_wp, H, W)
@@ -390,7 +390,7 @@ class CombinedLoss(nn.Module):
         l_det_raw = torch.tensor(0.0, device=self.device)
         det_loss_items = torch.zeros(3, device=self.device)
         det_head_out = predictions.get('detect', predictions if 'boxes' in predictions else None)
-        if det_head_out is not None:
+        if det_head_out is not None and self.lambda_det > 0:
             if isinstance(det_head_out, tuple): det_head_out = det_head_out[1]
             det_loss_val, det_loss_items = self.det_loss(det_head_out, targets)
             l_det_raw = det_loss_val.sum()
@@ -399,11 +399,16 @@ class CombinedLoss(nn.Module):
         l_smooth = torch.tensor(0.0, device=self.device)
         pred_wp = predictions.get('waypoints')
         if pred_wp is not None:
+            if gt_wp.shape[1] != pred_wp.shape[1]:
+                gt_wp_loss = torch.nn.functional.interpolate(gt_wp.permute(0,2,1).float(), size=pred_wp.shape[1], mode='linear', align_corners=True).permute(0,2,1)
+            else:
+                gt_wp_loss = gt_wp
+
             if self.use_fdat:
                 gate = predictions.get('gate_score')
-                l_traj_raw = self.fdat_loss(pred_wp, gt_wp, gate)
+                l_traj_raw = self.fdat_loss(pred_wp, gt_wp_loss, gate)
             else:
-                l_traj_raw = self.traj_loss(pred_wp, gt_wp).mean(dim=(1, 2))
+                l_traj_raw = self.traj_loss(pred_wp, gt_wp_loss).mean(dim=(1, 2))
                 diff = pred_wp[:, 1:] - pred_wp[:, :-1]
                 l_smooth = (diff[:, 1:] - diff[:, :-1]).pow(2).mean(dim=(1, 2))
 
@@ -438,13 +443,13 @@ class CombinedLoss(nn.Module):
                 with torch.no_grad():
                     alpha_tqfl = 5.0
                     if l_traj_raw.dim() == 0:
-                        batch_err = l_traj_raw.detach().unsqueeze(0).expand(batch_size)
+                        batch_err = l_traj_raw.detach().unsqueeze(0).expand(batch_size, 1)
                     else:
-                        batch_err = l_traj_raw.detach()
+                        batch_err = l_traj_raw.detach().view(-1, 1)
 
                     target_exist = wp_mask * torch.exp(-alpha_tqfl * batch_err)
                     target_exist = torch.nan_to_num(target_exist, nan=0.0)
-                    target_exist = torch.clamp(target_exist, 0.0, 1.0)
+                    target_exist = torch.clamp(target_exist, 0.0, 1.0).mean(dim=1)
 
                 l_traj_exist = F.binary_cross_entropy_with_logits(
                     has_traj_logit.squeeze(-1),
@@ -456,10 +461,10 @@ class CombinedLoss(nn.Module):
         lambda_traj_exist = self.lambda_traj * 0.5
 
         if wp_mask.any():
-            l_heat_raw = (l_heat_raw * wp_mask).sum() / (wp_mask.sum() + 1e-6)
-            l_traj_raw = (l_traj_raw * wp_mask).sum() / (wp_mask.sum() + 1e-6)
-            l_smooth = (l_smooth * wp_mask).sum() / (wp_mask.sum() + 1e-6)
-            l_gate = (l_gate * wp_mask).sum() / (wp_mask.sum() + 1e-6)
+            l_heat_raw = (l_heat_raw * wp_mask).sum() / (wp_mask.sum() + 1e-6) if l_heat_raw.dim() == 2 else l_heat_raw.mean()
+            l_traj_raw = (l_traj_raw * wp_mask).sum() / (wp_mask.sum() + 1e-6) if l_traj_raw.dim() == 2 else l_traj_raw.mean()
+            l_smooth = (l_smooth * wp_mask).sum() / (wp_mask.sum() + 1e-6) if l_smooth.dim() == 2 else l_smooth.mean()
+            l_gate = (l_gate * wp_mask).sum() / (wp_mask.sum() + 1e-6) if l_gate.dim() == 2 else l_gate.mean()
         else:
             l_heat_raw = l_heat_raw.mean() * 0.0
             l_traj_raw = l_traj_raw.mean() * 0.0

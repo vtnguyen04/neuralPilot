@@ -6,9 +6,9 @@ from pathlib import Path
 from typing import Union
 
 from neuro_pilot.utils.logger import logger, log_system_info
-from neuro_pilot.engine.task import TaskRegistry
+from neuro_pilot.core.registry import Registry
 from neuro_pilot.engine.backend.factory import AutoBackend
-from neuro_pilot.utils.torch_utils import select_device
+from neuro_pilot.utils.torch_utils import select_device, default_names
 
 class NeuroPilot(nn.Module):
     """
@@ -62,10 +62,10 @@ class NeuroPilot(nn.Module):
     def _init_task(self, task_name, overrides=None):
         """Initialize the Task Wrapper."""
         try:
-            TaskClass: type = TaskRegistry.get(task_name)
+            TaskClass: type = Registry.get_task(task_name)
         except ValueError:
             logger.warning(f"Task '{task_name}' not found. Defaulting to 'multitask'.")
-            TaskClass = TaskRegistry.get("multitask")
+            TaskClass = Registry.get_task("multitask")
 
         from neuro_pilot.utils.monitor import SystemLogger
 
@@ -97,14 +97,14 @@ class NeuroPilot(nn.Module):
                 and "model_cfg" in final_overrides
                 and Path(final_overrides["model_cfg"]).suffix in [".yaml", ".yml"]
             ):
-                from neuro_pilot.nn.tasks import DetectionModel
+                from neuro_pilot.nn.factory import build_model
 
                 scale = final_overrides.get("scale", "l")
                 skip_heatmap = final_overrides.get(
                     "skip_heatmap_inference", self.cfg_obj.head.skip_heatmap_inference
                 )
-                self.model = DetectionModel(
-                    final_overrides["model_cfg"],
+                self.model = build_model(
+                    cfg_path=final_overrides["model_cfg"],
                     ch=3,
                     nc=self.cfg_obj.head.num_classes,
                     scale=scale,
@@ -118,7 +118,7 @@ class NeuroPilot(nn.Module):
 
         if self.model:
             self.model.to(self.target_device)
-            self.backend = AutoBackend(self.model, device=self.target_device)
+            self.backend = AutoBackend.create(self.model, device=self.target_device)
 
     def _new(self, cfg_path: Union[str, Path], scale: str = "n"):
         """Initialize new model from config."""
@@ -173,7 +173,7 @@ class NeuroPilot(nn.Module):
             if "cfg" in ckpt:
                 self.cfg_obj = ckpt["cfg"]
 
-        self.backend = AutoBackend(self.model, device=self.target_device)
+        self.backend = AutoBackend.create(self.model, device=self.target_device)
 
     def train(self, mode: bool = True, **kwargs):
         """
@@ -190,75 +190,11 @@ class NeuroPilot(nn.Module):
         if not self.task_wrapper:
             raise RuntimeError("Task not initialized.")
 
-        from neuro_pilot.cfg.schema import AppConfig
-
-        config_map = {}
-
-        for section_name, field_info in AppConfig.model_fields.items():
-            if section_name == "model_config_path":
-                continue
-
-            section_cls = field_info.annotation
-            if hasattr(section_cls, "model_fields"):
-                for key in section_cls.model_fields.keys():
-                    config_map[key] = section_name
-
-                    if section_name == "data" and key == "augment":
-                        augment_cls = section_cls.model_fields["augment"].annotation
-                        if hasattr(augment_cls, "model_fields"):
-                            for aug_key in augment_cls.model_fields.keys():
-                                config_map[aug_key] = "data.augment"
-
-        mapped_kwargs = {}
-        for k, v in kwargs.items():
-            if k == "augment" and isinstance(v, bool):
-                mapped_kwargs.setdefault("data", {}).setdefault("augment", {})[
-                    "enabled"
-                ] = v
-                continue
-
-            if k == "data" and isinstance(v, str):
-                mapped_kwargs.setdefault("data", {})["dataset_yaml"] = v
-                continue
-
-            if k == "patience":
-                mapped_kwargs.setdefault("trainer", {})["early_stop_patience"] = v
-                continue
-
-            if k == "epochs":
-                mapped_kwargs.setdefault("trainer", {})["max_epochs"] = v
-                continue
-
-            if k == "batch":
-                mapped_kwargs.setdefault("data", {})["batch_size"] = v
-                continue
-
-            if k in config_map:
-                section = config_map[k]
-                if section == "data" and k == "data":
-                    pass
-
-                if "." in section:
-                    parts = section.split(".")
-                    target = mapped_kwargs
-                    for part in parts:
-                        target = target.setdefault(part, {})
-                    target[k] = v
-                else:
-                    target_dict = mapped_kwargs.setdefault(section, {})
-                    if not isinstance(target_dict, dict):
-                        logger.warning(
-                            f"Conflict mapping '{k}' to section '{section}'. Existing value is not a dict: {target_dict}"
-                        )
-                    else:
-                        target_dict[k] = v
-            else:
-                mapped_kwargs[k] = v
-
         from neuro_pilot.cfg.schema import deep_update, AppConfig
 
-        self.overrides = deep_update(self.overrides, mapped_kwargs)
+        mapped_kwargs = self._map_kwargs_to_config(kwargs)
 
+        self.overrides = deep_update(self.overrides, mapped_kwargs)
         self.task_wrapper.overrides = deep_update(
             self.task_wrapper.overrides, mapped_kwargs
         )
@@ -267,6 +203,88 @@ class NeuroPilot(nn.Module):
         cfg_dict = deep_update(cfg_dict, mapped_kwargs)
         self.cfg_obj = AppConfig(**cfg_dict)
         self.task_wrapper.cfg = self.cfg_obj
+
+        self._handle_resume()
+
+        trainer = self.task_wrapper.get_trainer()
+        metrics = trainer.train()
+
+        if trainer.best.exists():
+            self._load(trainer.best)
+
+        return metrics
+
+    @staticmethod
+    def _build_config_map() -> dict[str, str]:
+        """Build a flat mapping: {kwarg_name: section_name} from AppConfig schema."""
+        from neuro_pilot.cfg.schema import AppConfig
+
+        config_map: dict[str, str] = {}
+        for section_name, field_info in AppConfig.model_fields.items():
+            if section_name == "model_config_path":
+                continue
+            section_cls = field_info.annotation
+            if hasattr(section_cls, "model_fields"):
+                for key in section_cls.model_fields.keys():
+                    config_map[key] = section_name
+                    if section_name == "data" and key == "augment":
+                        augment_cls = section_cls.model_fields["augment"].annotation
+                        if hasattr(augment_cls, "model_fields"):
+                            for aug_key in augment_cls.model_fields.keys():
+                                config_map[aug_key] = "data.augment"
+        return config_map
+
+    def _map_kwargs_to_config(self, kwargs: dict) -> dict:
+        """Map user-facing kwargs (epochs, batch, data, ...) into nested config dict."""
+        # Shorthand aliases
+        _ALIASES = {
+            "augment": lambda v: (("data", "augment", "enabled"), v) if isinstance(v, bool) else None,
+            "data": lambda v: (("data", "dataset_yaml"), v) if isinstance(v, str) else None,
+            "patience": lambda v: (("trainer", "early_stop_patience"), v),
+            "epochs": lambda v: (("trainer", "max_epochs"), v),
+            "batch": lambda v: (("data", "batch_size"), v),
+        }
+
+        config_map = self._build_config_map()
+        mapped: dict = {}
+
+        for k, v in kwargs.items():
+            # 1. Check aliases
+            if k in _ALIASES:
+                result = _ALIASES[k](v)
+                if result:
+                    path, val = result
+                    target = mapped
+                    for part in path[:-1]:
+                        target = target.setdefault(part, {})
+                    target[path[-1]] = val
+                    continue
+
+            # 2. Map via config schema
+            if k in config_map:
+                section = config_map[k]
+                if "." in section:
+                    parts = section.split(".")
+                    target = mapped
+                    for part in parts:
+                        target = target.setdefault(part, {})
+                    target[k] = v
+                else:
+                    target_dict = mapped.setdefault(section, {})
+                    if isinstance(target_dict, dict):
+                        target_dict[k] = v
+                    else:
+                        logger.warning(
+                            f"Conflict mapping '{k}' to section '{section}'."
+                        )
+            else:
+                mapped[k] = v
+
+        return mapped
+
+    def _handle_resume(self):
+        """Resolve resume checkpoint path."""
+        from neuro_pilot.cfg.schema import deep_update
 
         if self.cfg_obj.trainer.resume is True:
             experiment_name = self.cfg_obj.trainer.experiment_name
@@ -290,15 +308,6 @@ class NeuroPilot(nn.Module):
             logger.info(
                 f"Resuming from specified checkpoint: {self.cfg_obj.trainer.resume}"
             )
-
-        trainer = self.task_wrapper.get_trainer()
-
-        metrics = trainer.train()
-
-        if trainer.best.exists():
-            self._load(trainer.best)
-
-        return metrics
 
     def predict(self, source, **kwargs):
         """
@@ -435,7 +444,7 @@ class NeuroPilot(nn.Module):
             return self.model.names
 
         num_classes = getattr(self.cfg_obj.head, "num_classes", 14)
-        return {i: f"class_{i}" for i in range(num_classes)}
+        return default_names(num_classes)
 
     def __call__(self, source, **kwargs):
         if self.training:

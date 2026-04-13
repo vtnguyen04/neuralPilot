@@ -3,10 +3,11 @@ import torch
 import torch.nn as nn
 from pathlib import Path
 from neuro_pilot.engine.model import NeuroPilot
-from neuro_pilot.engine.task import TaskRegistry, BaseTask
+from neuro_pilot.engine.task import BaseTask
+from neuro_pilot.core.registry import Registry
 
 # Mock Task for Testing
-@TaskRegistry.register("model_test_task_v2")
+@Registry.register_task("model_test_task_v2")
 class ModelTestTask(BaseTask):
     def build_model(self):
         return nn.Linear(10, 2)

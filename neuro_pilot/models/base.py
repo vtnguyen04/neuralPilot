@@ -24,10 +24,11 @@ class BaseModel(nn.Module):
         return n_p, n_g
 
     def fuse(self):
-        """Fuse Conv2d + BatchNorm2d layers."""
+        """Fuse Conv2d + BatchNorm2d layers (LSP-safe: checks attributes before accessing)."""
         logger.info("Fusing layers...")
         for m in self.modules():
-            if type(m) is Conv and hasattr(m, 'bn') and isinstance(m.bn, nn.BatchNorm2d):
+            if (hasattr(m, 'bn') and isinstance(getattr(m, 'bn', None), nn.BatchNorm2d)
+                    and hasattr(m, 'conv') and hasattr(m, 'forward_fuse')):
                 m.conv = fuse_conv_and_bn(m.conv, m.bn)
                 delattr(m, 'bn')
                 m.forward = m.forward_fuse

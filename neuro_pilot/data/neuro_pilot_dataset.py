@@ -255,8 +255,9 @@ class NeuroPilotDataset(Dataset):
         img_rgb = cv2.cvtColor(data['img'], cv2.COLOR_BGR2RGB)
         img_t = torch.from_numpy(img_rgb).permute(2, 0, 1).float() / 255.0
 
-        mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
-        std = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
+        from neuro_pilot.utils.torch_utils import IMAGENET_MEAN, IMAGENET_STD
+        mean = torch.tensor(IMAGENET_MEAN).view(3, 1, 1)
+        std = torch.tensor(IMAGENET_STD).view(3, 1, 1)
         img_t = (img_t - mean) / std
 
         _, h_final, w_final = img_t.shape
@@ -284,7 +285,9 @@ class NeuroPilotDataset(Dataset):
         bboxes_t = torch.tensor(bboxes_t, dtype=torch.float32) if bboxes_t else torch.zeros(0, 4)
         cls_t = torch.tensor(cls_t, dtype=torch.long)
 
-        cmd_onehot = torch.zeros(4); cmd_onehot[sample.command] = 1.0
+        from neuro_pilot.cfg.schema import HeadConfig
+        _head = HeadConfig()
+        cmd_onehot = torch.zeros(_head.num_commands); cmd_onehot[sample.command] = 1.0
 
         hm_h, hm_w = h_final // 4, w_final // 4
         heatmap = torch.zeros((hm_h, hm_w))
@@ -305,6 +308,7 @@ class NeuroPilotDataset(Dataset):
     def collate_fn(self): return custom_collate_fn
 
 def custom_collate_fn(batch):
+    num_wp = batch[0]['waypoints'].shape[0]
     collated = {}
     collated['image'] = torch.stack([b['image'] for b in batch])
     collated['image_path'] = [b['image_path'] for b in batch]
@@ -313,10 +317,10 @@ def custom_collate_fn(batch):
     collated_wp = []
     for b in batch:
         wp = b['waypoints']
-        if wp.shape[0] != 10:
-            padded_wp = torch.zeros((10, 2), dtype=wp.dtype, device=wp.device)
+        if wp.shape[0] != num_wp:
+            padded_wp = torch.zeros((num_wp, 2), dtype=wp.dtype, device=wp.device)
             if wp.shape[0] > 0:
-                n = min(wp.shape[0], 10)
+                n = min(wp.shape[0], num_wp)
                 padded_wp[:n] = wp[:n]
             collated_wp.append(padded_wp)
         else:
@@ -367,6 +371,23 @@ def create_dataloaders(config, root_dir=None, use_weighted_sampling=True, use_au
 
     tr_pipe = StandardAugmentor(training=use_aug, imgsz=config.data.image_size, config=config.data.augment)
     val_pipe = StandardAugmentor(training=False, imgsz=config.data.image_size)
+
+    from neuro_pilot.data.utils import check_dataset
+    yaml_dict = check_dataset(config.data.dataset_yaml) if config.data.dataset_yaml else {}
+
+    from neuro_pilot.data.datasets import DATASET_REGISTRY
+
+    ds_type = yaml_dict.get('type', 'yolo')
+
+    if ds_type in DATASET_REGISTRY:
+        ds_cls = DATASET_REGISTRY[ds_type]
+        tr_ds = ds_cls.from_config(config, split='train', yaml_dict=yaml_dict)
+        val_ds = ds_cls.from_config(config, split='val', yaml_dict=yaml_dict)
+        collate = getattr(ds_cls, 'collate_fn', custom_collate_fn)
+
+        tr_loader = build_dataloader(tr_ds, batch=config.data.batch_size, shuffle=True, workers=0, collate_fn=collate)
+        val_loader = build_dataloader(val_ds, batch=config.data.batch_size, shuffle=False, workers=0, collate_fn=collate)
+        return tr_loader, val_loader
 
     tr_ds = NeuroPilotDataset(root_dir=root_dir, transform=tr_pipe, dataset_yaml=config.data.dataset_yaml, split='train', imgsz=config.data.image_size)
 

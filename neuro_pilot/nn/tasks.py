@@ -4,6 +4,7 @@ import torch.nn as nn
 import math
 from copy import deepcopy
 from neuro_pilot.utils.logger import logger
+from neuro_pilot.utils.torch_utils import default_names
 from neuro_pilot.nn.modules import *
 from neuro_pilot.nn.modules.head import ClassificationHead
 import importlib
@@ -85,77 +86,132 @@ def _substitute_args(args, nc, nm, nw):
 def _scale_depth(n, gd):
     return max(round(n * gd), 1) if n > 1 else n
 
-def _handle_module_specials(m, f, n, args, ch, nc, gw, d, layers, scale):
-    """Handle module-specific argument/channel logic. Returns (c2, args, n)."""
-    c2 = None
-    if m in {Conv, Bottleneck, C3k2, SPPF, C2f, C3, C3k, C2PSA}:
-        c1, c2 = ch[f], args[0]
-        if isinstance(c1, list):
-            c1 = c1[-1]
-        if c2 != nc:
-            c2 = make_divisible(c2 * gw, 8)
-        args = [c1, c2, *args[1:]]
-        if m in {C3k2, C2f, C3, C3k, C2PSA}:
-            args.insert(2, n)
-            n = 1
-    elif m is nn.Upsample:
-        c2 = ch[f]
-        if len(args) == 2:
-            args = [None, args[0], args[1]]
-    elif m.__name__ == "TimmBackbone":
-        model_name = args[0]
-        if "mobilenetv4" in model_name:
-            if scale == "n":
-                model_name = "mobilenetv4_conv_small.e2400_r224_in1k"
-            elif scale == "s":
-                model_name = "mobilenetv4_conv_medium.e500_r224_in1k"
-            elif scale in ["m", "l", "x"]:
-                model_name = "mobilenetv4_conv_large.e600_r224_in1k"
-        args[0] = model_name
-        c2 = m.get_channels(model_name)
-    elif m.__name__ == "NeuroPilotBackbone":
-        model_name = args[0]
-        c2 = m.get_channels(model_name)
-    elif m.__name__ == "FeatureRouter":
-        idx = args[0]
-        backbone_ch = ch[f]
-        if isinstance(backbone_ch, (list, tuple)):
-            c2 = backbone_ch[idx]
-        elif isinstance(backbone_ch, dict):
-            c2 = backbone_ch[idx]
-        else:
-            c2 = backbone_ch
-    elif m.__name__ in {"Detect", "UnifiedDetectionHead", "Segment", "HeatmapHead", "TrajectoryHead", "ClassificationHead"}:
-        c2 = ch[f[0]] if isinstance(f, list) else ch[f]
-        ch_in = [ch[x] for x in f] if isinstance(f, list) else [ch[f]]
-        args.insert(0, ch_in)
-        if m.__name__ == "Segment":
-            if len(args) > 2 and args[2] == "nm":
-                args[2] = d.get("nm")
-            if len(args) > 3 and args[3] == "npr":
-                args[3] = d.get("npr", 256)
-    elif m.__name__ == "Concat":
-        c2 = sum(ch[x] if isinstance(ch[x], int) else ch[x][-1] for x in f)
-    elif m.__name__ == "VLFusion":
-        vision_ch = ch[f[0]]
-        lang_ch = ch[f[1]]
-        heads = args[2] if len(args) > 2 else 4
-        args = [vision_ch, lang_ch, heads]
-        c2 = vision_ch
-    elif m.__name__ == "CFRBridge":
-        plan_ch = ch[f[0]]
-        percept_ch = ch[f[1]]
-        heads = args[0] if len(args) > 0 else 4
-        args = [plan_ch, percept_ch, heads]
-        c2 = plan_ch
-    elif m.__name__ == "LanguagePromptEncoder":
-        c2 = args[0]
+# ─── Channel Handlers (Registration-based dispatch) ───
+# Each handler: (m, f, n, args, ch, nc, gw, d, layers, scale) → (c2, args, n)
+# To add a new module: just add a handler function + register in the dict below.
+
+def _conv_family_handler(m, f, n, args, ch, nc, gw, d, layers, scale):
+    c1, c2 = ch[f], args[0]
+    if isinstance(c1, list):
+        c1 = c1[-1]
+    if c2 != nc:
         c2 = make_divisible(c2 * gw, 8)
-        args[0] = c2
+    args = [c1, c2, *args[1:]]
+    if m in {C3k2, C2f, C3, C3k, C2PSA}:
+        args.insert(2, n)
+        n = 1
+    return c2, args, n
 
-    if c2 is None:
-        c2 = ch[f] if isinstance(f, int) else ch[f[0]]
+def _upsample_handler(m, f, n, args, ch, nc, gw, d, layers, scale):
+    c2 = ch[f]
+    if len(args) == 2:
+        args = [None, args[0], args[1]]
+    return c2, args, n
 
+def _timm_handler(m, f, n, args, ch, nc, gw, d, layers, scale):
+    model_name = args[0]
+    if "mobilenetv4" in model_name:
+        _SCALE_MAP = {
+            "n": "mobilenetv4_conv_small.e2400_r224_in1k",
+            "s": "mobilenetv4_conv_medium.e500_r224_in1k",
+        }
+        model_name = _SCALE_MAP.get(scale, "mobilenetv4_conv_large.e600_r224_in1k")
+    args[0] = model_name
+    c2 = m.get_channels(model_name)
+    return c2, args, n
+
+def _neuropilot_backbone_handler(m, f, n, args, ch, nc, gw, d, layers, scale):
+    model_name = args[0]
+    c2 = m.get_channels(model_name)
+    return c2, args, n
+
+def _feature_router_handler(m, f, n, args, ch, nc, gw, d, layers, scale):
+    idx = args[0]
+    backbone_ch = ch[f]
+    if isinstance(backbone_ch, (list, tuple, dict)):
+        c2 = backbone_ch[idx]
+    else:
+        c2 = backbone_ch
+    return c2, args, n
+
+def _head_handler(m, f, n, args, ch, nc, gw, d, layers, scale):
+    c2 = ch[f[0]] if isinstance(f, list) else ch[f]
+    ch_in = [ch[x] for x in f] if isinstance(f, list) else [ch[f]]
+    args.insert(0, ch_in)
+    if m.__name__ == "Segment":
+        if len(args) > 2 and args[2] == "nm":
+            args[2] = d.get("nm")
+        if len(args) > 3 and args[3] == "npr":
+            args[3] = d.get("npr", 256)
+    return c2, args, n
+
+def _concat_handler(m, f, n, args, ch, nc, gw, d, layers, scale):
+    c2 = sum(ch[x] if isinstance(ch[x], int) else ch[x][-1] for x in f)
+    return c2, args, n
+
+def _vlfusion_handler(m, f, n, args, ch, nc, gw, d, layers, scale):
+    vision_ch = ch[f[0]]
+    lang_ch = ch[f[1]]
+    heads = args[2] if len(args) > 2 else 4
+    args = [vision_ch, lang_ch, heads]
+    return vision_ch, args, n
+
+def _cfr_bridge_handler(m, f, n, args, ch, nc, gw, d, layers, scale):
+    plan_ch = ch[f[0]]
+    percept_ch = ch[f[1]]
+    heads = args[0] if len(args) > 0 else 4
+    args = [plan_ch, percept_ch, heads]
+    return plan_ch, args, n
+
+def _language_encoder_handler(m, f, n, args, ch, nc, gw, d, layers, scale):
+    c2 = make_divisible(args[0] * gw, 8)
+    args[0] = c2
+    return c2, args, n
+
+
+# Dispatch by class identity (for built-in nn modules and frequently used types)
+CHANNEL_HANDLERS = {
+    Conv: _conv_family_handler,
+    Bottleneck: _conv_family_handler,
+    C3k2: _conv_family_handler,
+    SPPF: _conv_family_handler,
+    C2f: _conv_family_handler,
+    C3: _conv_family_handler,
+    C3k: _conv_family_handler,
+    C2PSA: _conv_family_handler,
+    nn.Upsample: _upsample_handler,
+}
+
+# Dispatch by class name (for dynamically resolved or custom modules)
+CHANNEL_HANDLERS_BY_NAME: dict[str, callable] = {
+    "TimmBackbone": _timm_handler,
+    "NeuroPilotBackbone": _neuropilot_backbone_handler,
+    "FeatureRouter": _feature_router_handler,
+    "Detect": _head_handler,
+    "UnifiedDetectionHead": _head_handler,
+    "Segment": _head_handler,
+    "HeatmapHead": _head_handler,
+    "TrajectoryHead": _head_handler,
+    "ClassificationHead": _head_handler,
+    "Concat": _concat_handler,
+    "VLFusion": _vlfusion_handler,
+    "CFRBridge": _cfr_bridge_handler,
+    "LanguagePromptEncoder": _language_encoder_handler,
+}
+
+
+def _handle_module_specials(m, f, n, args, ch, nc, gw, d, layers, scale):
+    """Handle module-specific argument/channel logic. Returns (c2, args, n).
+
+    Uses registration-based dispatch: add new module handlers via
+    CHANNEL_HANDLERS or CHANNEL_HANDLERS_BY_NAME dictionaries.
+    """
+    handler = CHANNEL_HANDLERS.get(m) or CHANNEL_HANDLERS_BY_NAME.get(getattr(m, '__name__', ''))
+    if handler:
+        return handler(m, f, n, args, ch, nc, gw, d, layers, scale)
+
+    # Fallback: passthrough channel
+    c2 = ch[f] if isinstance(f, int) else ch[f[0]]
     return c2, args, n
 
 def parse_model(d, ch):
@@ -239,7 +295,7 @@ class DetectionModel(nn.Module):
             self.yaml["nc"] = nc
 
         self.model, self.save = parse_model(deepcopy(self.yaml), ch=[ch])
-        self.names = names if names is not None else {i: f"class_{i}" for i in range(self.yaml["nc"])}
+        self.names = names if names is not None else default_names(self.yaml["nc"])
 
         self.head_indices = {}
         for i, m in enumerate(self.model):

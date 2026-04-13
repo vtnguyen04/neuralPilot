@@ -1,0 +1,1 @@
+PYTHONPATH=. uv run scripts/run_video_inference.py --weight checkpoints/best2.pt --source video/video1.mp4 --imgsz 640 --conf 0.2 --device 0 --save-dir run/last2 --skip-heatmap-inference --model-cfg neuro_pilot/cfg/models/neuralPilot_dual.yaml --timeline timeline.json --show --scale n
