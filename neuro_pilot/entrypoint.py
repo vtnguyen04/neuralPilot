@@ -1,4 +1,5 @@
 import sys
+import neuro_pilot.engine.task  # triggers @Registry.register_task
 from neuro_pilot.engine.model import NeuroPilot
 from neuro_pilot.utils.logger import logger
 from rich.console import Console
