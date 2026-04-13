@@ -7,6 +7,7 @@ from typing import Union
 
 from neuro_pilot.utils.logger import logger, log_system_info
 from neuro_pilot.core.registry import Registry
+import neuro_pilot.engine.task  # triggers @Registry.register_task dynamically
 from neuro_pilot.engine.backend.factory import AutoBackend
 from neuro_pilot.utils.torch_utils import select_device, default_names
 
