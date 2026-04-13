@@ -3,6 +3,38 @@ import math
 from pathlib import Path
 from neuro_pilot.utils.logger import logger
 
+# ─── Centralized Constants (eliminate magic numbers) ───
+IMAGENET_MEAN = (0.485, 0.456, 0.406)
+IMAGENET_STD = (0.229, 0.224, 0.225)
+
+
+def imagenet_mean(device=None):
+    """ImageNet normalization mean as tensor [1, 3, 1, 1]."""
+    return torch.tensor(IMAGENET_MEAN, device=device).view(1, 3, 1, 1)
+
+
+def imagenet_std(device=None):
+    """ImageNet normalization std as tensor [1, 3, 1, 1]."""
+    return torch.tensor(IMAGENET_STD, device=device).view(1, 3, 1, 1)
+
+
+def imagenet_normalize(img: torch.Tensor, device=None) -> torch.Tensor:
+    """Apply ImageNet normalization to an image tensor."""
+    mean = imagenet_mean(device or img.device)
+    std = imagenet_std(device or img.device)
+    if img.dtype == torch.float16:
+        mean, std = mean.half(), std.half()
+    return (img - mean) / std
+
+
+def imagenet_denormalize(img: torch.Tensor, device=None) -> torch.Tensor:
+    """Reverse ImageNet normalization."""
+    mean = imagenet_mean(device or img.device)
+    std = imagenet_std(device or img.device)
+    if img.dtype == torch.float16:
+        mean, std = mean.half(), std.half()
+    return img * std + mean
+
 def select_device(device="", verbose=True):
     """
     Selects the best available device (CUDA or CPU).
@@ -161,3 +193,23 @@ class ModelEMA:
             if (len(include) and k not in include) or k in exclude or k.startswith('_'):
                 continue
             setattr(self.ema, k, v)
+
+
+def default_names(num_classes: int) -> dict[int, str]:
+    """Generate default class name mapping {0: 'class_0', 1: 'class_1', ...}.
+
+    Centralized utility to avoid hardcoding this pattern across the codebase.
+    """
+    return {i: f"class_{i}" for i in range(num_classes)}
+
+
+def prepare_batch(batch: dict, device: torch.device) -> dict:
+    """Move all tensors in a batch dict to the target device.
+
+    Task-agnostic: works with any dict structure from any dataset.
+    Returns a new dict with tensors moved to device.
+    """
+    return {
+        k: v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v
+        for k, v in batch.items()
+    }

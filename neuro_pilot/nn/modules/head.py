@@ -13,8 +13,12 @@ from .block import DFL, Proto, C3k2
 from .conv import Conv, DWConv
 from .attention import AttentionGate
 from .base import BaseHead
+from .deformable import WaypointQueryDecoder, sinusoidal_positional_encoding
 
-__all__ = ["Detect", "UnifiedDetectionHead", "HeatmapHead", "TrajectoryHead", "BaseHead", "Segment", "ClassificationHead"]
+__all__ = [
+    "Detect", "UnifiedDetectionHead", "HeatmapHead", "TrajectoryHead",
+    "DeformableTrajectoryHead", "BaseHead", "Segment", "ClassificationHead",
+]
 
 class Detect(BaseHead):
     """YOLO Detect head for object detection models."""
@@ -241,8 +245,12 @@ class TrajectoryHead(BaseHead):
 
         flatten_dim = self.c5_dim * 4 * 4
 
+        from neuro_pilot.cfg.schema import HeadConfig
+        self.use_vego = getattr(HeadConfig(), 'use_vego', True)
+        vision_in_dim = flatten_dim + 64 + (1 if self.use_vego else 0)
+
         self.vision_stem = nn.Sequential(
-            nn.Linear(flatten_dim + 64, 512),
+            nn.Linear(vision_in_dim, 512),
             nn.BatchNorm1d(512),
             nn.ReLU(inplace=True)
         )
@@ -293,7 +301,18 @@ class TrajectoryHead(BaseHead):
         cmd_emb = self.cmd_embed(cmd_idx.long()).to(dtype)
         pooled = F.interpolate(feat, size=(4, 4), mode='bilinear', align_corners=False).flatten(1).to(dtype)
 
-        combined = torch.cat([pooled, cmd_emb], dim=1)
+        vEgo = kwargs.get('vEgo')
+        if vEgo is None:
+            vEgo = torch.zeros(B, 1, dtype=dtype, device=p5.device)
+        else:
+            if vEgo.dim() == 1:
+                vEgo = vEgo.unsqueeze(-1)
+            vEgo = vEgo.to(dtype) / 30.0 # Normalize assuming max 30m/s (108km/h) for scaling stable gradient
+
+        if self.use_vego:
+            combined = torch.cat([pooled, cmd_emb, vEgo], dim=1)
+        else:
+            combined = torch.cat([pooled, cmd_emb], dim=1)
 
         for layer in self.vision_stem:
             combined = layer(combined)
@@ -377,6 +396,187 @@ class Segment(Detect):
             preds["detect"]["proto"] = proto
 
         return preds
+
+class DeformableTrajectoryHead(BaseHead):
+    """DETR-style trajectory head with standard deformable attention.
+
+    Predicts T waypoints directly using learnable queries refined through
+    self-attention and deformable cross-attention on spatial features.
+    No Bézier curves — each waypoint is predicted independently.
+
+    Architecture:
+        1. T learnable waypoint queries (nn.Embedding)
+        2. Sinusoidal temporal positional encoding
+        3. Command + vEgo conditioning via additive embedding
+        4. Input projection (Conv2d 1×1: backbone_ch → embed_dim)
+        5. WaypointQueryDecoder (L layers: SelfAttn + MSDA + FFN)
+        6. MLP → direct (dx, dy) per waypoint
+
+    Reference:
+        - Zhu et al., "Deformable DETR", ICLR 2021
+        - Chitta et al., "TransFuser", CVPR 2022 (trajectory querying)
+    """
+
+    forward_with_kwargs = True
+
+    def __init__(
+        self,
+        ch,
+        num_commands: int = 4,
+        num_waypoints: int = 60,
+        embed_dim: int = 256,
+        num_heads: int = 4,
+        num_layers: int = 2,
+        n_points: int = 4,
+        ffn_dim: int = 512,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        c_in = ch[-1] if isinstance(ch, (list, tuple)) else ch
+        self.num_waypoints = num_waypoints
+        self.embed_dim = embed_dim
+        self.n_levels = 1  # Single-scale (P5 only), extensible to multi-scale
+
+        # Input projection: backbone channel → embed_dim
+        self.input_proj = nn.Conv2d(c_in, embed_dim, kernel_size=1)
+
+        # Learnable waypoint queries
+        self.waypoint_queries = nn.Embedding(num_waypoints, embed_dim)
+
+        # Temporal positional encoding (fixed sinusoidal)
+        self.register_buffer(
+            "temporal_pe",
+            sinusoidal_positional_encoding(num_waypoints, embed_dim),
+        )
+
+        # Command conditioning
+        self.cmd_embed = nn.Embedding(num_commands, embed_dim)
+
+        # vEgo conditioning
+        self.vego_proj = nn.Linear(1, embed_dim)
+
+        # Reference point generator (from queries → initial positions)
+        self.reference_points_head = nn.Linear(embed_dim, 2)
+
+        # Decoder stack
+        self.decoder = WaypointQueryDecoder(
+            embed_dim=embed_dim,
+            num_heads=num_heads,
+            num_layers=num_layers,
+            n_levels=self.n_levels,
+            n_points=n_points,
+            ffn_dim=ffn_dim,
+            dropout=dropout,
+        )
+
+        # Waypoint prediction head (D → 2)
+        self.wp_head = nn.Sequential(
+            nn.Linear(embed_dim, embed_dim // 2),
+            nn.ReLU(inplace=True),
+            nn.Linear(embed_dim // 2, 2),
+        )
+
+        # Trajectory existence head
+        self.exist_head = nn.Linear(embed_dim, 1)
+
+        self._init_weights()
+
+    def _init_weights(self) -> None:
+        nn.init.xavier_uniform_(self.input_proj.weight)
+        nn.init.zeros_(self.input_proj.bias)
+        nn.init.xavier_uniform_(self.reference_points_head.weight)
+        nn.init.zeros_(self.reference_points_head.bias)
+
+    def forward(self, x, **kwargs):
+        """Forward pass.
+
+        Args:
+            x: Feature maps — single tensor [B, C, H, W] or list [P5, heatmap_dict].
+            **kwargs: cmd (command indices), vEgo (ego speed).
+
+        Returns:
+            dict with 'trajectory', 'waypoints', 'has_traj_logit'.
+        """
+        # --- Unpack input ---
+        if isinstance(x, (list, tuple)):
+            p5 = x[0]
+        else:
+            p5 = x
+        if isinstance(p5, dict):
+            p5 = p5.get("feats", p5)
+
+        B = p5.shape[0]
+        dtype = p5.dtype
+
+        # --- Project spatial features ---
+        feat = self.input_proj(p5)  # [B, embed_dim, H, W]
+        _, _, H, W = feat.shape
+
+        # Flatten to sequence: [B, H*W, embed_dim]
+        memory = feat.flatten(2).permute(0, 2, 1)
+
+        # Single-scale spatial info
+        spatial_shapes = torch.tensor(
+            [[H, W]], dtype=torch.long, device=feat.device
+        )
+        spatial_shapes_list = [(H, W)]
+        level_start_index = torch.tensor(
+            [0], dtype=torch.long, device=feat.device
+        )
+
+        # --- Build queries ---
+        queries = self.waypoint_queries.weight.unsqueeze(0).expand(B, -1, -1)  # [B, T, D]
+        query_pos = self.temporal_pe.unsqueeze(0).expand(B, -1, -1).to(dtype)  # [B, T, D]
+
+        # --- Command conditioning ---
+        cmd = kwargs.get("cmd")
+        if cmd is None:
+            cmd = kwargs.get("command_idx")
+        if cmd is not None:
+            if cmd.dim() > 1:
+                cmd = cmd.argmax(dim=-1)
+            cmd_emb = self.cmd_embed(cmd.long())  # [B, D]
+            queries = queries + cmd_emb.unsqueeze(1)  # Broadcast to all queries
+
+        # --- vEgo conditioning ---
+        vego = kwargs.get("vEgo")
+        if vego is not None:
+            if vego.dim() == 1:
+                vego = vego.unsqueeze(-1)
+            vego_emb = self.vego_proj(vego.to(dtype) / 30.0)  # [B, D]
+            queries = queries + vego_emb.unsqueeze(1)
+
+        # --- Reference points ---
+        # Predict initial reference points from queries, sigmoid → [0, 1]
+        reference_points = self.reference_points_head(query_pos).sigmoid()  # [B, T, 2]
+        reference_points = reference_points.unsqueeze(2).expand(
+            -1, -1, self.n_levels, -1
+        )  # [B, T, n_levels, 2]
+
+        # --- Decode ---
+        decoded = self.decoder(
+            queries=queries.to(dtype),
+            query_pos=query_pos,
+            reference_points=reference_points,
+            memory=memory.to(dtype),
+            spatial_shapes=spatial_shapes,
+            spatial_shapes_list=spatial_shapes_list,
+            level_start_index=level_start_index,
+        )  # [B, T, D]
+
+        # --- Predict waypoints ---
+        waypoints = torch.tanh(self.wp_head(decoded))  # [B, T, 2]
+        waypoints = torch.nan_to_num(waypoints, 0.0)
+
+        # --- Trajectory existence ---
+        has_traj_logit = self.exist_head(decoded.mean(dim=1))  # [B, 1]
+
+        res = {
+            "waypoints": waypoints,
+            "has_traj_logit": has_traj_logit,
+        }
+        return {"trajectory": res, **res}
+
 
 class ClassificationHead(nn.Module):
     """

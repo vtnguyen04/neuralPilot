@@ -3,11 +3,25 @@ import argparse
 import sys
 from pathlib import Path
 from neuro_pilot.engine.model import NeuroPilot
-from neuro_pilot.engine.task import TaskRegistry
+from neuro_pilot.core.registry import Registry
+import neuro_pilot.engine.task  # triggers @Registry.register_task
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))
+
+def parse_kwargs(unknown_args):
+    kwargs = {}
+    for arg in unknown_args:
+        if "=" in arg:
+            k, v = arg.split("=", 1)
+            try:
+                if "." in v: v = float(v)
+                else: v = int(v)
+            except ValueError:
+                pass
+            kwargs[k] = v
+    return kwargs
 
 def main():
     parser = argparse.ArgumentParser(description="NeuroPilot CLI: Unified MT-Learning Framework")
@@ -16,6 +30,7 @@ def main():
     train_parser = subparsers.add_parser("train", help="Train a model")
     train_parser.add_argument('model', type=str, help='Model config file (yaml) or weights (pt)')
     train_parser.add_argument('--task', type=str, default=None, help='Task name (e.g. multitask, detect)')
+    train_parser.add_argument('--data', type=str, default=None, help='Dataset YAML')
     train_parser.add_argument('--epochs', type=int, default=50, help='Max epochs')
     train_parser.add_argument('--batch', type=int, default=128, help='Batch size')
     train_parser.add_argument('--scale', type=str, default='n', choices=['n', 's', 'm', 'l', 'x'], help='Model scale')
@@ -54,19 +69,23 @@ def main():
         rest = sys.argv[2:]
         temp_p = argparse.ArgumentParser()
         temp_p.add_argument('--task', type=str, default=None)
+        temp_p.add_argument('--data', type=str, default=None)
         temp_p.add_argument('--epochs', type=int, default=50)
         temp_p.add_argument('--batch', type=int, default=128)
         temp_p.add_argument('--scale', type=str, default='n')
-        temp_args, _ = temp_p.parse_known_args(rest)
+        temp_args, unknown = temp_p.parse_known_args(rest)
         args.task = temp_args.task
+        args.data = temp_args.data
         args.epochs = temp_args.epochs
         args.batch = temp_args.batch
         args.scale = temp_args.scale
     else:
-        args = parser.parse_args()
+        args, unknown = parser.parse_known_args()
+
+    overrides = parse_kwargs(unknown)
 
     if args.list_tasks:
-        tasks = TaskRegistry.list_tasks()
+        tasks = Registry.list_tasks()
         print(f"Available Tasks: {tasks}")
         return
 
@@ -77,7 +96,7 @@ def main():
 
     if args.command == "train":
         model = NeuroPilot(args.model, task=args.task, scale=args.scale)
-        model.train(max_epochs=args.epochs, batch_size=args.batch)
+        model.train(data=args.data, max_epochs=args.epochs, batch_size=args.batch, **overrides)
 
     elif args.command == "benchmark":
         model = NeuroPilot(args.model, task=None)

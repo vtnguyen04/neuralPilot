@@ -12,7 +12,8 @@ class AutoBackend:
     """
     Factory for selecting and instantiating the correct inference backend.
     """
-    def __new__(cls, weights: Union[str, Path, nn.Module], device: torch.device = None, fp16: bool = False, fuse: bool = False) -> BaseBackend:
+    @classmethod
+    def create(cls, weights: Union[str, Path, nn.Module], device: torch.device = None, fp16: bool = False, fuse: bool = False) -> BaseBackend:
 
         if device is None:
             device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -36,4 +37,4 @@ class AutoBackend:
             logger.info(f"Detected PyTorch checkpoint: {w}")
             return PyTorchBackend(str(w), device, fp16, fuse)
         else:
-             raise NotImplementedError(f"Unsupported model format: {suffix}")
+            raise NotImplementedError(f"Unsupported model format: {suffix}")

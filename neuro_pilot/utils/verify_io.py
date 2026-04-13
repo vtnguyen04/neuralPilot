@@ -1,18 +1,20 @@
 import torch
-from neuro_pilot.nn.tasks import DetectionModel
+from neuro_pilot.nn.factory import build_model
+from neuro_pilot.cfg.schema import HeadConfig
 from loguru import logger
 import sys
 
 def verify_io(cfg_path="neuro_pilot/cfg/models/neuralPilot.yaml"):
     logger.info(f"--- Verifying Model I/O Standards: {cfg_path} ---")
 
+    _head = HeadConfig()
     device = torch.device("cpu")
-    model = DetectionModel(cfg_path, nc=14).to(device)
+    model = build_model(cfg_path, nc=_head.num_classes).to(device)
     model.eval()
 
     B, C, H, W = 1, 3, 224, 224
     img = torch.randn(B, C, H, W)
-    cmd_onehot = torch.zeros(B, 4)
+    cmd_onehot = torch.zeros(B, _head.num_commands)
     cmd_onehot[0, 0] = 1.0
 
     logger.info(f"Input Image Shape: {img.shape}")
@@ -45,11 +47,11 @@ def verify_io(cfg_path="neuro_pilot/cfg/models/neuralPilot.yaml"):
 
     traj = output.get('waypoints')
     if traj is not None:
-         logger.info(f"  Waypoints Shape: {traj.shape} (Standard: [B, 10, 2])")
+         logger.info(f"  Waypoints Shape: {traj.shape} (Standard: [B, {_head.num_waypoints}, 2])")
 
     cls = output.get('classes')
     if cls is not None:
-         logger.info(f"  Classes Shape: {cls.shape} (Standard: [B, 4])")
+         logger.info(f"  Classes Shape: {cls.shape} (Standard: [B, {_head.num_commands}])")
 
     gate = output.get('gate_score')
     if gate is not None:

@@ -1,7 +1,7 @@
 
 import unittest
 import torch
-from neuro_pilot.utils.losses import HeatmapLoss, CombinedLoss
+from neuro_pilot.utils.losses import HeatmapLoss, MultiTaskLossManager
 from neuro_pilot.nn.tasks import DetectionModel
 
 class MockConfig:
@@ -34,8 +34,8 @@ class TestUtils(unittest.TestCase):
         try:
             model = DetectionModel(cfg='neuro_pilot/cfg/models/neuro_pilot_v2.yaml', verbose=False)
             model.args = MockConfig()
-            # CombinedLoss(config, model)
-            loss_fn = CombinedLoss(model.args, model, device='cpu')
+            # MultiTaskLossManager(config, model)
+            loss_fn = MultiTaskLossManager(model.args, model, device='cpu')
 
             # Mock Preds
             {
@@ -46,14 +46,14 @@ class TestUtils(unittest.TestCase):
                 # Wait, DetectionLoss inputs 'bboxes' usually means decoded?
                 # DetectionModel returns 'bboxes' as decoded boxes if we processed it.
                 # But loss usually takes raw preds.
-                # CombinedLoss expects 'bboxes' in predictions dict.
-                # Let's verify CombinedLoss logic: det_loss(predictions['bboxes'], targets)
+                # MultiTaskLossManager expects 'bboxes' in predictions dict.
+                # Let's verify MultiTaskLossManager logic: det_loss(predictions['bboxes'], targets)
                 # But DetectionModel output 'bboxes' might be refined boxes?
             }
-             # Let's skip deep execution of CombinedLoss which needs complex targets
+             # Let's skip deep execution of MultiTaskLossManager which needs complex targets
             self.assertIsNotNone(loss_fn)
         except Exception as e:
-            print(f"CombinedLoss test skipped due to complexity: {e}")
+            print(f"MultiTaskLossManager test skipped due to complexity: {e}")
 
 if __name__ == '__main__':
     unittest.main()

@@ -5,6 +5,8 @@ from typing import Dict, Any, Union
 from pathlib import Path
 from abc import ABC, abstractmethod
 from neuro_pilot.utils.logger import logger
+from neuro_pilot.utils.torch_utils import default_names
+from neuro_pilot.core.registry import Registry
 
 class BaseTask(ABC):
     """
@@ -46,42 +48,13 @@ class BaseTask(ABC):
         """Load weights into the model."""
         pass
 
-class TaskRegistry:
-    """
-    Registry for managing available tasks.
-    Allows easy addition of new tasks without modifying core engine code.
-    """
 
-    _registry: Dict[str, type] = {}
-
-    @classmethod
-    def register(cls, name: str):
-        def decorator(task_cls):
-            if name in cls._registry:
-                logger.warning(f"Task '{name}' is already registered. Overwriting.")
-            cls._registry[name] = task_cls
-            return task_cls
-
-        return decorator
-
-    @classmethod
-    def get(cls, name: str) -> type:
-        if name not in cls._registry:
-            raise ValueError(
-                f"Task '{name}' not found in registry. Available: {list(cls._registry.keys())}"
-            )
-        return cls._registry[name]
-
-    @classmethod
-    def list_tasks(cls) -> list[str]:
-        return list(cls._registry.keys())
-
-from neuro_pilot.utils.losses import CombinedLoss
+from neuro_pilot.utils.losses import MultiTaskLossManager
 from neuro_pilot.engine.trainer import Trainer
 from neuro_pilot.engine.validator import Validator
 from neuro_pilot.utils.torch_utils import load_checkpoint
 
-@TaskRegistry.register("multitask")
+@Registry.register_task("multitask")
 class MultiTask(BaseTask):
     """
     E2E Multitask (Detection + Trajectory + Heatmap).
@@ -89,7 +62,7 @@ class MultiTask(BaseTask):
 
     def __init__(self, cfg, overrides=None, backbone=None):
         super().__init__(cfg, overrides, backbone)
-        self.names = {i: f"class_{i}" for i in range(self.cfg.head.num_classes)}
+        self.names = default_names(self.cfg.head.num_classes)
         if hasattr(self.cfg.data, "dataset_yaml") and self.cfg.data.dataset_yaml:
             from neuro_pilot.data.utils import check_dataset
 
@@ -113,37 +86,29 @@ class MultiTask(BaseTask):
                 )
 
     def build_model(self) -> nn.Module:
-        from neuro_pilot.nn.tasks import DetectionModel
+        from neuro_pilot.nn.factory import build_model
 
         model_cfg = self.overrides.get("model_cfg")
         skip_heatmap = self.overrides.get(
             "skip_heatmap_inference", self.cfg.head.skip_heatmap_inference
         )
 
-        if model_cfg and str(model_cfg).endswith((".yaml", ".yml")):
-            model = DetectionModel(
-                cfg=model_cfg,
-                ch=3,
-                nc=self.cfg.head.num_classes,
-                skip_heatmap_inference=skip_heatmap,
-                names=self.names,
-            )
-            self.model = model
-            return model
+        cfg_path = model_cfg if (model_cfg and str(model_cfg).endswith((".yaml", ".yml"))) else "neuro_pilot/cfg/models/neuralPilot.yaml"
+        verbose = bool(model_cfg)
 
-        model = DetectionModel(
-            cfg="neuro_pilot/cfg/models/neuralPilot.yaml",
+        self.model = build_model(
+            cfg_path=cfg_path,
+            ch=3,
             nc=self.cfg.head.num_classes,
-            skip_heatmap_inference=skip_heatmap,
-            verbose=False,
             names=self.names,
+            verbose=verbose,
+            skip_heatmap_inference=skip_heatmap,
         )
-        self.model = model
-        return model
+        return self.model
 
     def build_criterion(self) -> nn.Module:
         device = next(self.model.parameters()).device if self.model else None
-        self.criterion = CombinedLoss(self.cfg, self.model, device=device)
+        self.criterion = MultiTaskLossManager(self.cfg, self.model, device=device)
         return self.criterion
 
     def get_trainer(self) -> Trainer:
@@ -170,42 +135,38 @@ class MultiTask(BaseTask):
             self.build_model()
         load_checkpoint(weights_path, self.model)
 
-@TaskRegistry.register("detection")
-class DetectionTask(MultiTask):
+class SingleLossTask(MultiTask):
+    """Base for tasks that zero out specific losses.
+
+    Subclasses define ``_zeroed_losses`` as a dict of loss keys to disable.
+    """
+    _zeroed_losses: dict = {}
+    _task_label: str = ""
+
+    def __init__(self, cfg, overrides=None, backbone=None):
+        from neuro_pilot.cfg.schema import deep_update
+        loss_overrides = {"loss": dict(self._zeroed_losses)}
+        overrides = deep_update(overrides or {}, loss_overrides)
+        super().__init__(cfg, overrides, backbone)
+        if self._task_label:
+            logger.info(f"Task: {self._task_label}")
+
+
+@Registry.register_task("detection")
+class DetectionTask(SingleLossTask):
     """Detection-only training. Disables trajectory, heatmap, classification, and gate losses."""
+    _zeroed_losses = {
+        "lambda_traj": 0,
+        "lambda_heatmap": 0,
+        "lambda_cls": 0,
+        "lambda_smooth": 0,
+        "lambda_gate": 0,
+    }
+    _task_label = "Detection-only (trajectory/heatmap/cls losses disabled)"
 
-    def __init__(self, cfg, overrides=None, backbone=None):
-        from neuro_pilot.cfg.schema import deep_update
-        loss_overrides = {
-            "loss": {
-                "lambda_traj": 0,
-                "lambda_heatmap": 0,
-                "lambda_cls": 0,
-                "lambda_smooth": 0,
-                "lambda_gate": 0,
-            }
-        }
-        if overrides:
-            overrides = deep_update(overrides, loss_overrides)
-        else:
-            overrides = loss_overrides
-        super().__init__(cfg, overrides, backbone)
-        logger.info("Task: Detection-only (trajectory/heatmap/cls losses disabled)")
 
-@TaskRegistry.register("trajectory")
-class TrajectoryTask(MultiTask):
+@Registry.register_task("trajectory")
+class TrajectoryTask(SingleLossTask):
     """Trajectory-only training. Disables detection loss."""
-
-    def __init__(self, cfg, overrides=None, backbone=None):
-        from neuro_pilot.cfg.schema import deep_update
-        loss_overrides = {
-            "loss": {
-                "lambda_det": 0,
-            }
-        }
-        if overrides:
-            overrides = deep_update(overrides, loss_overrides)
-        else:
-            overrides = loss_overrides
-        super().__init__(cfg, overrides, backbone)
-        logger.info("Task: Trajectory-only (detection loss disabled)")
+    _zeroed_losses = {"lambda_det": 0}
+    _task_label = "Trajectory-only (detection loss disabled)"

@@ -259,8 +259,18 @@ def plot_results(csv_path: Union[str, Path], save_dir: Optional[Path] = None):
     plt.tight_layout(); plt.savefig(save_dir / "results.jpg", dpi=200); plt.close()
 
 def plot_batch(batch: Dict[str, Any], output: Optional[Dict[str, Any]], save_path: Union[str, Path],
-               names: Dict[int, str] = {}, max_samples: int = 4, conf_thres: float = 0.1):
-    """Report for batch inspection."""
+               names: Dict[int, str] = {}, max_samples: int = 4, conf_thres: float = 0.1,
+               active_tasks: set = None):
+    """Task-aware report for batch inspection.
+
+    Panels are rendered conditionally:
+    - Col 1: Trajectory overlay (always)
+    - Col 2: Detection panel (only when 'detection' in active_tasks)
+    - Col 3-4: Heatmap panels (only when 'heatmap' in active_tasks)
+    """
+    if active_tasks is None:
+        active_tasks = {'trajectory', 'detection', 'heatmap'}
+
     img_tensor = batch['image']
 
     if isinstance(names, list):
@@ -271,9 +281,8 @@ def plot_batch(batch: Dict[str, Any], output: Optional[Dict[str, Any]], save_pat
     waypoints_gt = targets_root.get('waypoints')
 
     with torch.no_grad():
-        mean = torch.tensor([0.485, 0.456, 0.406], device=img_tensor.device).view(1, 3, 1, 1)
-        std = torch.tensor([0.229, 0.224, 0.225], device=img_tensor.device).view(1, 3, 1, 1)
-        img_denorm = img_tensor * std + mean
+        from neuro_pilot.utils.torch_utils import imagenet_denormalize
+        img_denorm = imagenet_denormalize(img_tensor)
 
         inv_img = torch.clamp(img_denorm, 0, 1)
         img_bgr = (inv_img.permute(0,2,3,1).cpu().numpy() * 255).astype(np.uint8)
@@ -281,12 +290,15 @@ def plot_batch(batch: Dict[str, Any], output: Optional[Dict[str, Any]], save_pat
     img_bgr = np.ascontiguousarray(img_bgr[..., ::-1])
     B, H, W = img_bgr.shape[0], img_bgr.shape[1], img_bgr.shape[2]
     N = min(B, max_samples)
-    has_hm = output is not None and 'heatmap' in output
-    grid_cols = 2 + (2 if has_hm else 0)
+
+    # Dynamic grid: trajectory always, detection and heatmap conditional
+    show_det = 'detection' in active_tasks
+    has_hm = 'heatmap' in active_tasks and output is not None and 'heatmap' in output
+    grid_cols = 1 + (1 if show_det else 0) + (2 if has_hm else 0)
     mosaic = np.full((N * H, grid_cols * W, 3), 40, dtype=np.uint8)
 
     detections = None
-    if output is not None:
+    if show_det and output is not None:
         if 'bboxes' in output:
             detections = decode_and_nms(output['bboxes'], conf_thres=conf_thres)
         elif 'boxes' in output and 'scores' in output and 'feats' in output:
@@ -337,8 +349,9 @@ def plot_batch(batch: Dict[str, Any], output: Optional[Dict[str, Any]], save_pat
             show_pred = True
             if 'has_traj_logit' in output:
                 traj_conf = torch.sigmoid(output['has_traj_logit'][i]).item()
-                if traj_conf < 0.01:
-                    show_pred = False
+                # Always show prediction for debugging trajectory geometry, regardless of gate score
+                # if traj_conf < 0.01:
+                #     show_pred = False
 
             if 'has_traj_logit' in output:
                 traj_conf = torch.sigmoid(output['has_traj_logit'][i]).item()
@@ -355,50 +368,59 @@ def plot_batch(batch: Dict[str, Any], output: Optional[Dict[str, Any]], save_pat
         ann_p.text((10, 80), f"GO: {cmd_txt}", color=(255, 255, 0), bg_color=(0,0,0), scale=1.0)
         mosaic[y_off:y_off+H, 0:W] = ann_p.result()
 
-        img_rgb = cv2.cvtColor(img_bgr[i], cv2.COLOR_BGR2RGB)
-        can_v = img_rgb.copy(); ann_v = Annotator(can_v, pil=True)
+        # Track column offset for dynamic grid
+        col_idx = 1
 
-        if 'batch_idx' in targets_i:
-            idx_mask = (targets_i['batch_idx'] == i)
-            gt_b = targets_i['bboxes'][idx_mask]
-            gt_c = targets_i['cls'][idx_mask]
-        else:
-            gt_b = None
-            if 'bboxes' in targets_i and targets_i['bboxes'] is not None and i < len(targets_i['bboxes']):
-                gt_b = targets_i.get('bboxes')[i]
+        # Detection panel — only when detection is active
+        if show_det:
+            img_rgb = cv2.cvtColor(img_bgr[i], cv2.COLOR_BGR2RGB)
+            can_v = img_rgb.copy(); ann_v = Annotator(can_v, pil=True)
 
-            gt_c = None
-            if 'categories' in targets_i and targets_i['categories'] is not None and i < len(targets_i['categories']):
-                gt_c = targets_i.get('categories')[i]
+            if 'batch_idx' in targets_i and targets_i['bboxes'].dim() == 2:
+                idx_mask = (targets_i['batch_idx'] == i)
+                gt_b = targets_i['bboxes'][idx_mask] if len(idx_mask) == len(targets_i['bboxes']) else None
+                gt_c = targets_i['cls'][idx_mask] if len(idx_mask) == len(targets_i['cls']) else None
+            else:
+                gt_b = None
+                if 'bboxes' in targets_i and targets_i['bboxes'] is not None and i < len(targets_i['bboxes']):
+                    b_raw = targets_i.get('bboxes')[i]
+                    if b_raw.dim() == 2 and b_raw.shape[-1] > 0: gt_b = b_raw
 
-        if gt_b is not None:
-            if torch.is_tensor(gt_b): gt_b = gt_b.cpu().numpy()
-            if torch.is_tensor(gt_c): gt_c = gt_c.cpu().numpy()
-            if gt_b.ndim == 1 and gt_b.size > 0: gt_b = gt_b.reshape(-1, 4)
-            for idx, b in enumerate(gt_b):
-                if b.sum() == 0: continue
-                cls_idx = int(gt_c[idx]) if gt_c is not None and idx < len(gt_c) else -1
-                x1, y1, x2, y2 = xywh2xyxy(b.reshape(1, 4)).flatten() * [W, H, W, H]
+                gt_c = None
+                if 'categories' in targets_i and targets_i['categories'] is not None and i < len(targets_i['categories']):
+                    gt_c = targets_i.get('categories')[i]
+                elif 'cls' in targets_i and targets_i['cls'] is not None and i < len(targets_i['cls']):
+                    gt_c = targets_i.get('cls')[i]
 
-                color = colors(cls_idx, bgr=True)
-                txt_color = (255, 255, 255)
+            if gt_b is not None:
+                if torch.is_tensor(gt_b): gt_b = gt_b.cpu().numpy()
+                if torch.is_tensor(gt_c): gt_c = gt_c.cpu().numpy()
+                if gt_b.ndim == 1 and gt_b.size > 0: gt_b = gt_b.reshape(-1, 4)
+                for idx, b in enumerate(gt_b):
+                    if b.sum() == 0: continue
+                    cls_idx = int(gt_c[idx]) if gt_c is not None and idx < len(gt_c) else -1
+                    x1, y1, x2, y2 = xywh2xyxy(b.reshape(1, 4)).flatten() * [W, H, W, H]
 
-                gt_label = f"[GT] {names.get(cls_idx, cls_idx)}"
-                ann_v.box_label([x1, y1, x2, y2], label=gt_label, color=color, txt_color=txt_color)
+                    color = colors(cls_idx, bgr=True)
+                    txt_color = (255, 255, 255)
 
-        if detections is not None and i < len(detections):
-            det = detections[i]
-            if torch.is_tensor(det): det = det.detach().cpu().numpy()
-            for d in det:
-                cls_id = int(d[5]); conf = d[4]
-                color = colors(cls_id, bgr=True)
+                    gt_label = f"[GT] {names.get(cls_idx, cls_idx)}"
+                    ann_v.box_label([x1, y1, x2, y2], label=gt_label, color=color, txt_color=txt_color)
 
-                label_txt = f"{names.get(cls_id, str(cls_id))} {conf:.2f}"
-                ann_v.box_label(d[:4], label=label_txt, color=color)
-        ann_v.text((10, 40), "VISION", bg_color=(0,0,0), scale=1.2)
+            if detections is not None and i < len(detections):
+                det = detections[i]
+                if torch.is_tensor(det): det = det.detach().cpu().numpy()
+                for d in det:
+                    cls_id = int(d[5]); conf = d[4]
+                    color = colors(cls_id, bgr=True)
 
-        ann_v_res = cv2.cvtColor(ann_v.result(), cv2.COLOR_RGB2BGR)
-        mosaic[y_off:y_off+H, W:2*W] = ann_v_res
+                    label_txt = f"{names.get(cls_id, str(cls_id))} {conf:.2f}"
+                    ann_v.box_label(d[:4], label=label_txt, color=color)
+            ann_v.text((10, 40), "VISION", bg_color=(0,0,0), scale=1.2)
+
+            ann_v_res = cv2.cvtColor(ann_v.result(), cv2.COLOR_RGB2BGR)
+            mosaic[y_off:y_off+H, col_idx*W:(col_idx+1)*W] = ann_v_res
+            col_idx += 1
 
         if has_hm:
             from neuro_pilot.utils.losses import HeatmapLoss
@@ -407,7 +429,8 @@ def plot_batch(batch: Dict[str, Any], output: Optional[Dict[str, Any]], save_pat
                 gt_hm = hm_gen.generate_heatmap(waypoints_gt[i:i+1].cpu(), H, W).squeeze().numpy()
                 gt_hm = (gt_hm - gt_hm.min()) / (gt_hm.max() - gt_hm.min() + 1e-6)
                 can_gt = cv2.addWeighted(cv2.applyColorMap((gt_hm*255).astype(np.uint8), cv2.COLORMAP_JET), 0.6, img_bgr[i].copy(), 0.4, 0)
-                mosaic[y_off:y_off+H, 2*W:3*W] = can_gt
+                mosaic[y_off:y_off+H, col_idx*W:(col_idx+1)*W] = can_gt
+                col_idx += 1
 
             hm_tensor = output['heatmap']
             if isinstance(hm_tensor, dict): hm_tensor = hm_tensor.get('heatmap', next(iter(hm_tensor.values())))
@@ -422,7 +445,8 @@ def plot_batch(batch: Dict[str, Any], output: Optional[Dict[str, Any]], save_pat
             hm_i = np.clip(hm_i, 0, 1)
             hm_i = cv2.resize(np.nan_to_num(hm_i).astype(np.float32), (W, H))
             can_pred = cv2.addWeighted(cv2.applyColorMap((hm_i*255).astype(np.uint8), cv2.COLORMAP_JET), 0.6, img_bgr[i].copy(), 0.4, 0)
-            mosaic[y_off:y_off+H, 3*W:4*W] = can_pred
+            mosaic[y_off:y_off+H, col_idx*W:(col_idx+1)*W] = can_pred
+            col_idx += 1
 
     Path(save_path).parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(save_path), mosaic)

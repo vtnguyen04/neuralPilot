@@ -41,8 +41,10 @@ class Exporter:
         output_path = kwargs.get('file', "neuro_pilot_model.onnx")
         skip_heatmap = kwargs.get('skip_heatmap', False)
 
+        from neuro_pilot.cfg.schema import HeadConfig
+        _head = HeadConfig()
         im = torch.zeros(1, 3, *imgsz).to(self.device).float()
-        cmd = torch.zeros(1, 4).to(self.device).float()
+        cmd = torch.zeros(1, _head.num_commands).to(self.device).float()
 
         self.model.eval()
 
@@ -66,7 +68,7 @@ class Exporter:
 
                     waypoints = out.get('waypoints')
                     if waypoints is None:
-                        waypoints = torch.zeros(B, 10, 2, device=device)
+                        waypoints = torch.zeros(B, _head.num_waypoints, 2, device=device)
 
                     if not self.skip_heatmap:
                         hm = out.get('heatmap')
@@ -79,7 +81,7 @@ class Exporter:
 
                     classes = out.get('classes')
                     if classes is None:
-                        classes = torch.zeros(B, 4, device=device)
+                        classes = torch.zeros(B, _head.num_commands, device=device)
 
                     return bboxes, waypoints, hm, classes
 
@@ -165,9 +167,11 @@ class Exporter:
             if half:
                 cmd.append('--fp16')
             if dynamic:
-                cmd.append(f'--minShapes=image:1x3x{trt_imgsz}x{trt_imgsz},command:1x4')
-                cmd.append(f'--optShapes=image:4x3x{trt_imgsz}x{trt_imgsz},command:4x4')
-                cmd.append(f'--maxShapes=image:8x3x{trt_imgsz}x{trt_imgsz},command:8x4')
+                from neuro_pilot.cfg.schema import HeadConfig
+                num_cmd = HeadConfig().num_commands
+                cmd.append(f'--minShapes=image:1x3x{trt_imgsz}x{trt_imgsz},command:1x{num_cmd}')
+                cmd.append(f'--optShapes=image:4x3x{trt_imgsz}x{trt_imgsz},command:4x{num_cmd}')
+                cmd.append(f'--maxShapes=image:8x3x{trt_imgsz}x{trt_imgsz},command:8x{num_cmd}')
 
             logger.info(f"Running: {' '.join(cmd)}")
             subprocess.run(cmd, check=True, capture_output=True)

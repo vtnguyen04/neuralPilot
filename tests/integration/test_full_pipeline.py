@@ -1,7 +1,7 @@
 import torch
 from types import SimpleNamespace
 from neuro_pilot.nn.tasks import DetectionModel as NeuroPilotNet
-from neuro_pilot.utils.losses import CombinedLoss
+from neuro_pilot.utils.losses import MultiTaskLossManager
 
 def test_full_pipeline():
     # 1. Config
@@ -16,7 +16,7 @@ def test_full_pipeline():
     model = NeuroPilotNet(cfg="neuro_pilot/cfg/models/neuralPilot.yaml", nc=14).to(device)
 
     # 3. Loss
-    criterion = CombinedLoss(cfg, model, device=device)
+    criterion = MultiTaskLossManager(cfg, model, device=device)
 
     # 4. Dummy Batch
     B = 2
@@ -36,7 +36,7 @@ def test_full_pipeline():
     output = model(img, cmd_onehot=cmd)
 
     # 6. Loss calculation
-    loss_dict = criterion.advanced(output, targets)
+    loss_dict = criterion.forward(output, targets)
 
     print(f"\nLoss Dict: {loss_dict}")
 

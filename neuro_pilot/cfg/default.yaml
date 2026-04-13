@@ -8,7 +8,7 @@ loss:
   lambda_heatmap: 1.0 # Reduced from 10.0 to prevent heatmap dominance
   lambda_smooth: 0.1  # Smoothness loss multiplier
   lambda_cls: 1.0     # Classification loss multiplier
-  lambda_gate: 0.5    # Command gating loss multiplier
+  lambda_gate: 0.0    # Command gating loss multiplier (Temporarily disabled per user request)
   # Detection Head Component Loss Multipliers
   box: 7.5            # Box IoU loss multiplier
   cls_det: 0.5        # Box Classification loss multiplier

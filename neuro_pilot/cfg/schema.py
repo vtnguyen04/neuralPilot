@@ -12,6 +12,11 @@ class HeadConfig(BaseModel):
     num_commands: int = 4
     anchor_free: bool = True
     skip_heatmap_inference: bool = False
+    traj_embed_dim: int = 256
+    traj_num_heads: int = 4
+    traj_num_layers: int = 2
+    traj_num_points: int = 4
+    traj_ffn_dim: int = 512
 
 class LossConfig(BaseModel):
     lambda_traj: float = 2.0
@@ -33,6 +38,8 @@ class LossConfig(BaseModel):
     fitness_map50: float = 0.1
     fitness_map95: float = 0.2
     fitness_l1: float = 0.7
+    lambda_collision: float = 0.0
+    lambda_progress: float = 0.0
 
 class AugmentConfig(BaseModel):
     enabled: bool = True
@@ -85,7 +92,6 @@ class TrainerConfig(BaseModel):
     cmd_dropout_prob: float = 0.4
 
 class AppConfig(BaseModel):
-    model_config = ConfigDict(env_prefix="NeuroPilot_")
 
     project_name: str = "neuro_pilot_e2e"
     backbone: BackboneConfig = Field(default_factory=BackboneConfig)

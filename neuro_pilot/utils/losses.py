@@ -329,15 +329,108 @@ class FDATLoss(nn.Module):
 
         return l_frenet + self.lambda_heading * l_heading + self.lambda_smooth * l_smooth
 
-class CombinedLoss(nn.Module):
+
+class CollisionLoss(nn.Module):
+    """Penalizes waypoints falling inside detected obstacle regions.
+
+    Creates an occupancy grid from detection bounding boxes or inverted heatmap,
+    then samples the grid at predicted waypoint locations using grid_sample.
+
+    If neither detection boxes nor heatmap are provided, returns 0.
+
+    Reference: InterFuser (Shao et al., 2022), ThinkTwice (Jia et al., 2023).
+    """
+
+    def __init__(self, margin: float = 0.05):
+        super().__init__()
+        self.margin = margin
+
+    def forward(
+        self,
+        pred_wp: torch.Tensor,
+        det_boxes: torch.Tensor | None = None,
+        heatmap: torch.Tensor | None = None,
+        img_size: int = 320,
+    ) -> torch.Tensor:
+        """Compute collision penalty.
+
+        Args:
+            pred_wp: Predicted waypoints [B, T, 2] in range [-1, 1].
+            det_boxes: Detection boxes [N, 4] (xyxy, pixel coords) or None.
+            heatmap: Predicted heatmap [B, 1, H, W] (road=high, obstacle=low) or None.
+            img_size: Image size for coordinate normalization.
+
+        Returns:
+            Scalar collision loss.
+        """
+        B, T, _ = pred_wp.shape
+        device = pred_wp.device
+
+        if heatmap is not None:
+            # Invert heatmap: road (high) → 0, obstacle (low) → 1
+            occupancy = 1.0 - torch.sigmoid(heatmap)  # [B, 1, H, W]
+        elif det_boxes is not None and det_boxes.shape[0] > 0:
+            # Render boxes into occupancy grid
+            H = W = img_size // 4  # Match typical P3 resolution
+            occupancy = torch.zeros(B, 1, H, W, device=device)
+            scale = H / img_size
+            for box in det_boxes:
+                x1 = int(torch.clamp(box[0] * scale - self.margin * H, 0, W - 1))
+                y1 = int(torch.clamp(box[1] * scale - self.margin * H, 0, H - 1))
+                x2 = int(torch.clamp(box[2] * scale + self.margin * H, 0, W - 1))
+                y2 = int(torch.clamp(box[3] * scale + self.margin * H, 0, H - 1))
+                occupancy[:, :, y1:y2 + 1, x1:x2 + 1] = 1.0
+        else:
+            return torch.tensor(0.0, device=device, requires_grad=False)
+
+        # Sample occupancy at waypoint positions using grid_sample
+        # pred_wp is already in [-1, 1] range
+        grid = pred_wp.view(B, T, 1, 2)  # [B, T, 1, 2]
+        sampled = F.grid_sample(
+            occupancy, grid, mode="bilinear", padding_mode="zeros", align_corners=False
+        )  # [B, 1, T, 1]
+
+        return sampled.mean()
+
+
+class ProgressLoss(nn.Module):
+    """Ensures trajectory makes forward progress along longitudinal axis.
+
+    Penalizes consecutive waypoints with non-positive forward displacement.
+    Encourages monotonic progress to prevent the vehicle from predicting
+    stationary or backward-moving trajectories.
+
+    Reference: TCP (Wu et al., 2022).
+    """
+
+    def forward(self, pred_wp: torch.Tensor) -> torch.Tensor:
+        """Compute progress penalty.
+
+        Args:
+            pred_wp: Predicted waypoints [B, T, 2]. Assumes dim=1 is longitudinal.
+
+        Returns:
+            Scalar progress loss (0 if all forward, positive if backward/stationary).
+        """
+        # Longitudinal deltas (y-axis, index 1)
+        dy = pred_wp[:, 1:, 1] - pred_wp[:, :-1, 1]
+
+        # Penalize non-positive progress (backward or stationary)
+        penalty = F.relu(-dy)  # Only penalize negative deltas
+
+        return penalty.mean()
+
+class MultiTaskLossManager(nn.Module):
     """Multi-task loss with uncertainty-aware weighting."""
     def __init__(self, config, model, device=None):
         super().__init__()
         self.device = device or next(model.parameters()).device
         self.heatmap_loss = HeatmapLoss(device=self.device)
         self.traj_loss = nn.SmoothL1Loss(reduction='none', beta=0.1)
-        self.det_loss = DetectionLoss(model, config)
+        self.det_loss = DetectionLoss(model, config) if 'detect' in getattr(model, 'heads', {}) else None
         self.ce_cls = nn.CrossEntropyLoss()
+        self.collision_loss = CollisionLoss()
+        self.progress_loss = ProgressLoss()
 
         self.log_var_heatmap = nn.Parameter(torch.zeros(1, device=self.device))
         self.log_var_traj = nn.Parameter(torch.zeros(1, device=self.device))
@@ -351,6 +444,8 @@ class CombinedLoss(nn.Module):
         self.lambda_cls = getattr(loss_cfg, 'lambda_cls', 1.0)
         self.lambda_smooth = getattr(loss_cfg, 'lambda_smooth', 0.1)
         self.lambda_gate = getattr(loss_cfg, 'lambda_gate', 0.5)
+        self.lambda_collision = getattr(loss_cfg, 'lambda_collision', 0.0)
+        self.lambda_progress = getattr(loss_cfg, 'lambda_progress', 0.0)
 
         self.use_fdat = getattr(loss_cfg, 'use_fdat', False)
         self.use_uncertainty = getattr(loss_cfg, 'use_uncertainty', True)
@@ -366,7 +461,7 @@ class CombinedLoss(nn.Module):
                 tau_end=getattr(loss_cfg, 'fdat_tau_end', 2.0),
                 lambda_smooth=self.lambda_smooth,
             )
-            logger.info("CombinedLoss: FDAT trajectory loss ENABLED")
+            logger.info("MultiTaskLossManager: FDAT trajectory loss ENABLED")
 
     def _uncertainty_weight(self, loss, log_var, lambda_val=1.0):
         if lambda_val == 0: return torch.tensor(0.0, device=loss.device)
@@ -376,12 +471,12 @@ class CombinedLoss(nn.Module):
         precision = torch.exp(-clamped_log_var)
         return precision * (loss * lambda_val) + clamped_log_var
 
-    def advanced(self, predictions: dict, targets: dict) -> dict:
-        gt_wp = targets['waypoints']
+    def forward(self, predictions: dict, targets: dict) -> dict:
+        gt_wp = targets.get('waypoints')
 
         l_heat_raw = torch.tensor(0.0, device=self.device)
         pred_hm = predictions.get('heatmap')
-        if pred_hm is not None:
+        if pred_hm is not None and self.lambda_heatmap > 0:
             if isinstance(pred_hm, dict): pred_hm = pred_hm['heatmap']
             _, _, H, W = pred_hm.shape
             gt_hm = self.heatmap_loss.generate_heatmap(gt_wp, H, W)
@@ -390,7 +485,7 @@ class CombinedLoss(nn.Module):
         l_det_raw = torch.tensor(0.0, device=self.device)
         det_loss_items = torch.zeros(3, device=self.device)
         det_head_out = predictions.get('detect', predictions if 'boxes' in predictions else None)
-        if det_head_out is not None:
+        if det_head_out is not None and self.lambda_det > 0:
             if isinstance(det_head_out, tuple): det_head_out = det_head_out[1]
             det_loss_val, det_loss_items = self.det_loss(det_head_out, targets)
             l_det_raw = det_loss_val.sum()
@@ -399,11 +494,16 @@ class CombinedLoss(nn.Module):
         l_smooth = torch.tensor(0.0, device=self.device)
         pred_wp = predictions.get('waypoints')
         if pred_wp is not None:
+            if gt_wp.shape[1] != pred_wp.shape[1]:
+                gt_wp_loss = torch.nn.functional.interpolate(gt_wp.permute(0,2,1).float(), size=pred_wp.shape[1], mode='linear', align_corners=True).permute(0,2,1)
+            else:
+                gt_wp_loss = gt_wp
+
             if self.use_fdat:
                 gate = predictions.get('gate_score')
-                l_traj_raw = self.fdat_loss(pred_wp, gt_wp, gate)
+                l_traj_raw = self.fdat_loss(pred_wp, gt_wp_loss, gate)
             else:
-                l_traj_raw = self.traj_loss(pred_wp, gt_wp).mean(dim=(1, 2))
+                l_traj_raw = self.traj_loss(pred_wp, gt_wp_loss).mean(dim=(1, 2))
                 diff = pred_wp[:, 1:] - pred_wp[:, :-1]
                 l_smooth = (diff[:, 1:] - diff[:, :-1]).pow(2).mean(dim=(1, 2))
 
@@ -438,13 +538,13 @@ class CombinedLoss(nn.Module):
                 with torch.no_grad():
                     alpha_tqfl = 5.0
                     if l_traj_raw.dim() == 0:
-                        batch_err = l_traj_raw.detach().unsqueeze(0).expand(batch_size)
+                        batch_err = l_traj_raw.detach().unsqueeze(0).expand(batch_size, 1)
                     else:
-                        batch_err = l_traj_raw.detach()
+                        batch_err = l_traj_raw.detach().view(-1, 1)
 
                     target_exist = wp_mask * torch.exp(-alpha_tqfl * batch_err)
                     target_exist = torch.nan_to_num(target_exist, nan=0.0)
-                    target_exist = torch.clamp(target_exist, 0.0, 1.0)
+                    target_exist = torch.clamp(target_exist, 0.0, 1.0).mean(dim=1)
 
                 l_traj_exist = F.binary_cross_entropy_with_logits(
                     has_traj_logit.squeeze(-1),
@@ -456,21 +556,37 @@ class CombinedLoss(nn.Module):
         lambda_traj_exist = self.lambda_traj * 0.5
 
         if wp_mask.any():
-            l_heat_raw = (l_heat_raw * wp_mask).sum() / (wp_mask.sum() + 1e-6)
-            l_traj_raw = (l_traj_raw * wp_mask).sum() / (wp_mask.sum() + 1e-6)
-            l_smooth = (l_smooth * wp_mask).sum() / (wp_mask.sum() + 1e-6)
-            l_gate = (l_gate * wp_mask).sum() / (wp_mask.sum() + 1e-6)
+            l_heat_raw = (l_heat_raw * wp_mask).sum() / (wp_mask.sum() + 1e-6) if l_heat_raw.dim() == 2 else l_heat_raw.mean()
+            l_traj_raw = (l_traj_raw * wp_mask).sum() / (wp_mask.sum() + 1e-6) if l_traj_raw.dim() == 2 else l_traj_raw.mean()
+            l_smooth = (l_smooth * wp_mask).sum() / (wp_mask.sum() + 1e-6) if l_smooth.dim() == 2 else l_smooth.mean()
+            l_gate = (l_gate * wp_mask).sum() / (wp_mask.sum() + 1e-6) if l_gate.dim() == 2 else l_gate.mean()
         else:
             l_heat_raw = l_heat_raw.mean() * 0.0
             l_traj_raw = l_traj_raw.mean() * 0.0
             l_smooth = l_smooth.mean() * 0.0
             l_gate = l_gate.mean() * 0.0
 
+        # --- Collision & Progress losses ---
+        l_collision = torch.tensor(0.0, device=self.device)
+        l_progress = torch.tensor(0.0, device=self.device)
+        if pred_wp is not None:
+            if self.lambda_collision > 0:
+                det_boxes = None
+                if 'bboxes' in targets:
+                    det_boxes = targets['bboxes'].view(-1, 4).to(self.device) if targets['bboxes'].numel() > 0 else None
+                pred_hm_for_coll = predictions.get('heatmap')
+                if isinstance(pred_hm_for_coll, dict):
+                    pred_hm_for_coll = pred_hm_for_coll.get('heatmap')
+                l_collision = self.collision_loss(pred_wp, det_boxes, pred_hm_for_coll)
+
+            if self.lambda_progress > 0:
+                l_progress = self.progress_loss(pred_wp)
+
         with torch.no_grad():
             beta = 0.5
-            det_loss_target = 8.0 # Increased from 5.0
+            det_loss_target = 8.0
             pgp_gate = torch.exp(-beta * torch.relu(l_det_raw - det_loss_target))
-            pgp_gate = torch.clamp(pgp_gate, min=0.7) # Increased from 0.5 to keep 70% of gradients
+            pgp_gate = torch.clamp(pgp_gate, min=0.7)
 
         gated_l_traj_raw = l_traj_raw * pgp_gate
         gated_l_heat_raw = l_heat_raw * pgp_gate
@@ -479,11 +595,13 @@ class CombinedLoss(nn.Module):
                  self._uncertainty_weight(gated_l_traj_raw, self.log_var_traj, self.lambda_traj) +
                  self._uncertainty_weight(l_det_raw, self.log_var_det, self.lambda_det) +
                  self._uncertainty_weight(l_cls_raw, self.log_var_cls, self.lambda_cls) +
-                 self.lambda_smooth * l_smooth + self.lambda_gate * l_gate)
+                 self.lambda_smooth * l_smooth + self.lambda_gate * l_gate +
+                 self.lambda_collision * l_collision + self.lambda_progress * l_progress)
 
         if predict_traj_exist:
              total += lambda_traj_exist * l_traj_exist
 
         return {'total': total, 'traj': l_traj_raw, 'heatmap': l_heat_raw, 'det': l_det_raw,
                 'box': det_loss_items[0], 'cls_det': det_loss_items[1], 'dfl': det_loss_items[2],
-                'smooth': l_smooth, 'cls': l_cls_raw, 'gate': l_gate, 'traj_exist': l_traj_exist}
+                'smooth': l_smooth, 'cls': l_cls_raw, 'gate': l_gate, 'traj_exist': l_traj_exist,
+                'collision': l_collision, 'progress': l_progress}

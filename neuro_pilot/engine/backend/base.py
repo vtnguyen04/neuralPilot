@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 import torch
 import numpy as np
 from typing import Union, List, Tuple
+from neuro_pilot.utils.torch_utils import default_names
 
 class BaseBackend(ABC):
     """
@@ -14,7 +15,8 @@ class BaseBackend(ABC):
         self.device = device
         self.fp16 = fp16
         self.warmup_done = False
-        self.names = {i: f"class_{i}" for i in range(14)}
+        from neuro_pilot.cfg.schema import HeadConfig
+        self.names = default_names(HeadConfig().num_classes)
 
     @abstractmethod
     def forward(self, im: Union[torch.Tensor, np.ndarray], **kwargs) -> Union[torch.Tensor, List[torch.Tensor]]:

@@ -125,9 +125,9 @@ class CheckpointCallback(Callback):
 class VisualizationCallback(Callback):
     """
     Visualizes training/validation batches (Images + GT + Preds).
-    Ultralytics-style: train_batch0.jpg, val_batch0_pred.jpg
+    Task-aware: only renders panels for active tasks.
     """
-    def __init__(self, log_dir: Path):
+    def __init__(self, log_dir: Path, active_tasks: set = None):
         self.log_dir = log_dir
         self.log_dir.mkdir(parents=True, exist_ok=True)
         import matplotlib
@@ -135,11 +135,11 @@ class VisualizationCallback(Callback):
         import matplotlib.pyplot as plt
         self.plt = plt
         self.names = {}
+        self.active_tasks = active_tasks
 
     def _denormalize(self, img_tensor):
-        mean = torch.tensor([0.485, 0.456, 0.406], device=img_tensor.device).view(1, 3, 1, 1)
-        std = torch.tensor([0.229, 0.224, 0.225], device=img_tensor.device).view(1, 3, 1, 1)
-        return img_tensor * std + mean
+        from neuro_pilot.utils.torch_utils import imagenet_denormalize
+        return imagenet_denormalize(img_tensor)
 
     def visualize_batch(self, trainer, batch_idx, mode="train"):
         if not hasattr(trainer, 'current_batch') or not hasattr(trainer, 'current_output'):
@@ -147,11 +147,17 @@ class VisualizationCallback(Callback):
 
         from neuro_pilot.utils.plotting import visualize_batch
 
+        # Resolve active_tasks: prefer instance attr, fallback to trainer's method
+        active = self.active_tasks
+        if active is None and hasattr(trainer, '_get_active_tasks'):
+            active = trainer._get_active_tasks()
+
         visualize_batch(
             trainer.current_batch,
             trainer.current_output,
             self.log_dir / f"{mode}_batch{batch_idx}.jpg",
-            names=self.names
+            names=self.names,
+            active_tasks=active
         )
 
     def on_batch_end(self, trainer):
