@@ -447,9 +447,15 @@ class Trainer(BaseTrainer):
         for batch in dataloader:
             gt = batch['waypoints']
             if hasattr(self.model, 'num_waypoints') and gt.shape[1] != self.model.num_waypoints:
-                 gt = torch.nn.functional.interpolate(gt.permute(0,2,1), size=self.model.num_waypoints, mode='linear').permute(0,2,1)
+                 if gt.shape[1] > 1:
+                     gt = torch.nn.functional.interpolate(gt.permute(0,2,1).float(), size=self.model.num_waypoints, mode='linear', align_corners=True).permute(0,2,1)
+                 elif gt.shape[1] == 1:
+                     gt = gt.repeat(1, self.model.num_waypoints, 1)
+                 else:
+                     continue # Skip empty tracks for anchors
             all_gt.append(gt)
-        self.model.set_anchors(torch.cat(all_gt).mean(0).to(self.device))
+        if len(all_gt) > 0:
+            self.model.set_anchors(torch.cat(all_gt).mean(0).to(self.device))
         self.anchors_initialized = True
 
     def train_one_epoch(self, dataloader):
@@ -575,17 +581,24 @@ class Trainer(BaseTrainer):
         if pred_path is not None:
             pred_path = pred_path.float()
             gt = batch['targets']['waypoints']
-            if gt.shape[1] != pred_path.shape[1]:
-                 gt = torch.nn.functional.interpolate(gt.permute(0,2,1), size=pred_path.shape[1], mode='linear').permute(0,2,1)
-            err_abs = (pred_path - gt).abs()
-            l1_err = err_abs.mean().item()
-            filtered_loss['L1'] = l1_err
+            if gt.shape[1] == 0:
+                filtered_loss['L1'] = 0.0
+                filtered_loss['wL1'] = 0.0
+            else:
+                if gt.shape[1] != pred_path.shape[1]:
+                     if gt.shape[1] > 1:
+                         gt = torch.nn.functional.interpolate(gt.permute(0,2,1).float(), size=pred_path.shape[1], mode='linear', align_corners=True).permute(0,2,1)
+                     else:
+                         gt = gt.repeat(1, pred_path.shape[1], 1)
+                err_abs = (pred_path - gt).abs()
+                l1_err = err_abs.mean().item()
+                filtered_loss['L1'] = l1_err
 
-            from neuro_pilot.utils.ops import get_bathtub_weights
-            T = pred_path.shape[1]
-            w = get_bathtub_weights(T, self.cfg.loss.fdat_tau_start, self.cfg.loss.fdat_tau_end, device=self.device)
-            weighted_l1 = (err_abs.mean(-1) * w).mean().item()
-            filtered_loss['wL1'] = weighted_l1
+                from neuro_pilot.utils.ops import get_bathtub_weights
+                T = pred_path.shape[1]
+                w = get_bathtub_weights(T, self.cfg.loss.fdat_tau_start, self.cfg.loss.fdat_tau_end, device=self.device)
+                weighted_l1 = (err_abs.mean(-1) * w).mean().item()
+                filtered_loss['wL1'] = weighted_l1
 
         self.epoch_metrics.update(filtered_loss)
         self.batch_metrics = self.epoch_metrics.averages()
