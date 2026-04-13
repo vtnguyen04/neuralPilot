@@ -88,7 +88,8 @@ def main():
         return
 
     try:
-        model = NeuroPilot(args.model)
+        model_scale = kwargs.pop('model_scale', 'n')
+        model = NeuroPilot(args.model, scale=model_scale)
 
         if args.mode == "train":
             model.train(
