@@ -241,8 +241,12 @@ class TrajectoryHead(BaseHead):
 
         flatten_dim = self.c5_dim * 4 * 4
 
+        from neuro_pilot.cfg.schema import HeadConfig
+        self.use_vego = getattr(HeadConfig(), 'use_vego', True)
+        vision_in_dim = flatten_dim + 64 + (1 if self.use_vego else 0)
+
         self.vision_stem = nn.Sequential(
-            nn.Linear(flatten_dim + 64, 512),
+            nn.Linear(vision_in_dim, 512),
             nn.BatchNorm1d(512),
             nn.ReLU(inplace=True)
         )
@@ -293,7 +297,18 @@ class TrajectoryHead(BaseHead):
         cmd_emb = self.cmd_embed(cmd_idx.long()).to(dtype)
         pooled = F.interpolate(feat, size=(4, 4), mode='bilinear', align_corners=False).flatten(1).to(dtype)
 
-        combined = torch.cat([pooled, cmd_emb], dim=1)
+        vEgo = kwargs.get('vEgo')
+        if vEgo is None:
+            vEgo = torch.zeros(B, 1, dtype=dtype, device=p5.device)
+        else:
+            if vEgo.dim() == 1:
+                vEgo = vEgo.unsqueeze(-1)
+            vEgo = vEgo.to(dtype) / 30.0 # Normalize assuming max 30m/s (108km/h) for scaling stable gradient
+
+        if self.use_vego:
+            combined = torch.cat([pooled, cmd_emb, vEgo], dim=1)
+        else:
+            combined = torch.cat([pooled, cmd_emb], dim=1)
 
         for layer in self.vision_stem:
             combined = layer(combined)

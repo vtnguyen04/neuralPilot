@@ -22,6 +22,10 @@
 # Un-ignore the neuro_pilot/data python module
 !/neuro_pilot/data/
 
+# Un-ignore assets directory (logo, media for README)
+!/assets/
+!/assets/**
+
 # Un-ignore the minio_data directory for .gitkeep tracking
 !/tools/labeler/data/
 /tools/labeler/data/*

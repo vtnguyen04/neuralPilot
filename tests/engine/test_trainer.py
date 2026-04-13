@@ -17,24 +17,19 @@ def test_trainer_initialization(base_config):
     assert getattr(trainer, "device") is not None
 
 def test_trainer_progress_string(base_config):
-    """Test that the progress_string returns a correctly formatted header without terminal wrap issues."""
+    """Test that the progress_string returns a correctly formatted header with dynamic task columns."""
     trainer = Trainer(base_config)
-
-    # We mock loss names matching the current 9 names
-    trainer.loss_names = ["total", "traj", "box", "cls_det", "dfl", "heatmap", "gate", "L1", "wL1"]
 
     header_str = trainer.progress_string()
 
-    # 13 items total ("Epoch", "GPU_mem" + 9 loss items + "Instances", "Size").
-    # Updated to 112 characters for leaner, professional UI
-    assert len(header_str) == 112
-
-    # Verify specific columns exist in the header (account for lean naming)
+    # Core columns always present regardless of active tasks
     assert "mem" in header_str
     assert "Epoch" in header_str
     assert "traj" in header_str
-    assert "dfl" in header_str
+    assert "total" in header_str
     assert "inst" in header_str
+    assert "sz" in header_str
+    assert "L1" in header_str
 
 def test_trainer_batch_metrics(base_config):
     """Test the batch metrics dictionary updates."""

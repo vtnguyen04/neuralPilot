@@ -13,7 +13,7 @@ from neuro_pilot.utils.logger import logger as LOGGER
 from neuro_pilot.utils.ops import get_bathtub_weights
 
 PROJECT = "NeuroPilot AI"
-VERSION = "2.5.0"
+VERSION = "1.0.0"
 
 class SimpleClass:
     """Mock for legacy SimpleClass compatibility."""
@@ -533,24 +533,39 @@ class DetMetrics(SimpleClass, DataExportMixin):
 
 from abc import ABC, abstractmethod
 
-def calculate_fitness(metrics: dict, weights: dict = None) -> float:
+def calculate_fitness(metrics: dict, weights: dict = None, active_tasks: set = None) -> float:
     """
     Calculate a single fitness score for the multi-task model.
-    Higher is better.
+    Higher is better. Task-aware: only includes metrics for active tasks.
+    When only trajectory is active, fitness = 1/(1+L1) purely.
     """
     weights = weights or {'map50': 0.1, 'map95': 0.2, 'l1': 0.7}
-
-    map_50 = metrics.get('mAP_50', 0.0)
-    map_95 = metrics.get('mAP_50-95', 0.0)
-    l1 = metrics.get('L1', 1.0)
 
     w_map50 = weights.get('map50', 0.1)
     w_map95 = weights.get('map95', 0.2)
     w_l1 = weights.get('l1', 0.7)
 
-    l1_score = 1.0 / (1.0 + l1)
+    score = 0.0
+    total_weight = 0.0
 
-    return map_50 * w_map50 + map_95 * w_map95 + l1_score * w_l1
+    # Detection component — only when detection is active
+    if active_tasks is None or 'detection' in active_tasks:
+        map_50 = metrics.get('mAP_50', 0.0)
+        map_95 = metrics.get('mAP_50-95', 0.0)
+        score += map_50 * w_map50 + map_95 * w_map95
+        total_weight += w_map50 + w_map95
+
+    # Trajectory component — always active
+    l1 = metrics.get('L1', 1.0)
+    l1_score = 1.0 / (1.0 + l1)
+    score += l1_score * w_l1
+    total_weight += w_l1
+
+    # Re-normalize so fitness is always in [0, 1] range regardless of active tasks
+    if total_weight > 0:
+        score = score / total_weight
+
+    return score
 
 class BaseMetric(ABC):
     @abstractmethod
@@ -561,41 +576,87 @@ class BaseMetric(ABC):
     def reset(self): pass
 
 class TrajectoryMetric(BaseMetric):
+    """Comprehensive trajectory evaluation metrics.
+
+    Computes:
+    - L1: Mean absolute error across all waypoints and dimensions
+    - Weighted L1: L1 with bathtub weighting (emphasizing start/end points)
+    - ADE: Average Displacement Error (L2 norm per timestep, averaged)
+    - FDE: Final Displacement Error (L2 at last waypoint — most critical for planning)
+    - Lateral Error: Mean error perpendicular to GT heading direction
+    - Longitudinal Error: Mean error along GT heading direction
+    """
     def __init__(self, tau_start: float = 2.0, tau_end: float = 2.0):
-        self.total_l1 = 0.0
-        self.total_weighted_l1 = 0.0
-        self.count = 0
         self.tau_start = tau_start
         self.tau_end = tau_end
+        self.reset()
 
     def reset(self):
         self.total_l1 = 0.0
         self.total_weighted_l1 = 0.0
+        self.total_ade = 0.0
+        self.total_fde = 0.0
+        self.total_lateral = 0.0
+        self.total_longitudinal = 0.0
         self.count = 0
 
     def update(self, preds, batch):
         if 'waypoints' not in preds: return
-        pred_wp = preds['waypoints']
-        gt_wp = batch['waypoints'].to(pred_wp.device)
+        pred_wp = preds['waypoints'].float()
+        gt_wp = batch['waypoints'].to(pred_wp.device).float()
 
         if gt_wp.shape[1] != pred_wp.shape[1]:
-             gt_wp = torch.nn.functional.interpolate(gt_wp.permute(0,2,1), size=pred_wp.shape[1], mode='linear').permute(0,2,1)
+             gt_wp = torch.nn.functional.interpolate(
+                 gt_wp.permute(0,2,1), size=pred_wp.shape[1], mode='linear'
+             ).permute(0,2,1)
 
+        # L1 Error
         err_abs = (pred_wp - gt_wp).abs()
         l1 = err_abs.mean().item()
 
+        # Weighted L1
         T = pred_wp.shape[1]
         w = get_bathtub_weights(T, self.tau_start, self.tau_end, device=pred_wp.device)
         weighted_l1 = (err_abs.mean(-1) * w).mean().item()
 
+        # ADE: Average Displacement Error (L2 norm per timestep)
+        displacement = torch.sqrt(((pred_wp - gt_wp) ** 2).sum(dim=-1))  # (B, T)
+        ade = displacement.mean().item()
+
+        # FDE: Final Displacement Error (L2 at last waypoint)
+        fde = displacement[:, -1].mean().item()
+
+        # Lateral / Longitudinal decomposition
+        # Compute GT heading vectors between consecutive waypoints
+        gt_diff = gt_wp[:, 1:] - gt_wp[:, :-1]  # (B, T-1, 2)
+        heading_norm = torch.sqrt((gt_diff ** 2).sum(dim=-1, keepdim=True)).clamp(min=1e-6)
+        heading_unit = gt_diff / heading_norm  # unit heading vector
+
+        # Error at interior points (excluding last)
+        err_interior = (pred_wp[:, :-1] - gt_wp[:, :-1])  # (B, T-1, 2)
+
+        # Longitudinal = dot(err, heading), Lateral = cross magnitude
+        longitudinal = (err_interior * heading_unit).sum(dim=-1).abs()  # (B, T-1)
+        lateral = (err_interior[..., 0] * heading_unit[..., 1] -
+                   err_interior[..., 1] * heading_unit[..., 0]).abs()     # (B, T-1)
+
         self.total_l1 += l1
         self.total_weighted_l1 += weighted_l1
+        self.total_ade += ade
+        self.total_fde += fde
+        self.total_lateral += lateral.mean().item()
+        self.total_longitudinal += longitudinal.mean().item()
         self.count += 1
 
     def compute(self):
+        n = max(1, self.count)
         return {
-            'L1': self.total_l1 / max(1, self.count),
-            'Weighted_L1': self.total_weighted_l1 / max(1, self.count)
+            'L1': self.total_l1 / n,
+            'Weighted_L1': self.total_weighted_l1 / n,
+            'ADE': self.total_ade / n,
+            'FDE': self.total_fde / n,
+            'Lateral_Error': self.total_lateral / n,
+            'Longitudinal_Error': self.total_longitudinal / n,
         }
 
 class HeatmapMetric(BaseMetric):

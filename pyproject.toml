@@ -31,7 +31,7 @@ dependencies = [
     "pydantic>=2.0",
     "rich",
     "python-multipart>=0.0.21",
-    "torchmetrics>=1.8.2",                                                                                                                                                                                                                                                                                                                                                                                  
+    "torchmetrics>=1.8.2",
     "scikit-learn>=1.7.2",
     "seaborn>=0.13.2",
     "pycocotools>=2.0.11",
@@ -42,12 +42,15 @@ dependencies = [
     "onnxsim>=0.4.36",
     "pynvml>=13.0.1",
     "tensorrt>=10.15.1.29",
+    "datasets>=4.8.4",
+    "pyarrow>=23.0.1",
 ]
 
 [dependency-groups]
 dev = [
     "ruff>=0.9.10",
     "pytest>=8.0.0",
+    "mypy>=1.20.1",
 ]
 
 [project.urls]
