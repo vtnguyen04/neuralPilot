@@ -308,8 +308,7 @@ class NeuroPilotDataset(Dataset):
     def collate_fn(self): return custom_collate_fn
 
 def custom_collate_fn(batch):
-    from neuro_pilot.cfg.schema import HeadConfig
-    num_wp = HeadConfig().num_waypoints
+    num_wp = batch[0]['waypoints'].shape[0]
     collated = {}
     collated['image'] = torch.stack([b['image'] for b in batch])
     collated['image_path'] = [b['image_path'] for b in batch]
@@ -372,6 +371,23 @@ def create_dataloaders(config, root_dir=None, use_weighted_sampling=True, use_au
 
     tr_pipe = StandardAugmentor(training=use_aug, imgsz=config.data.image_size, config=config.data.augment)
     val_pipe = StandardAugmentor(training=False, imgsz=config.data.image_size)
+
+    from neuro_pilot.data.utils import check_dataset
+    yaml_dict = check_dataset(config.data.dataset_yaml) if config.data.dataset_yaml else {}
+
+    from neuro_pilot.data.datasets import DATASET_REGISTRY
+
+    ds_type = yaml_dict.get('type', 'yolo')
+
+    if ds_type in DATASET_REGISTRY:
+        ds_cls = DATASET_REGISTRY[ds_type]
+        tr_ds = ds_cls.from_config(config, split='train', yaml_dict=yaml_dict)
+        val_ds = ds_cls.from_config(config, split='val', yaml_dict=yaml_dict)
+        collate = getattr(ds_cls, 'collate_fn', custom_collate_fn)
+
+        tr_loader = build_dataloader(tr_ds, batch=config.data.batch_size, shuffle=True, workers=0, collate_fn=collate)
+        val_loader = build_dataloader(val_ds, batch=config.data.batch_size, shuffle=False, workers=0, collate_fn=collate)
+        return tr_loader, val_loader
 
     tr_ds = NeuroPilotDataset(root_dir=root_dir, transform=tr_pipe, dataset_yaml=config.data.dataset_yaml, split='train', imgsz=config.data.image_size)
 

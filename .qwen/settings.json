@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Read(//home/quynhthu/Documents/AI-project/**)",
-      "Read(//home/quynhthu/**)"
-    ]
-  },
-  "$version": 3
-}

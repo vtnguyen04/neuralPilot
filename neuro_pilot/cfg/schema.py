@@ -85,7 +85,6 @@ class TrainerConfig(BaseModel):
     cmd_dropout_prob: float = 0.4
 
 class AppConfig(BaseModel):
-    model_config = ConfigDict(env_prefix="NeuroPilot_")
 
     project_name: str = "neuro_pilot_e2e"
     backbone: BackboneConfig = Field(default_factory=BackboneConfig)
