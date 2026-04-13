@@ -38,8 +38,10 @@ class LossConfig(BaseModel):
     fitness_map50: float = 0.1
     fitness_map95: float = 0.2
     fitness_l1: float = 0.7
-    lambda_collision: float = 0.0
-    lambda_progress: float = 0.0
+    lambda_collision: float = Field(0.0, description="Collision loss multiplier.")
+    lambda_progress: float = Field(0.0, description="Progress loss multiplier.")
+    lambda_jepa: float = Field(0.0, description="JEPA auxiliary representation loss multiplier.")
+    lambda_sigreg: float = Field(0.0, description="SIGReg regularization multiplier.")
 
 class AugmentConfig(BaseModel):
     enabled: bool = True
