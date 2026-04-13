@@ -192,6 +192,7 @@ CHANNEL_HANDLERS_BY_NAME: dict[str, callable] = {
     "Segment": _head_handler,
     "HeatmapHead": _head_handler,
     "TrajectoryHead": _head_handler,
+    "DeformableTrajectoryHead": _head_handler,
     "ClassificationHead": _head_handler,
     "Concat": _concat_handler,
     "VLFusion": _vlfusion_handler,

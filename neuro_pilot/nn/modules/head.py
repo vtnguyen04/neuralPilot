@@ -432,7 +432,7 @@ class DeformableTrajectoryHead(BaseHead):
         dropout: float = 0.1,
     ):
         super().__init__()
-        c_in = ch[-1] if isinstance(ch, (list, tuple)) else ch
+        c_in = ch[0] if isinstance(ch, (list, tuple)) else ch
         self.num_waypoints = num_waypoints
         self.embed_dim = embed_dim
         self.n_levels = 1  # Single-scale (P5 only), extensible to multi-scale

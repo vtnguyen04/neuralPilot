@@ -49,22 +49,22 @@ data:
   batch_size: 32
   num_workers: 4
   augment:
-    affine_prob: 0.5
-    rotate_deg: 5.0
-    translate: 0.1
-    scale: 0.5
-    shear: 0.2
-    perspective_prob: 0.3
-    perspective: 0.1
+    affine_prob: 0.0
+    rotate_deg: 0.0
+    translate: 0.0
+    scale: 0.0
+    shear: 0.0
+    perspective_prob: 0.0
+    perspective: 0.0
     hsv_prob: 0.5
     hsv_h: 0.015
     hsv_s: 0.7
     hsv_v: 0.4
     color_jitter_prob: 0.5
     color_jitter: 0.3    # Random brightness and contrast intensity
-    fliplr: 0.5
-    mosaic: 1.0
-    mixup: 1.0
+    fliplr: 0.0
+    mosaic: 0.0
+    mixup: 0.0
     copy_paste: 0.0
     noise_prob: 0.2      # Probability of adding Gauss/ISO noise
     blur_prob: 0.1       # Probability of adding Motion/Gaussian blur
