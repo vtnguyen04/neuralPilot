@@ -4,5 +4,7 @@ from .head import Detect, UnifiedDetectionHead, HeatmapHead, TrajectoryHead, Def
 from .attention import AttentionGate, VLFusion, LanguagePromptEncoder, CommandGate, CFRBridge
 from .routing import FeatureRouter
 from .backbone import TimmBackbone, NeuroPilotBackbone
+from .jepa import JEPAPredictor
+from .lewm_modules import *
 
-__all__ = ["Conv", "Concat", "C3", "C2f", "C3k", "C3k2", "SPPF", "Bottleneck", "DFL", "C2PSA", "Detect", "UnifiedDetectionHead", "HeatmapHead", "TrajectoryHead", "DeformableTrajectoryHead", "FeatureRouter", "TimmBackbone", "NeuroPilotBackbone", "BaseHead", "ClassificationHead", "AttentionGate", "VLFusion", "CFRBridge", "LanguagePromptEncoder", "CommandGate", "Attention", "Proto", "Segment"]
+__all__ = ["Conv", "Concat", "C3", "C2f", "C3k", "C3k2", "SPPF", "Bottleneck", "DFL", "C2PSA", "Detect", "UnifiedDetectionHead", "HeatmapHead", "TrajectoryHead", "DeformableTrajectoryHead", "FeatureRouter", "TimmBackbone", "NeuroPilotBackbone", "BaseHead", "ClassificationHead", "AttentionGate", "VLFusion", "CFRBridge", "LanguagePromptEncoder", "CommandGate", "Attention", "Proto", "Segment", "JEPAPredictor"]

@@ -110,6 +110,8 @@ class BaseTrainer:
             tasks.add('heatmap')
         if _get('lambda_gate') > 0:
             tasks.add('gate')
+        if _get('lambda_jepa') > 0 or _get('lambda_sigreg') > 0:
+            tasks.add('jepa')
         return tasks
 
     def save_args(self):
@@ -167,6 +169,7 @@ class BaseTrainer:
         if 'detection' in active: core_headers.extend(["box", "cls", "dfl"])
         if 'heatmap' in active: core_headers.extend(["hm"])
         if 'gate' in active: core_headers.extend(["gate"])
+        if 'jepa' in active: core_headers.extend(["jepa", "sigreg"])
         core_headers.extend(["L1", "wL1"])
 
         headers = ["Epoch", "mem"] + core_headers + ["inst", "sz"]
@@ -474,7 +477,8 @@ class Trainer(BaseTrainer):
             with torch.amp.autocast('cuda', enabled=self.cfg.trainer.use_amp):
                 model_kwargs = {k: v for k, v in batch.items() if k not in ('image', 'targets', 'image_path')}
                 output = self.model(batch['image'], return_intermediate=True, **model_kwargs)
-                loss_dict = self.criterion(output, batch.get('targets', batch))
+                ema_model = self.ema.ema if hasattr(self, 'ema') and self.ema else None
+                loss_dict = self.criterion(output, batch.get('targets', batch), ema_model=ema_model, batch=batch)
                 loss = loss_dict['total']
 
             if not torch.isfinite(loss):
@@ -555,6 +559,7 @@ class Trainer(BaseTrainer):
             'detection': {'det', 'box', 'cls_det', 'dfl'},
             'heatmap': {'heatmap'},
             'gate': {'gate'},
+            'jepa': {'jepa', 'sigreg'},
         }
         excluded_keys = set()
         for task_name, keys in task_keys.items():
@@ -611,6 +616,12 @@ class Trainer(BaseTrainer):
 
         if 'gate' in active:
             metrics_vals.append(f"{self.batch_metrics.get('gate', 0):.3g}")
+
+        if 'jepa' in active:
+            metrics_vals.extend([
+                f"{self.batch_metrics.get('jepa', 0):.3g}",
+                f"{self.batch_metrics.get('sigreg', 0):.3g}"
+            ])
 
         metrics_vals.extend([
             f"{self.batch_metrics.get('L1', 0):.3g}",

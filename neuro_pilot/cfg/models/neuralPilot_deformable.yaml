@@ -53,3 +53,4 @@ head:
   - [[14, 4], 1, HeatmapHead, [1, 64, 3]]  # 22 (Heatmap)
   - [[20, 22], 1, DeformableTrajectoryHead, [nm, nw]] # 23 (Trajectory)
   - [20, 1, ClassificationHead, [nm]]      # 24 (Commands)
+  - [20, 1, JEPAPredictor, [256, 256]]     # 25 (World Model JEPA Latent Representation)

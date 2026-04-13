@@ -2,10 +2,10 @@ from neuro_pilot import NeuroPilot
 import neuro_pilot.engine.task  # triggers @Registry.register_task
 
 def run_real_training():
-    model = NeuroPilot("neuro_pilot/cfg/models/neuralPilot_deformable.yaml", scale="n")
+    model = NeuroPilot("neuro_pilot/cfg/models/neuralPilot_deformable.yaml", scale="s")
 
     model.train(
-        data="/home/quynhthu/Documents/multitask_data/data.yaml",
+        data="/home/quynhthu/Documents/waypoint_data/data.yaml",
 
         # Override Trainer parameters
         epochs=2,
@@ -19,6 +19,10 @@ def run_real_training():
         lambda_heatmap=1.5,  # Lowered from 3.0 to prevent it from hogging gradients
         lambda_gate=0.5,
         lambda_smooth=0.1,
+
+        # World Model & Representation Representation Learning
+        lambda_jepa=1.0,     # JEPA Target Consistency Loss
+        lambda_sigreg=1.0,   # SIGReg Isotropic Regularization Loss
 
         # Detection Sub-Losses
         box=1.0,

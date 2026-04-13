@@ -169,6 +169,12 @@ def _language_encoder_handler(m, f, n, args, ch, nc, gw, d, layers, scale):
     return c2, args, n
 
 
+def _jepa_predictor_handler(m, f, n, args, ch, nc, gw, d, layers, scale):
+    c2 = ch[f[0]] if isinstance(f, list) else ch[f]
+    args.insert(0, c2)
+    return c2, args, n
+
+
 # Dispatch by class identity (for built-in nn modules and frequently used types)
 CHANNEL_HANDLERS = {
     Conv: _conv_family_handler,
@@ -198,6 +204,7 @@ CHANNEL_HANDLERS_BY_NAME: dict[str, callable] = {
     "VLFusion": _vlfusion_handler,
     "CFRBridge": _cfr_bridge_handler,
     "LanguagePromptEncoder": _language_encoder_handler,
+    "JEPAPredictor": _jepa_predictor_handler,
 }
 
 

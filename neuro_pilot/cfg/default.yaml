@@ -6,9 +6,13 @@ loss:
   lambda_det: 1.0     # Reduced from 2.5 to avoid double-weighting (standard YOLOv8 scales already applied in head)
   lambda_traj: 2.0   # Reduced from 7.5 to align with other task magnitudes
   lambda_heatmap: 1.0 # Reduced from 10.0 to prevent heatmap dominance
+  lambda_collision: 0.0      # experimental collision penalization multiplier
+  lambda_progress: 0.0       # experimental zero progress penalization
+  lambda_jepa: 0.0           # World Model JEPA consistency loss
+  lambda_sigreg: 0.0         # SIGReg Isotropic regularizer loss
   lambda_smooth: 0.1  # Smoothness loss multiplier
   lambda_cls: 1.0     # Classification loss multiplier
-  lambda_gate: 0.0    # Command gating loss multiplier (Temporarily disabled per user request)
+  lambda_gate: 0.0    # Command gating loss multiplier
   # Detection Head Component Loss Multipliers
   box: 7.5            # Box IoU loss multiplier
   cls_det: 0.5        # Box Classification loss multiplier

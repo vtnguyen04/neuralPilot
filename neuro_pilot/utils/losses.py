@@ -446,6 +446,8 @@ class MultiTaskLossManager(nn.Module):
         self.lambda_gate = getattr(loss_cfg, 'lambda_gate', 0.5)
         self.lambda_collision = getattr(loss_cfg, 'lambda_collision', 0.0)
         self.lambda_progress = getattr(loss_cfg, 'lambda_progress', 0.0)
+        self.lambda_jepa = getattr(loss_cfg, 'lambda_jepa', 0.0)
+        self.lambda_sigreg = getattr(loss_cfg, 'lambda_sigreg', 0.0)
 
         self.use_fdat = getattr(loss_cfg, 'use_fdat', False)
         self.use_uncertainty = getattr(loss_cfg, 'use_uncertainty', True)
@@ -471,8 +473,20 @@ class MultiTaskLossManager(nn.Module):
         precision = torch.exp(-clamped_log_var)
         return precision * (loss * lambda_val) + clamped_log_var
 
-    def forward(self, predictions: dict, targets: dict) -> dict:
+    def forward(self, predictions: dict, targets: dict, ema_model=None, batch=None) -> dict:
         gt_wp = targets.get('waypoints')
+
+        l_jepa = torch.tensor(0.0, device=self.device)
+        l_sigreg = torch.tensor(0.0, device=self.device)
+        if self.lambda_jepa > 0 and 'jepa_pred' in predictions and ema_model is not None and batch is not None:
+            with torch.no_grad():
+                ema_out = ema_model(batch['image'], return_intermediate=True)
+            if isinstance(ema_out, dict) and 'jepa_context' in ema_out:
+                jepa_target_ctx = ema_out['jepa_context'].detach()
+                l_jepa = F.mse_loss(predictions['jepa_pred'], jepa_target_ctx)
+
+        if self.lambda_sigreg > 0 and 'sigreg_loss' in predictions:
+            l_sigreg = predictions['sigreg_loss']
 
         l_heat_raw = torch.tensor(0.0, device=self.device)
         pred_hm = predictions.get('heatmap')
@@ -596,7 +610,8 @@ class MultiTaskLossManager(nn.Module):
                  self._uncertainty_weight(l_det_raw, self.log_var_det, self.lambda_det) +
                  self._uncertainty_weight(l_cls_raw, self.log_var_cls, self.lambda_cls) +
                  self.lambda_smooth * l_smooth + self.lambda_gate * l_gate +
-                 self.lambda_collision * l_collision + self.lambda_progress * l_progress)
+                 self.lambda_collision * l_collision + self.lambda_progress * l_progress +
+                 self.lambda_jepa * l_jepa + self.lambda_sigreg * l_sigreg)
 
         if predict_traj_exist:
              total += lambda_traj_exist * l_traj_exist
@@ -604,4 +619,4 @@ class MultiTaskLossManager(nn.Module):
         return {'total': total, 'traj': l_traj_raw, 'heatmap': l_heat_raw, 'det': l_det_raw,
                 'box': det_loss_items[0], 'cls_det': det_loss_items[1], 'dfl': det_loss_items[2],
                 'smooth': l_smooth, 'cls': l_cls_raw, 'gate': l_gate, 'traj_exist': l_traj_exist,
-                'collision': l_collision, 'progress': l_progress}
+                'collision': l_collision, 'progress': l_progress, 'jepa': l_jepa, 'sigreg': l_sigreg}
