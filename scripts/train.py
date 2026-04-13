@@ -1,14 +1,14 @@
 from neuro_pilot import NeuroPilot
-
+import neuro_pilot.engine.task  # triggers @Registry.register_task
 
 def run_real_training():
-    model = NeuroPilot("neuro_pilot/cfg/models/neuralPilot.yaml", scale="n")
+    model = NeuroPilot("neuro_pilot/cfg/models/neuralPilot_deformable.yaml", scale="n")
 
     model.train(
-        data="/home/quynhthu/Downloads/data_final/data.yaml",
+        data="/home/quynhthu/Documents/multitask_data/data.yaml",
 
         # Override Trainer parameters
-        epochs=100,
+        epochs=2,
         batch=16,
         learning_rate=1e-3,  # Lowered from 5e-3 to stabilize convergence
         patience=100,

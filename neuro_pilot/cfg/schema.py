@@ -43,9 +43,9 @@ class LossConfig(BaseModel):
 
 class AugmentConfig(BaseModel):
     enabled: bool = True
-    rotate_deg: float = 20.0
-    translate: float = 0.1
-    scale: float = 0.1
+    rotate_deg: float = 0.0
+    translate: float = 0.0
+    scale: float = 0.0
     shear: float = 0.0
     perspective: float = 0.0
     fliplr: float = 0.0
@@ -55,7 +55,7 @@ class AugmentConfig(BaseModel):
     hsv_v: float = 0.4
     noise_prob: float = 0.1
     blur_prob: float = 0.1
-    mosaic: float = 1.0
+    mosaic: float = 0.0
     mixup: float = 0.0
     copy_paste: float = 0.0
 
