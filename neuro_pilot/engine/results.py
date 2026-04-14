@@ -26,8 +26,8 @@ class Results:
     def __len__(self):
         return len(self.boxes) if self.boxes is not None else 0
 
-    def plot(self, conf=True, line_width=None, font_size=None, font="Arial.ttf",
-             pil=False, labels=True, boxes=True, waypoints=True, heatmap=True, max_dim=1280, **kwargs):
+    def plot(self, conf: bool = True, line_width: Optional[int] = None, font_size: Optional[int] = None, font: str = "Arial.ttf",
+             pil: bool = False, labels: bool = True, boxes: bool = True, waypoints: bool = True, heatmap: bool = True, max_dim: int = 1280, **kwargs) -> np.ndarray:
         """Plot results on image side-by-side with resolution capping."""
         h0, w0 = self.orig_img.shape[:2]
         img = self.orig_img

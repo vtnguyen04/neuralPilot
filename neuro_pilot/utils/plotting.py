@@ -28,7 +28,7 @@ def smooth_trajectory(points: np.ndarray, window_size: int = 5) -> np.ndarray:
         smoothed[:, i] = np.convolve(points[:, i], np.ones(window_size)/window_size, mode='same')
     return smoothed
 
-def catmull_rom_spline(p0, p1, p2, p3, num_points=20):
+def catmull_rom_spline(p0: np.ndarray, p1: np.ndarray, p2: np.ndarray, p3: np.ndarray, num_points: int = 20) -> np.ndarray:
     """Nội suy Catmull-Rom giữa p1 và p2."""
     t = np.linspace(0, 1, num_points)
     t2, t3 = t**2, t**3
@@ -36,7 +36,7 @@ def catmull_rom_spline(p0, p1, p2, p3, num_points=20):
     y = 0.5 * ((2*p1[1]) + (-p0[1]+p2[1])*t + (2*p0[1]-5*p1[1]+4*p2[1]-p3[1])*t2 + (-p0[1]+3*p1[1]-3*p2[1]+p3[1])*t3)
     return np.stack([x, y], axis=1)
 
-def lerp_color(t):
+def lerp_color(t: float) -> tuple[int, int, int]:
     """Gradient 5 điểm: xanh dương → cyan → xanh lá → vàng → đỏ."""
     stops = [(0.0, (255,100,30)), (0.25, (220,200,0)), (0.5, (80,220,50)),
              (0.75, (0,210,220)), (1.0, (60,60,255))]  # BGR
@@ -44,7 +44,7 @@ def lerp_color(t):
         t0, c0 = stops[i]; t1, c1 = stops[i+1]
         if t <= t1:
             f = (t-t0) / (t1-t0)
-            return tuple(int(a + f*(b-a)) for a, b in zip(c0, c1))
+            return tuple(int(a + f*(b-a)) for a, b in zip(c0, c1)) # type: ignore
     return stops[-1][1]
 
 class Colors:
@@ -160,7 +160,7 @@ class Annotator:
         """Return annotated image as NumPy array."""
         return np.asarray(self.im)
 
-    def waypoints(self, wp: np.ndarray, color: tuple = (0, 255, 0), radius: Optional[int] = None):
+    def waypoints(self, wp: np.ndarray, color: tuple[int, int, int] = (0, 255, 0), radius: Optional[int] = None) -> None:
         if len(wp) < 2: return
         pts = wp.astype(np.float32)
         
@@ -186,7 +186,7 @@ class Annotator:
                             cv2.FONT_HERSHEY_SIMPLEX, 0.35, (200,200,200), 1, cv2.LINE_AA)
 
 
-    def trajectory(self, points: np.ndarray, color: tuple = (0, 0, 255), thickness: Optional[int] = None):
+    def trajectory(self, points: np.ndarray, color: tuple[int, int, int] = (0, 0, 255), thickness: Optional[int] = None) -> None:
         if len(points) < 2: return
         pts = points.astype(np.float32)
         line_thick = thickness or self.lw * 2
