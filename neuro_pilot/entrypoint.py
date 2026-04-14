@@ -112,10 +112,31 @@ def main():
                     for res in r:
                         console.print(f"[green]✔[/green] Processed {res.path}")
             else:
+                import cv2
+                from pathlib import Path
+                vid_writer = None
                 for res in results:
                     console.print(f"[green]✔[/green] Processed {res.path}")
                     if args.save:
-                        res.save()
+                        p = Path(res.path)
+                        is_video = p.suffix.lower() in ['.mp4', '.avi', '.mkv', '.mov', '.ts']
+                        if is_video:
+                            if vid_writer is None:
+                                save_path = Path("runs/predict") / p.name
+                                save_path.parent.mkdir(parents=True, exist_ok=True)
+                                plot_img = res.plot()
+                                h, w = plot_img.shape[:2]
+                                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                                vid_writer = cv2.VideoWriter(str(save_path), fourcc, 30.0, (w, h))
+
+                            plot_img = res.plot()
+                            plot_img = cv2.cvtColor(plot_img, cv2.COLOR_RGB2BGR)
+                            vid_writer.write(plot_img)
+                        else:
+                            res.save()
+                if vid_writer:
+                    vid_writer.release()
+                    console.print(f"[bold green]Video saved to runs/predict/{Path(args.source).name}[/bold green]")
         elif args.mode == "val":
             metrics = model.val(imgsz=args.imgsz)
             table = Table(title="Validation Metrics")

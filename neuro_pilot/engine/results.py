@@ -81,12 +81,17 @@ class Results:
             hm = torch.sigmoid(self.heatmap).detach().cpu().numpy().squeeze()
             if hm.ndim == 3: hm = hm.mean(axis=0)
 
-            hm_img = (hm - hm.min()) / (hm.max() - hm.min() + 1e-6)
+            if hm.max() - hm.min() > 1e-4:
+                hm_img = (hm - hm.min()) / (hm.max() - hm.min())
+            else:
+                hm_img = hm
+
             hm_img = (hm_img * 255).astype(np.uint8)
 
             hm_color = cv2.applyColorMap(hm_img, cv2.COLORMAP_JET)
-            if pil:
-                hm_color = cv2.cvtColor(hm_color, cv2.COLOR_BGR2RGB)
+
+            # orig_img is RGB, so applyColorMap (BGR) must be converted to RGB to match
+            hm_color = cv2.cvtColor(hm_color, cv2.COLOR_BGR2RGB)
 
             h_in, w_in = hm.shape[:2]
             h0, w0 = self.orig_img.shape[:2]
@@ -117,7 +122,10 @@ class Results:
         p.parent.mkdir(parents=True, exist_ok=True)
 
         img = self.plot(**kwargs)
-        if kwargs.get('pil', False):
+
+        # Since Predictor loads orig_img as RGB, self.plot produces an RGB image.
+        # cv2.imwrite expects a BGR image.
+        if not kwargs.get('pil', False):
             img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
 
         cv2.imwrite(str(p), img)
