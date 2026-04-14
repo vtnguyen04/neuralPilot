@@ -163,7 +163,7 @@ class Annotator:
     def waypoints(self, wp: np.ndarray, color: tuple[int, int, int] = (0, 255, 0), radius: Optional[int] = None) -> None:
         if len(wp) < 2: return
         pts = wp.astype(np.float32)
-        
+
         if self.pil:
             pass # PIL is rarely used for waypoints, keep it minimal if needed, but CV2 is primary backend here
         else:
@@ -177,9 +177,9 @@ class Annotator:
                 cv2.addWeighted(overlay, 0.25, self.im, 0.75, 0, self.im)
 
                 # Inner dot
-                cv2.circle(self.im, tuple(pt), 9, color, 1, cv2.LINE_AA)          
-                cv2.circle(self.im, tuple(pt), 5, color, -1, cv2.LINE_AA)          
-                cv2.circle(self.im, tuple(pt), 2, (255,255,255), -1, cv2.LINE_AA)  
+                cv2.circle(self.im, tuple(pt), 9, color, 1, cv2.LINE_AA)
+                cv2.circle(self.im, tuple(pt), 5, color, -1, cv2.LINE_AA)
+                cv2.circle(self.im, tuple(pt), 2, (255,255,255), -1, cv2.LINE_AA)
 
                 # Index text
                 cv2.putText(self.im, str(idx+1), (pt[0]-4, pt[1]-13),
@@ -190,7 +190,7 @@ class Annotator:
         if len(points) < 2: return
         pts = points.astype(np.float32)
         line_thick = thickness or self.lw * 2
-        
+
         if self.pil:
             pass
         else:
