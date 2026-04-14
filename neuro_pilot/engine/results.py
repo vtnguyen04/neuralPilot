@@ -27,7 +27,7 @@ class Results:
         return len(self.boxes) if self.boxes is not None else 0
 
     def plot(self, conf=True, line_width=None, font_size=None, font="Arial.ttf",
-             pil=False, labels=True, boxes=True, waypoints=True, heatmap=True, max_dim=1280):
+             pil=False, labels=True, boxes=True, waypoints=True, heatmap=True, max_dim=1280, **kwargs):
         """Plot results on image side-by-side with resolution capping."""
         h0, w0 = self.orig_img.shape[:2]
         img = self.orig_img
@@ -94,19 +94,19 @@ class Results:
             hm_color = cv2.cvtColor(hm_color, cv2.COLOR_BGR2RGB)
 
             h_in, w_in = hm.shape[:2]
-            h0, w0 = self.orig_img.shape[:2]
-            gain = min(h_in / h0, w_in / w0)
-            pad_w = (w_in - w0 * gain) / 2
-            pad_h = (h_in - h0 * gain) / 2
+            target_h, target_w = img_left.shape[:2]
+            gain_hm = min(h_in / target_h, w_in / target_w)
+            pad_w = (w_in - target_w * gain_hm) / 2
+            pad_h = (h_in - target_h * gain_hm) / 2
 
             top, bottom = int(round(pad_h)), int(round(h_in - pad_h))
             left, right = int(round(pad_w)), int(round(w_in - pad_w))
 
             if bottom > top and right > left:
                 hm_content = hm_color[top:bottom, left:right]
-                hm_color = cv2.resize(hm_content, (w0, h0))
+                hm_color = cv2.resize(hm_content, (target_w, target_h))
             else:
-                hm_color = cv2.resize(hm_color, (w0, h0))
+                hm_color = cv2.resize(hm_color, (target_w, target_h))
 
             combined = np.hstack((img_left, hm_color))
             return combined
