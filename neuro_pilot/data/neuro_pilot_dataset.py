@@ -160,6 +160,8 @@ class NeuroPilotDataset(Dataset):
         c.execute("SELECT image_path, data FROM samples WHERE is_labeled=1")
         rows = c.fetchall(); conn.close()
 
+        m_imgsz = float(self.imgsz[0] if isinstance(self.imgsz, tuple) else self.imgsz)
+
         loaded_samples = []
         for r in rows:
             if not r['data']: continue
@@ -167,8 +169,8 @@ class NeuroPilotDataset(Dataset):
             wp = d.get('waypoints', [])
             if not wp or len(wp) < 2: continue
 
-            wp_norm = [[p[0]/224.0, p[1]/224.0] for p in wp]
-            bx_norm = [[b[0]/224.0, b[1]/224.0, b[2]/224.0, b[3]/224.0] for b in d.get('bboxes', [])]
+            wp_norm = [[p[0]/m_imgsz, p[1]/m_imgsz] for p in wp]
+            bx_norm = [[b[0]/m_imgsz, b[1]/m_imgsz, b[2]/m_imgsz, b[3]/m_imgsz] for b in d.get('bboxes', [])]
 
             loaded_samples.append(Sample(
                 image_path=r['image_path'], command=d.get('command', 0),

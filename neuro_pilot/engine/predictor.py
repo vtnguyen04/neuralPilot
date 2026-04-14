@@ -110,7 +110,10 @@ class Predictor(BasePredictor):
         bboxes = self._handle_bboxes(preds, input_shape, img0, **kwargs)
 
         # Scale waypoints back to original image coordinates
-        waypoints = self._handle_waypoints(preds.get('waypoints'), input_shape, img0)
+        wp_preds = preds.get('waypoints')
+        if wp_preds is None:
+            wp_preds = preds.get('trajectory')
+        waypoints = self._handle_waypoints(wp_preds, input_shape, img0)
 
         # Create results using ORIGINAL images (img0)
         results = self.postprocess(preds, img0, [path] if isinstance(path, str) else path, bboxes=bboxes, waypoints=waypoints, command=command)

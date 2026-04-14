@@ -57,6 +57,11 @@ class NeuroPilot(nn.Module):
         p = Path(model)
         if p.exists() and p.suffix in [".pt", ".pth"]:
             self._load(p, scale=scale)
+        elif p.exists() and p.suffix in [".onnx", ".engine", ".tflite", ".pb"]:
+            self.task_name = task or "multitask"
+            logger.info(f"Loading NeuroPilot ({self.task_name}) inference engine from {p}")
+            self.model = str(p)
+            self._init_task(self.task_name)
         else:
             self._new(model, scale=scale)
 
@@ -114,11 +119,13 @@ class NeuroPilot(nn.Module):
             else:
                 self.model = self.task_wrapper.build_model()
 
-        if self.model and not self.task_wrapper.model:
-            self.task_wrapper.model = self.model
-
-        if self.model:
+        if self.model and not isinstance(self.model, str):
+            if not self.task_wrapper.model:
+                self.task_wrapper.model = self.model
             self.model.to(self.target_device)
+            self.backend = AutoBackend.create(self.model, device=self.target_device)
+        elif isinstance(self.model, str) and Path(self.model).suffix in [".onnx", ".engine", ".tflite", ".pb"]:
+            # AutoBackend will wrap it properly later when predicting or here
             self.backend = AutoBackend.create(self.model, device=self.target_device)
 
     def _new(self, cfg_path: Union[str, Path], scale: str = "n"):
