@@ -118,7 +118,7 @@ class Exporter:
                 model_onnx = onnx.load(output_path)
                 model_simp, check = onnx_simplify(model_onnx)
                 if check:
-                    onnx.save(model_simp, output_path)
+                    onnx.save(model_simp, output_path, save_as_external_data=False, all_tensors_to_one_file=True)
                     logger.info("ONNX simplification success.")
             except ImportError:
                 logger.warning("onnx-simplifier not found. Skipping simplification.")
@@ -134,10 +134,18 @@ class Exporter:
                 meta = model_onnx.metadata_props.add()
                 meta.key = key
                 meta.value = value
-            onnx.save(model_onnx, output_path)
+            onnx.save(model_onnx, output_path, save_as_external_data=False, all_tensors_to_one_file=True)
             logger.info(f"Export complete: {output_path} (metadata embedded)")
         except Exception as e:
             logger.warning(f"Metadata embedding failed: {e}")
+
+        import os
+        data_file = f"{output_path}.data"
+        if os.path.exists(data_file):
+            try:
+                os.remove(data_file)
+            except OSError:
+                pass
 
         return output_path
 
