@@ -19,13 +19,25 @@ class ONNXBackend(BaseBackend):
         self.input_names = [x.name for x in self.session.get_inputs()]
         self.output_names = [x.name for x in self.session.get_outputs()]
 
+        meta = self.session.get_modelmeta().custom_metadata_map
+        if 'names' in meta:
+            import ast
+            try:
+                self.names = ast.literal_eval(meta['names'])
+            except:
+                pass
+        if 'stride' in meta:
+            self.stride = [int(meta['stride'])]
+
     def forward(self, im: torch.Tensor, **kwargs) -> Union[torch.Tensor, List[torch.Tensor]]:
         im_np = im.cpu().numpy()
 
         inputs = {self.input_names[0]: im_np}
 
         if len(self.input_names) > 1:
-            cmd = kwargs.get('cmd') or kwargs.get('command')
+            cmd = kwargs.get('cmd')
+            if cmd is None:
+                cmd = kwargs.get('command')
             if cmd is None:
                 from neuro_pilot.cfg.schema import HeadConfig
                 _nc = HeadConfig().num_commands
@@ -40,6 +52,9 @@ class ONNXBackend(BaseBackend):
         outs = self.session.run(self.output_names, inputs)
 
         outs_torch = [torch.from_numpy(o).to(self.device) for o in outs]
+
+        if len(self.output_names) > 1 and len(self.output_names) == len(outs_torch):
+            return dict(zip(self.output_names, outs_torch))
 
         return outs_torch[0] if len(outs_torch) == 1 else outs_torch
 
