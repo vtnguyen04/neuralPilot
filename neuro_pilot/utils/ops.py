@@ -111,7 +111,7 @@ def scale_coords(img1_shape: tuple, coords: torch.Tensor, img0_shape: tuple, rat
     coords[..., 0] -= pad[0]
     coords[..., 1] -= pad[1]
     coords /= gain
-    return clip_coords(coords, img0_shape)
+    return coords
 
 def xyxy2ltwh(x):
     """Convert [x1, y1, x2, y2] to [x1, y1, w, h]."""

@@ -37,7 +37,7 @@ dependencies = [
     "pycocotools>=2.0.11",
     "loguru>=0.7.2",
     "omegaconf>=2.3.0",
-    "onnxruntime<1.24.0",
+    "onnxruntime-gpu<1.24.0",
     "psutil",
     "onnxsim>=0.4.36",
     "pynvml>=13.0.1",

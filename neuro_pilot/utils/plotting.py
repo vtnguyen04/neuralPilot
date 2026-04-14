@@ -28,6 +28,25 @@ def smooth_trajectory(points: np.ndarray, window_size: int = 5) -> np.ndarray:
         smoothed[:, i] = np.convolve(points[:, i], np.ones(window_size)/window_size, mode='same')
     return smoothed
 
+def catmull_rom_spline(p0, p1, p2, p3, num_points=20):
+    """Nội suy Catmull-Rom giữa p1 và p2."""
+    t = np.linspace(0, 1, num_points)
+    t2, t3 = t**2, t**3
+    x = 0.5 * ((2*p1[0]) + (-p0[0]+p2[0])*t + (2*p0[0]-5*p1[0]+4*p2[0]-p3[0])*t2 + (-p0[0]+3*p1[0]-3*p2[0]+p3[0])*t3)
+    y = 0.5 * ((2*p1[1]) + (-p0[1]+p2[1])*t + (2*p0[1]-5*p1[1]+4*p2[1]-p3[1])*t2 + (-p0[1]+3*p1[1]-3*p2[1]+p3[1])*t3)
+    return np.stack([x, y], axis=1)
+
+def lerp_color(t):
+    """Gradient 5 điểm: xanh dương → cyan → xanh lá → vàng → đỏ."""
+    stops = [(0.0, (255,100,30)), (0.25, (220,200,0)), (0.5, (80,220,50)),
+             (0.75, (0,210,220)), (1.0, (60,60,255))]  # BGR
+    for i in range(len(stops)-1):
+        t0, c0 = stops[i]; t1, c1 = stops[i+1]
+        if t <= t1:
+            f = (t-t0) / (t1-t0)
+            return tuple(int(a + f*(b-a)) for a, b in zip(c0, c1))
+    return stops[-1][1]
+
 class Colors:
     """
     Semantic Color Palette for NeuroPilot.
@@ -142,19 +161,75 @@ class Annotator:
         return np.asarray(self.im)
 
     def waypoints(self, wp: np.ndarray, color: tuple = (0, 255, 0), radius: Optional[int] = None):
-        r = radius or self.lw * 2
+        if len(wp) < 2: return
+        pts = wp.astype(np.float32)
+        
         if self.pil:
-            for p in wp: self.draw.ellipse([p[0]-r, p[1]-r, p[0]+r, p[1]+r], fill=color)
+            pass # PIL is rarely used for waypoints, keep it minimal if needed, but CV2 is primary backend here
         else:
-            for p in wp: cv2.circle(self.im, (int(p[0]), int(p[1])), r, color, -1, lineType=cv2.LINE_AA)
+            for idx, pt in enumerate(pts.astype(np.int32)):
+                t = idx / max(len(pts)-1, 1)
+                color = lerp_color(t)
+
+                # Glow halo
+                overlay = self.im.copy()
+                cv2.circle(overlay, tuple(pt), 16, color, -1)
+                cv2.addWeighted(overlay, 0.25, self.im, 0.75, 0, self.im)
+
+                # Inner dot
+                cv2.circle(self.im, tuple(pt), 9, color, 1, cv2.LINE_AA)          
+                cv2.circle(self.im, tuple(pt), 5, color, -1, cv2.LINE_AA)          
+                cv2.circle(self.im, tuple(pt), 2, (255,255,255), -1, cv2.LINE_AA)  
+
+                # Index text
+                cv2.putText(self.im, str(idx+1), (pt[0]-4, pt[1]-13),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.35, (200,200,200), 1, cv2.LINE_AA)
+
 
     def trajectory(self, points: np.ndarray, color: tuple = (0, 0, 255), thickness: Optional[int] = None):
         if len(points) < 2: return
+        pts = points.astype(np.float32)
+        line_thick = thickness or self.lw * 2
+        
         if self.pil:
-            self.draw.line([tuple(p) for p in points], fill=color, width=thickness or self.lw)
+            pass
         else:
-            cv2.polylines(self.im, [points.astype(np.int32).reshape((-1, 1, 2))], False, color,
-                          thickness or self.lw, cv2.LINE_AA)
+            extended = np.vstack([pts[0:1], pts, pts[-1:]])
+            spline = []
+            for i in range(1, len(extended)-2):
+                seg = catmull_rom_spline(extended[i-1], extended[i], extended[i+1], extended[i+2], 40)
+                spline.append(seg)
+            spline = np.vstack(spline).astype(np.int32)
+            total = len(spline)
+
+            # Glow Layer
+            glow_layer = np.zeros_like(self.im, dtype=np.uint8)
+            for i in range(1, total):
+                t = i / max(total-1, 1)
+                c = lerp_color(t)
+                cv2.line(glow_layer, tuple(spline[i-1]), tuple(spline[i]), c, line_thick+6)
+            glow_layer = cv2.GaussianBlur(glow_layer, (0,0), sigmaX=4)
+            self.im[:] = cv2.addWeighted(self.im, 1.0, glow_layer, 0.6, 0)
+
+            # Main Line
+            for i in range(1, total):
+                t = i / max(total-1, 1)
+                c = lerp_color(t)
+                cv2.line(self.im, tuple(spline[i-1]), tuple(spline[i]), c, line_thick)
+
+            # Arrows
+            arrow_step = max(total // 6, 5)
+            for i in range(arrow_step, total-2, arrow_step):
+                t = i / max(total-1, 1)
+                c = lerp_color(t)
+                dx = int(spline[i+1][0]) - int(spline[i-1][0])
+                dy = int(spline[i+1][1]) - int(spline[i-1][1])
+                angle = np.arctan2(dy, dx)
+                tip = spline[i]
+                for sign in [-1, 1]:
+                    tail_angle = angle + sign * np.radians(145)
+                    tail = (int(tip[0] + 8*np.cos(tail_angle)), int(tip[1] + 8*np.sin(tail_angle)))
+                    cv2.line(self.im, tuple(tip), tail, c, max(1, line_thick-1), cv2.LINE_AA)
 
     def drivable_area(self, points: np.ndarray, color: tuple = (0, 255, 0), alpha: float = 0.4, base_width_bottom: int = 40, base_width_top: int = 5):
         if len(points) < 2 or self.pil: return

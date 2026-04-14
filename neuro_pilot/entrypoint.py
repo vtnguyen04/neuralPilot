@@ -124,12 +124,12 @@ def main():
                             if vid_writer is None:
                                 save_path = Path("runs/predict") / p.name
                                 save_path.parent.mkdir(parents=True, exist_ok=True)
-                                plot_img = res.plot()
+                                plot_img = res.plot(**kwargs)
                                 h, w = plot_img.shape[:2]
                                 fourcc = cv2.VideoWriter_fourcc(*'mp4v')
                                 vid_writer = cv2.VideoWriter(str(save_path), fourcc, 30.0, (w, h))
 
-                            plot_img = res.plot()
+                            plot_img = res.plot(**kwargs)
                             plot_img = cv2.cvtColor(plot_img, cv2.COLOR_RGB2BGR)
                             vid_writer.write(plot_img)
                         else:
