@@ -139,8 +139,9 @@ class Detect(BaseHead):
 
 class UnifiedDetectionHead(Detect):
     end2end = True
-    def __init__(self, nc: int = 80, ch: tuple = ()):
-        super().__init__(ch=ch, nc=nc, end2end=True)
+
+    def __init__(self, ch: tuple = (), nc: int = 80):
+        super().__init__(nc=nc, ch=ch, end2end=True)
         c3 = max(ch[0], min(self.nc, 100))
         self.cv3 = nn.ModuleList(
             nn.Sequential(

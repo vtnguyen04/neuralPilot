@@ -420,6 +420,81 @@ class ProgressLoss(nn.Module):
 
         return penalty.mean()
 
+
+class TemporalConsistencyLoss(nn.Module):
+    """Enforces smooth trajectory predictions across consecutive frames.
+
+    When predicting trajectory from a video clip, predictions from
+    adjacent frames should be temporally consistent. This loss penalizes
+    abrupt jumps in predicted waypoints between consecutive frames.
+
+    Only activated when temporal training is enabled.
+    """
+
+    def __init__(self, reduction: str = "mean"):
+        super().__init__()
+        self.reduction = reduction
+
+    def forward(
+        self,
+        pred_wp_current: torch.Tensor,
+        pred_wp_previous: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Compute temporal consistency penalty.
+
+        Args:
+            pred_wp_current: Predicted waypoints from current frame [B, T, 2].
+            pred_wp_previous: Predicted waypoints from previous frame [B, T, 2].
+                If None, returns 0 (no penalty).
+
+        Returns:
+            Scalar consistency loss.
+        """
+        if pred_wp_previous is None:
+            return torch.tensor(0.0, device=pred_wp_current.device)
+
+        # Smooth L1 between consecutive predictions
+        diff = F.smooth_l1_loss(pred_wp_current, pred_wp_previous, reduction=self.reduction)
+        return diff
+
+
+class MotionRegularizationLoss(nn.Module):
+    """Regularizes trajectory predictions based on ego velocity.
+
+    Enforces physical plausibility: predicted displacement magnitude
+    should be proportional to ego vehicle speed.
+    """
+
+    def forward(
+        self,
+        pred_wp: torch.Tensor,
+        v_ego: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Compute motion regularization.
+
+        Args:
+            pred_wp: Predicted waypoints [B, T, 2].
+            v_ego: Ego vehicle speed [B] or [B, 1].
+
+        Returns:
+            Scalar regularization loss.
+        """
+        if v_ego is None:
+            return torch.tensor(0.0, device=pred_wp.device)
+
+        if v_ego.dim() > 1:
+            v_ego = v_ego.squeeze(-1)
+
+        # Predicted total displacement magnitude
+        displacements = pred_wp[:, 1:] - pred_wp[:, :-1]  # [B, T-1, 2]
+        pred_speed = displacements.norm(dim=-1).mean(dim=-1)  # [B]
+
+        # When car is stopped, trajectory should be near-zero displacement
+        # When car is fast, displacement should be larger
+        v_normalized = v_ego / 30.0  # Normalize assuming max ~108 km/h
+        mismatch = F.smooth_l1_loss(pred_speed, v_normalized.detach())
+        return mismatch
+
 class MultiTaskLossManager(nn.Module):
     """Multi-task loss with uncertainty-aware weighting."""
     def __init__(self, config, model, device=None):
@@ -448,6 +523,14 @@ class MultiTaskLossManager(nn.Module):
         self.lambda_progress = getattr(loss_cfg, 'lambda_progress', 0.0)
         self.lambda_jepa = getattr(loss_cfg, 'lambda_jepa', 0.0)
         self.lambda_sigreg = getattr(loss_cfg, 'lambda_sigreg', 0.0)
+
+        # Temporal losses (only activated when lambdas > 0)
+        self.lambda_temporal_consistency = getattr(loss_cfg, 'lambda_temporal_consistency', 0.0)
+        self.lambda_motion_prior = getattr(loss_cfg, 'lambda_motion_prior', 0.0)
+        if self.lambda_temporal_consistency > 0:
+            self.temporal_consistency_loss = TemporalConsistencyLoss()
+        if self.lambda_motion_prior > 0:
+            self.motion_reg_loss = MotionRegularizationLoss()
 
         self.use_fdat = getattr(loss_cfg, 'use_fdat', False)
         self.use_uncertainty = getattr(loss_cfg, 'use_uncertainty', True)
@@ -622,7 +705,22 @@ class MultiTaskLossManager(nn.Module):
         if predict_traj_exist:
              total += lambda_traj_exist * l_traj_exist
 
+        # Temporal losses (only computed when configured with lambda > 0)
+        l_temporal = torch.tensor(0.0, device=self.device)
+        l_motion_prior = torch.tensor(0.0, device=self.device)
+        if pred_wp is not None:
+            if self.lambda_temporal_consistency > 0 and hasattr(self, 'temporal_consistency_loss'):
+                prev_wp = predictions.get('prev_waypoints')
+                l_temporal = self.temporal_consistency_loss(pred_wp, prev_wp)
+                total += self.lambda_temporal_consistency * l_temporal
+
+            if self.lambda_motion_prior > 0 and hasattr(self, 'motion_reg_loss'):
+                v_ego = targets.get('vEgo')
+                l_motion_prior = self.motion_reg_loss(pred_wp, v_ego)
+                total += self.lambda_motion_prior * l_motion_prior
+
         return {'total': total, 'traj': l_traj_raw, 'heatmap': l_heat_raw, 'det': l_det_raw,
                 'box': det_loss_items[0], 'cls_det': det_loss_items[1], 'dfl': det_loss_items[2],
                 'smooth': l_smooth, 'cls': l_cls_raw, 'gate': l_gate, 'traj_exist': l_traj_exist,
-                'collision': l_collision, 'progress': l_progress, 'jepa': l_jepa, 'sigreg': l_sigreg}
+                'collision': l_collision, 'progress': l_progress, 'jepa': l_jepa, 'sigreg': l_sigreg,
+                'temporal': l_temporal, 'motion_prior': l_motion_prior}
