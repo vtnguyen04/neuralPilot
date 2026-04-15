@@ -75,3 +75,15 @@ data:
 
 head:
   skip_heatmap_inference: False
+
+temporal:
+  enabled: false           # Master switch — false = pure image mode (zero overhead)
+  clip_length: 4           # Number of frames per clip (T)
+  frame_stride: 1          # Stride between sampled frames
+  aggregator: "temporal_attention"  # concat | temporal_attention | conv3d | gru
+  aggregator_config: {}    # Pass-through kwargs for specific aggregator
+  gradient_checkpointing: false
+  max_cached_frames: 8     # Memory safety cap
+  use_flow: false          # Optional optical flow input
+  temporal_jitter: 0.2     # Random frame sampling jitter probability
+  temporal_dropout: 0.1    # Randomly drop frames for robustness

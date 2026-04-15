@@ -1,6 +1,6 @@
 [project]
 name = "neuro-pilot"
-version = "1.2.0"
+version = "1.2.1"
 description = "NeuroPilot: Unified E2E Autonomous Driving Framework (Multitask, World-Model Ready)"
 authors = [
     { name = "Vo Thanh Nguyen", email = "thcs2nguyen@gmail.com" }
@@ -45,6 +45,7 @@ dependencies = [
     "datasets>=4.8.4",
     "pyarrow>=23.0.1",
     "einops>=0.8.2",
+    "decord",
 ]
 
 [dependency-groups]

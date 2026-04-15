@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
-from .lewm_modules import MLP, SIGReg
+from .mlp import MLP
+from .regularization import SIGReg
 
 class JEPAPredictor(nn.Module):
     """

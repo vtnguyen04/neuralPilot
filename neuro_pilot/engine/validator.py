@@ -102,6 +102,9 @@ class Validator(BaseValidator):
 
             with torch.amp.autocast('cuda', enabled=True):
                 model_kwargs = {k: v for k, v in batch.items() if k not in ('image', 'targets', 'image_path')}
+                if 'clip_images' in batch and batch['clip_images'] is not None:
+                     batch['clip_images'] = batch['clip_images'].to(self.device, non_blocking=True)
+                     model_kwargs['clip_images'] = batch['clip_images']
                 preds = self.model(img, **model_kwargs)
             self.current_output = preds
 

@@ -168,9 +168,6 @@ class Annotator:
             pass # PIL is rarely used for waypoints, keep it minimal if needed, but CV2 is primary backend here
         else:
             for idx, pt in enumerate(pts.astype(np.int32)):
-                t = idx / max(len(pts)-1, 1)
-                color = lerp_color(t)
-
                 # Glow halo
                 overlay = self.im.copy()
                 cv2.circle(overlay, tuple(pt), 16, color, -1)
@@ -205,23 +202,17 @@ class Annotator:
             # Glow Layer
             glow_layer = np.zeros_like(self.im, dtype=np.uint8)
             for i in range(1, total):
-                t = i / max(total-1, 1)
-                c = lerp_color(t)
-                cv2.line(glow_layer, tuple(spline[i-1]), tuple(spline[i]), c, line_thick+6)
+                cv2.line(glow_layer, tuple(spline[i-1]), tuple(spline[i]), color, line_thick+6)
             glow_layer = cv2.GaussianBlur(glow_layer, (0,0), sigmaX=4)
             self.im[:] = cv2.addWeighted(self.im, 1.0, glow_layer, 0.6, 0)
 
             # Main Line
             for i in range(1, total):
-                t = i / max(total-1, 1)
-                c = lerp_color(t)
-                cv2.line(self.im, tuple(spline[i-1]), tuple(spline[i]), c, line_thick)
+                cv2.line(self.im, tuple(spline[i-1]), tuple(spline[i]), color, line_thick)
 
             # Arrows
             arrow_step = max(total // 6, 5)
             for i in range(arrow_step, total-2, arrow_step):
-                t = i / max(total-1, 1)
-                c = lerp_color(t)
                 dx = int(spline[i+1][0]) - int(spline[i-1][0])
                 dy = int(spline[i+1][1]) - int(spline[i-1][1])
                 angle = np.arctan2(dy, dx)
@@ -229,7 +220,7 @@ class Annotator:
                 for sign in [-1, 1]:
                     tail_angle = angle + sign * np.radians(145)
                     tail = (int(tip[0] + 8*np.cos(tail_angle)), int(tip[1] + 8*np.sin(tail_angle)))
-                    cv2.line(self.im, tuple(tip), tail, c, max(1, line_thick-1), cv2.LINE_AA)
+                    cv2.line(self.im, tuple(tip), tail, color, max(1, line_thick-1), cv2.LINE_AA)
 
     def drivable_area(self, points: np.ndarray, color: tuple = (0, 255, 0), alpha: float = 0.4, base_width_bottom: int = 40, base_width_top: int = 5):
         if len(points) < 2 or self.pil: return
