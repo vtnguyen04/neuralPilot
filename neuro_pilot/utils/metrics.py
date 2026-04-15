@@ -11,9 +11,10 @@ import torch
 
 from neuro_pilot.utils.logger import logger as LOGGER
 from neuro_pilot.utils.ops import get_bathtub_weights
+from neuro_pilot import __version__
 
 PROJECT = "NeuroPilot AI"
-VERSION = "1.0.0"
+VERSION = __version__
 
 class SimpleClass:
     """Mock for legacy SimpleClass compatibility."""

@@ -4,10 +4,8 @@ import torch.nn as nn
 class BaseHead(nn.Module):
     """
     interface for all multi-task heads in NeuroPilot.
-    Strictly follows SOLID principles:
-    - S: Single responsibility (handling only head logic)
-    - O: Open for extension (via subclassing)
-    - L: Liskov substitution (consistent return types)
+    Provides a unified structural interface for multi-task heads,
+    ensuring consistent input signatures and standardized dictionary outputs.
     """
     def __init__(self, *args, **kwargs):
         super().__init__()

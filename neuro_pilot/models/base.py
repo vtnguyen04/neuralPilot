@@ -24,7 +24,7 @@ class BaseModel(nn.Module):
         return n_p, n_g
 
     def fuse(self):
-        """Fuse Conv2d + BatchNorm2d layers (LSP-safe: checks attributes before accessing)."""
+        """Fuse Conv2d + BatchNorm2d layers dynamically by verifying attributes before casting."""
         logger.info("Fusing layers...")
         for m in self.modules():
             if (hasattr(m, 'bn') and isinstance(getattr(m, 'bn', None), nn.BatchNorm2d)

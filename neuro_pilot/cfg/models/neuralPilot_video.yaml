@@ -1,0 +1,42 @@
+# 🚀 NeuroPilot E2E Autonomous Driving - Temporal Video Pipeline
+# Combines detection, heatmap, and temporal trajectory.
+
+task: 'predict'
+verbose: True
+
+temporal:
+  enabled: True
+  clip_length: 4
+  feature_dim: 256
+  aggregator: 'temporal_attention'
+
+scales:
+  n: [0.33, 0.25, 1024]
+  s: [0.33, 0.50, 1024]
+
+nc: 14
+nm: 4
+nw: 10
+
+backbone:
+  - [-1, 1, TimmBackbone, ['mobilenetv4_conv_small.e2400_r224_in1k', True, True]] # 0
+
+head:
+  - [0, 1, FeatureRouter, [4]]   # 1 (P5 - 960ch)
+  - [0, 1, FeatureRouter, [3]]   # 2 (P4 - 96ch)
+  - [0, 1, FeatureRouter, [2]]   # 3 (P3 - 64ch)
+  - [1, 1, Conv, [256, 1, 1]]    # 4 (compress P5)
+
+  # Neck
+  - [4, 1, SPPF, [256, 5]]       # 5
+  - [-1, 1, nn.Upsample, [None, 2, 'bilinear']] # 6
+  - [[-1, 2], 1, Concat, [1]]    # 7
+  - [-1, 1, C3k2, [128, 1]]      # 8
+
+  - [-1, 1, Conv, [128, 3, 2]]   # 9
+  - [[-1, 5], 1, Concat, [1]]    # 10
+  - [-1, 1, C3k2, [256, 1]]      # 11
+
+  - [[8, 11], 1, Detect, [nc]] # 12 (Detection optional if not passed targets)
+  - [[11, 4], 1, TemporalTrajectoryHead, [nm, nw]] # 13 (Replaces standard TrajectoryHead)
+  - [11, 1, JEPAPredictor, [256, 256]]       # 14

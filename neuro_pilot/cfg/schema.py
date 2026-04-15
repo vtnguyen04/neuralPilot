@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, ConfigDict
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 class BackboneConfig(BaseModel):
     name: str = "mobilenetv4_conv_medium.e2400_r224_in1k"
@@ -42,6 +42,10 @@ class LossConfig(BaseModel):
     lambda_progress: float = Field(0.0, description="Progress loss multiplier.")
     lambda_jepa: float = Field(0.0, description="JEPA auxiliary representation loss multiplier.")
     lambda_sigreg: float = Field(0.0, description="SIGReg regularization multiplier.")
+    # Temporal / video losses
+    lambda_temporal_consistency: float = Field(0.0, description="Temporal feature consistency loss.")
+    lambda_velocity: float = Field(0.0, description="Velocity prediction auxiliary loss.")
+    lambda_motion_prior: float = Field(0.0, description="Motion prior regularization.")
 
 class AugmentConfig(BaseModel):
     enabled: bool = True
@@ -92,6 +96,26 @@ class TrainerConfig(BaseModel):
     grad_clip_norm: float = 1.0
     experiment_name: str = "default"
     cmd_dropout_prob: float = 0.4
+    gradient_accumulation_steps: int = 1  # For video training with limited VRAM
+
+class TemporalConfig(BaseModel):
+    """Configuration for video/temporal-sequence training.
+
+    When ``enabled`` is False (default), the entire pipeline behaves exactly
+    like the original single-image mode with zero overhead.
+    """
+    enabled: bool = False
+    clip_length: int = 4
+    frame_stride: int = 1
+    aggregator: str = "temporal_attention"
+    aggregator_config: dict[str, Any] = Field(default_factory=dict)
+    gradient_checkpointing: bool = False
+    max_cached_frames: int = 8
+    use_flow: bool = False
+    # Temporal augmentation
+    temporal_jitter: float = 0.2
+    temporal_dropout: float = 0.1
+
 
 class AppConfig(BaseModel):
 
@@ -101,6 +125,7 @@ class AppConfig(BaseModel):
     loss: LossConfig = Field(default_factory=LossConfig)
     data: DataConfig = Field(default_factory=DataConfig)
     trainer: TrainerConfig = Field(default_factory=TrainerConfig)
+    temporal: TemporalConfig = Field(default_factory=TemporalConfig)
     model_config_path: Optional[str] = None
 
 def deep_update(mapping, *updating_mappings):

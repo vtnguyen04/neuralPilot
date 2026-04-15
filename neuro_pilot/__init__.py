@@ -1,6 +1,6 @@
 # Copyright (c) 2026 Vo Thanh Nguyen. All rights reserved.
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 
 def __getattr__(name):
     if name == "NeuroPilot":
