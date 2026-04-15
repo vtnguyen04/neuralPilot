@@ -5,6 +5,10 @@ from .attention import AttentionGate, VLFusion, LanguagePromptEncoder, CommandGa
 from .routing import FeatureRouter
 from .backbone import TimmBackbone, NeuroPilotBackbone
 from .jepa import JEPAPredictor
-from .lewm_modules import *
+from .temporal_heads import TemporalTrajectoryHead
+from .transformer import Transformer, ConditionalBlock, modulate
+from .mlp import MLP, Embedder
+from .regularization import SIGReg
+from .predictor import ARPredictor
 
-__all__ = ["Conv", "Concat", "C3", "C2f", "C3k", "C3k2", "SPPF", "Bottleneck", "DFL", "C2PSA", "Detect", "UnifiedDetectionHead", "HeatmapHead", "TrajectoryHead", "DeformableTrajectoryHead", "FeatureRouter", "TimmBackbone", "NeuroPilotBackbone", "BaseHead", "ClassificationHead", "AttentionGate", "VLFusion", "CFRBridge", "LanguagePromptEncoder", "CommandGate", "Attention", "Proto", "Segment", "JEPAPredictor"]
+__all__ = ["Conv", "Concat", "C3", "C2f", "C3k", "C3k2", "SPPF", "Bottleneck", "DFL", "C2PSA", "Detect", "UnifiedDetectionHead", "HeatmapHead", "TrajectoryHead", "DeformableTrajectoryHead", "FeatureRouter", "TimmBackbone", "NeuroPilotBackbone", "BaseHead", "ClassificationHead", "AttentionGate", "VLFusion", "CFRBridge", "LanguagePromptEncoder", "CommandGate", "Attention", "Proto", "Segment", "JEPAPredictor", "TemporalTrajectoryHead", "Transformer", "ConditionalBlock", "MLP", "Embedder", "SIGReg", "ARPredictor"]
