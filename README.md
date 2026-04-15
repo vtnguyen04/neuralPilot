@@ -63,6 +63,9 @@ NeuroPilot jointly learns **trajectory prediction**, **object detection**, **att
 - **JEPA World Model** — Optional Joint Embedding Predictive Architecture head for latent representation learning.
 - **Pluggable Backbones** — Any `timm` model (MobileNetV4, EfficientViT, FastViT, MobileViT) via one YAML line, or use native Conv-based YOLO11 backbone.
 - **5-Level Scaling** — `n` (nano), `s` (small), `m` (medium), `l` (large), `x` (extra-large) — one flag changes the entire model.
+- **Extensive Temporal Video Support** — End-to-end processing of `.mp4` video pipelines alongside `JSONL` trajectory records using Decord. *(Run `PYTHONPATH=. uv run python examples/train_temporal.py` natively with the `neuralPilot_video.yaml` architecture).*
+- **Epps-Pulley SIGReg** — State-of-the-art Sketch Isotropic Gaussian Regularizer preserving exact statistical sample sizing logic.
+- **SOLID Neural Architecture** — Focused, abstracted neural blocks (`transformer.py`, `predictor.py`, `regularization.py`)
 - **Edge-Ready** — ONNX & TensorRT export, <30ms on Jetson Orin Nano.
 - **Beautiful Visualization** — Catmull-Rom spline trajectory rendering with gradient coloring, glow effects, and numbered waypoint nodes.
 
@@ -273,6 +276,9 @@ uv run neuropilot train neuralPilot.yaml \
 uv run neuropilot train neuralPilot_deformable.yaml \
     --data data/covla.yaml \
     model_scale=s lambda_jepa=0.5
+
+# Temporal Video Training (using script entrypoint)
+PYTHONPATH=. uv run python examples/train_temporal.py
 ```
 
 ---
@@ -509,6 +515,7 @@ All model architectures are defined as YAML files in `neuro_pilot/cfg/models/`. 
 | `neuralPilot_dual.yaml` | Shared Conv Stem | **Driving Branch** (Heatmap+Traj+Cls) + **Perception Branch** (Detect) | Dual-branch: separate driving & perception |
 | `neuralPilot_cfr.yaml` | Shared Conv Stem | **Perception** (Detect) → CFRBridge → **Driving** (Heatmap+Traj+Cls) | Causal Feature Routing: perception informs planning |
 | `neuralPilot_60wp.yaml` | Timm (MobileNetV4-S) | Full multi-task (60 waypoints) | Long-horizon trajectory prediction |
+| `neuralPilot_video.yaml` | Timm (MobileNetV4-S) | **TemporalTrajectoryHead** + Detect | End-to-end Video Trajectory Forecasting with Temporal Sequence mapping |
 
 ### Model Scaling
 
@@ -631,50 +638,41 @@ dataset/
     └── val/
 ```
 
-### Registry Format — CoVLA Local
+### Registry Format — Video Driving (Temporal Video Support)
 
-For local CoVLA dataset with 3D→2D trajectory projection:
+The `video_driving` adapter natively supports parsing `.mp4` files coupled with frame-by-frame JSONL labels, grouping them into temporal sequences for Video Trajectory Prediction.
 
 ```yaml
-# data/covla.yaml
-type: covla_local
+# data/video.yaml
+type: video_driving
 path: data/covla
+train: state.jsonl
+format: jsonl
 ```
 
-**Expected structure:**
+**Expected structure (Layout 1: CoVLA-style JSONL):**
 
 ```
 data/covla/
 ├── state.jsonl           # Per-frame annotations (trajectory, ego_state, matrices)
-└── images/
-    └── sequence_name/
-        ├── 0000.png
-        ├── 0001.png
-        └── ...
+└── videos/
+    ├── sequence_001.mp4
+    ├── sequence_002.mp4
 ```
 
-Each line in `state.jsonl` contains:
+**Supported Annotations in JSONL:**
 
 | Field | Type | Description |
 |---|---|---|
-| `image_path` | str | Relative path to image |
-| `trajectory` | `[[x,y,z], ...]` | 3D future trajectory points |
+| `video_path` | str | Relative path to `.mp4` video (Fallback: `sequence_id`) |
+| `frame_idx` | int | Temporal index of the frame |
+| `trajectory` | `[[x,y,z], ...]` | 3D future trajectory points (auto-projected) |
 | `extrinsic_matrix` | `4×4 float[][]` | Camera extrinsic matrix |
 | `intrinsic_matrix` | `3×3 float[][]` | Camera intrinsic matrix |
-| `ego_state.vEgo` | float | Ego vehicle speed (m/s) |
+| `ego_state.vEgo` | float | Ego speed (m/s) for conditioning |
 | `ego_state.leftBlinker` | bool | Left turn signal |
-| `ego_state.rightBlinker` | bool | Right turn signal |
 
-### Registry Format — CoVLA HuggingFace
-
-Stream directly from HuggingFace Hub:
-
-```yaml
-# data/covla_hf.yaml
-type: covla_hf
-```
-
-Requires `HF_TOKEN` environment variable for gated datasets. Streams data lazily (no disk usage).
+*Note: You can also place raw images inside directories instead of `.mp4` files, and the Dataset adapter will automatically fall back to processing frame images.*
 
 ### Adding a Custom Dataset
 
@@ -741,7 +739,7 @@ All training hyperparameters are defined in `neuro_pilot/cfg/default.yaml` and v
 | `lambda_collision` | `0.0` | Collision avoidance penalization (experimental) |
 | `lambda_progress` | `0.0` | Forward progress reward (experimental) |
 | `lambda_jepa` | `0.0` | JEPA world model consistency loss |
-| `lambda_sigreg` | `0.0` | SIGReg isotropic regularization |
+| `lambda_sigreg` | `0.0` | SIGReg isotropic regularization (Epps-Pulley Statistic). *Note: Needs tuning based on model Batch Size* |
 
 ### FDAT (Frenet-Decomposed Anisotropic Trajectory Loss)
 
