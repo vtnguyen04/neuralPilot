@@ -33,6 +33,7 @@ _SAFE_MAP = {
     "VLFusion": VLFusion,
     "CFRBridge": CFRBridge,
     "LanguagePromptEncoder": LanguagePromptEncoder,
+    "TemporalTrajectoryHead": TemporalTrajectoryHead,
 }
 
 for _name, _obj in list(globals().items()):
@@ -205,6 +206,7 @@ CHANNEL_HANDLERS_BY_NAME: dict[str, callable] = {
     "CFRBridge": _cfr_bridge_handler,
     "LanguagePromptEncoder": _language_encoder_handler,
     "JEPAPredictor": _jepa_predictor_handler,
+    "TemporalTrajectoryHead": _head_handler,
 }
 
 

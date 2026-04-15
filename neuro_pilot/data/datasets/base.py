@@ -8,7 +8,7 @@ can plug into NeuroPilot by:
 3. Decorating with ``@register_dataset("my_type")``
 
 The factory reads the ``type`` key from the dataset YAML and dispatches
-to the registered class — **zero** if/elif chains required (OCP).
+to the registered class through an extensible registry metadata map.
 """
 
 from __future__ import annotations

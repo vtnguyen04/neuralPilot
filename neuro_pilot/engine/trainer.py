@@ -124,7 +124,8 @@ class BaseTrainer:
     def print_args(self, args: dict):
         """Prints a professional startup banner and categorized hyperparameters with premium styling."""
         # Branding Header
-        header = colorstr('bright_cyan', 'bold', f"\n{' ' * 20}NeuroPilot 🚀 v1.0.0{' ' * 20}")
+        from neuro_pilot import __version__
+        header = colorstr('bright_cyan', 'bold', f"\n{' ' * 20}NeuroPilot 🚀 v{__version__}{' ' * 20}")
         sub_header = colorstr('white', f"{' ' * 18}Advanced Multi-Task Autonomy{' ' * 18}\n")
         print(f"{colorstr('bright_cyan', '━' * 60)}")
         print(header)
@@ -170,6 +171,11 @@ class BaseTrainer:
         if 'heatmap' in active: core_headers.extend(["hm"])
         if 'gate' in active: core_headers.extend(["gate"])
         if 'jepa' in active: core_headers.extend(["jepa", "sigreg"])
+
+        # Temporal losses if temporal is enabled
+        if getattr(self.cfg, 'temporal', None) and self.cfg.temporal.enabled:
+            core_headers.extend(["temp", "mprior"])
+
         core_headers.extend(["L1", "wL1"])
 
         headers = ["Epoch", "mem"] + core_headers + ["inst", "sz"]
@@ -481,7 +487,11 @@ class Trainer(BaseTrainer):
 
             self.optimizer.zero_grad()
             with torch.amp.autocast('cuda', enabled=self.cfg.trainer.use_amp):
+                # Pass clip_images if available (temporal models)
                 model_kwargs = {k: v for k, v in batch.items() if k not in ('image', 'targets', 'image_path')}
+                if 'clip_images' in batch:
+                    model_kwargs['clip_images'] = batch['clip_images']
+
                 output = self.model(batch['image'], return_intermediate=True, **model_kwargs)
                 ema_model = self.ema.ema if hasattr(self, 'ema') and self.ema else None
                 loss_dict = self.criterion(output, batch.get('targets', batch), ema_model=ema_model, batch=batch)
@@ -521,6 +531,11 @@ class Trainer(BaseTrainer):
         from neuro_pilot.utils.torch_utils import prepare_batch
         batch = prepare_batch(batch, self.device)
         img = batch['image']
+
+        # Add clip_images back to batch cleanly if it exists (prepare_batch handles dicts)
+        if 'clip_images' in batch and batch['clip_images'] is not None:
+             batch['clip_images'] = batch['clip_images'].to(self.device, non_blocking=True)
+
         targets = {
             'waypoints': batch['waypoints'],
             'waypoints_mask': batch.get('waypoints_mask', torch.ones(img.size(0), device=self.device)),
@@ -572,6 +587,7 @@ class Trainer(BaseTrainer):
             if task_name not in active:
                 excluded_keys.update(keys)
 
+        # Keep extra losses (like temporal/motion_prior if they exist)
         filtered_loss = {k: (v.item() if hasattr(v, 'item') else v)
                          for k, v in loss_dict.items()
                          if k not in excluded_keys}
@@ -634,6 +650,12 @@ class Trainer(BaseTrainer):
             metrics_vals.extend([
                 f"{self.batch_metrics.get('jepa', 0):.3g}",
                 f"{self.batch_metrics.get('sigreg', 0):.3g}"
+            ])
+
+        if getattr(self.cfg, 'temporal', None) and self.cfg.temporal.enabled:
+            metrics_vals.extend([
+                f"{self.batch_metrics.get('temporal', 0):.3g}",
+                f"{self.batch_metrics.get('motion_prior', 0):.3g}"
             ])
 
         metrics_vals.extend([
