@@ -1,10 +1,12 @@
 import csv
 from pathlib import Path
 
+
 class MetricLogger:
     """
     Logger that writes metrics to a CSV file and handles visualization integration.
     """
+
     def __init__(self, save_dir: Path, name: str, csv_filename: str = "metrics.csv"):
         self.save_dir = save_dir
         self.save_dir.mkdir(parents=True, exist_ok=True)

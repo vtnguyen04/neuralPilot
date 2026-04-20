@@ -5,16 +5,19 @@ from pathlib import Path
 from .results import Results
 from neuro_pilot.utils.torch_utils import default_names
 
+
 class BasePredictor:
     """
     Standardized Base Predictor for NeuroPilot.
     Handles inference, stream processing, and results formatting.
     """
+
     def __init__(self, cfg, model, device):
         self.cfg = cfg
         self.model = model
         self.device = device
         from .callbacks import CallbackList
+
         self.callbacks = CallbackList()
 
     def __call__(self, source, **kwargs):
@@ -33,17 +36,20 @@ class BasePredictor:
         """Format raw predictions into Results objects."""
         raise NotImplementedError
 
+
 class Predictor(BasePredictor):
     """
     MultiTask Predictor.
     Handles Detection + Trajectory + Heatmap inference.
     """
+
     def predict(self, source, stream=False, **kwargs):
         """Perform inference on source. If stream=True, returns a generator."""
-        imgsz = kwargs.get('imgsz', getattr(self.cfg.data, 'image_size', 640))
+        imgsz = kwargs.get("imgsz", getattr(self.cfg.data, "image_size", 640))
         # auto=False to ensure square input for consistent trajectory prediction
         auto = False
         from .loaders import get_dataloader
+
         dataset = get_dataloader(source, imgsz=imgsz, auto=auto)
 
         self.callbacks.on_predict_start(self)
@@ -74,29 +80,31 @@ class Predictor(BasePredictor):
         if img.ndim == 3:
             img = img.unsqueeze(0)
 
-        half = kwargs.get('half', False)
+        half = kwargs.get("half", False)
         if img.dtype == torch.uint8:
             img = img.to(self.device)
             img = img.half() if half else img.float()
             img /= 255.0
 
             from neuro_pilot.utils.torch_utils import imagenet_normalize
+
             img = imagenet_normalize(img)
         else:
             img = img.to(self.device).half() if half else img.to(self.device).float()
 
-        command = kwargs.get('command') or kwargs.get('cmd')
-        timeline = kwargs.get('timeline') or kwargs.get('command_timeline')
+        command = kwargs.get("command") or kwargs.get("cmd")
+        timeline = kwargs.get("timeline") or kwargs.get("command_timeline")
         if timeline:
             if isinstance(timeline, (str, Path)):
                 import json
+
                 with open(timeline) as f:
                     timeline = json.load(f)
-                kwargs['timeline'] = timeline
+                kwargs["timeline"] = timeline
 
             for seg in timeline:
-                if seg['start'] <= frame_index <= seg['end']:
-                    command = seg['command']
+                if seg["start"] <= frame_index <= seg["end"]:
+                    command = seg["command"]
                     break
 
         cmd = self._prepare_command(command, img.shape[0], half)
@@ -110,13 +118,15 @@ class Predictor(BasePredictor):
         bboxes = self._handle_bboxes(preds, input_shape, img0, **kwargs)
 
         # Scale waypoints back to original image coordinates
-        wp_preds = preds.get('waypoints')
+        wp_preds = preds.get("waypoints")
         if wp_preds is None:
-            wp_preds = preds.get('trajectory')
+            wp_preds = preds.get("trajectory")
         waypoints = self._handle_waypoints(wp_preds, input_shape, img0)
 
         # Create results using ORIGINAL images (img0)
-        results = self.postprocess(preds, img0, [path] if isinstance(path, str) else path, bboxes=bboxes, waypoints=waypoints, command=command)
+        results = self.postprocess(
+            preds, img0, [path] if isinstance(path, str) else path, bboxes=bboxes, waypoints=waypoints, command=command
+        )
 
         self.callbacks.on_predict_batch_end(self)
         return results
@@ -124,45 +134,44 @@ class Predictor(BasePredictor):
     def _prepare_command(self, cmd, batch_size, half):
         """Prepare command tensor for model input."""
         if cmd is None:
-             from neuro_pilot.cfg.schema import HeadConfig
-             _nc = HeadConfig().num_commands
-             _default = torch.zeros(1, _nc, device=self.device)
-             _default[0, 0] = 1.0
-             cmd = _default
+            from neuro_pilot.cfg.schema import HeadConfig
+
+            _nc = HeadConfig().num_commands
+            _default = torch.zeros(1, _nc, device=self.device)
+            _default[0, 0] = 1.0
+            cmd = _default
         elif not isinstance(cmd, torch.Tensor):
-             cmd = torch.tensor(cmd, device=self.device)
+            cmd = torch.tensor(cmd, device=self.device)
 
         if cmd.ndim == 0:
-             cmd = cmd.unsqueeze(0)
+            cmd = cmd.unsqueeze(0)
         if cmd.ndim == 1 and cmd.shape[0] != batch_size:
-             if cmd.shape[0] == 1:
-                  cmd = cmd.repeat(batch_size)
-             elif cmd.shape[0] == _nc:
-                  cmd = cmd.unsqueeze(0).repeat(batch_size, 1)
+            if cmd.shape[0] == 1:
+                cmd = cmd.repeat(batch_size)
+            elif cmd.shape[0] == _nc:
+                cmd = cmd.unsqueeze(0).repeat(batch_size, 1)
 
         if half and cmd.is_floating_point():
-             cmd = cmd.half()
+            cmd = cmd.half()
         elif not cmd.is_floating_point():
-             cmd = cmd.long()
+            cmd = cmd.long()
 
         return cmd.to(self.device)
 
     def _handle_bboxes(self, preds, input_shape, img0, **kwargs):
         """Handles bbox detection branch (NMS + Scaling to original image)."""
-        if 'bboxes' not in preds:
+        if "bboxes" not in preds:
             return None
 
-        if 'one2one' in preds and preds['one2one'] is not None:
-            return preds['one2one']
+        if "one2one" in preds and preds["one2one"] is not None:
+            return preds["one2one"]
 
         from neuro_pilot.utils.nms import non_max_suppression
         from neuro_pilot.utils.ops import scale_boxes
-        nc = getattr(self.model, 'nc', 14)
+
+        nc = getattr(self.model, "nc", 14)
         bboxes = non_max_suppression(
-            preds['bboxes'],
-            conf_thres=kwargs.get('conf', 0.25),
-            iou_thres=kwargs.get('iou', 0.45),
-            nc=nc
+            preds["bboxes"], conf_thres=kwargs.get("conf", 0.25), iou_thres=kwargs.get("iou", 0.45), nc=nc
         )
 
         for j, det in enumerate(bboxes):
@@ -177,13 +186,14 @@ class Predictor(BasePredictor):
             return None
 
         from neuro_pilot.utils.ops import scale_coords
+
         # Clone to avoid in-place modification issues
         waypoints = waypoints.clone() if isinstance(waypoints, torch.Tensor) else waypoints.copy()
 
         for j in range(len(waypoints)):
-             orig_shape = self._get_orig_shape(img0, j, input_shape)
-             # scale_coords in ops.py handles the Inverse LetterBox math
-             waypoints[j] = scale_coords(input_shape, waypoints[j], orig_shape)
+            orig_shape = self._get_orig_shape(img0, j, input_shape)
+            # scale_coords in ops.py handles the Inverse LetterBox math
+            waypoints[j] = scale_coords(input_shape, waypoints[j], orig_shape)
         return waypoints
 
     def _get_orig_shape(self, img0, index, input_shape):
@@ -206,11 +216,14 @@ class Predictor(BasePredictor):
 
             res = Results(
                 orig_img=img_i,
-                path=str(paths[i]) if not isinstance(paths, (torch.Tensor, list)) else (str(paths[i]) if i < len(paths) else "tensor"),
-                names=getattr(self.model, 'names', None) or default_names(getattr(self.cfg, 'head', None) and self.cfg.head.num_classes or 14),
+                path=str(paths[i])
+                if not isinstance(paths, (torch.Tensor, list))
+                else (str(paths[i]) if i < len(paths) else "tensor"),
+                names=getattr(self.model, "names", None)
+                or default_names(getattr(self.cfg, "head", None) and self.cfg.head.num_classes or 14),
                 boxes=bboxes[i] if bboxes is not None and i < len(bboxes) else None,
                 waypoints=waypoints[i] if waypoints is not None and i < len(waypoints) else None,
-                heatmap=preds.get('heatmap')[i] if 'heatmap' in preds and i < len(preds['heatmap']) else None
+                heatmap=preds.get("heatmap")[i] if "heatmap" in preds and i < len(preds["heatmap"]) else None,
             )
             res.command = command
             results.append(res)
@@ -224,7 +237,8 @@ class Predictor(BasePredictor):
             else:
                 imgs = imgs.permute(0, 2, 3, 1).contiguous().cpu().numpy()
 
-            if imgs.max() <= 1.1: imgs = (imgs * 255).astype(np.uint8)
+            if imgs.max() <= 1.1:
+                imgs = (imgs * 255).astype(np.uint8)
 
         if isinstance(imgs, np.ndarray) and imgs.ndim == 3:
             return [imgs]
@@ -234,24 +248,28 @@ class Predictor(BasePredictor):
 
     def preprocess(self, source, imgsz=None):
         """preprocessing for manual inference (non-dataloader)."""
-        imgsz = imgsz or getattr(self.cfg.data, 'image_size', 640)
-        if isinstance(imgsz, (list, tuple)): imgsz = imgsz[0]
+        imgsz = imgsz or getattr(self.cfg.data, "image_size", 640)
+        if isinstance(imgsz, (list, tuple)):
+            imgsz = imgsz[0]
 
         if isinstance(source, (str, np.ndarray, Path)):
             from pathlib import Path
+
             img0 = cv2.imread(str(source)) if isinstance(source, (str, Path)) else source
 
             from neuro_pilot.data.augment import LetterBox
+
             # Use auto=False to match training (Square images)
             lb = LetterBox(new_shape=imgsz, auto=False, scaleup=True)
-            data = lb({'img': img0})
-            img = cv2.cvtColor(data['img'], cv2.COLOR_BGR2RGB)
+            data = lb({"img": img0})
+            img = cv2.cvtColor(data["img"], cv2.COLOR_BGR2RGB)
 
             img = torch.from_numpy(img).permute(2, 0, 1).unsqueeze(0).to(self.device)
-            img = img.half() if getattr(self.model, 'fp16', False) else img.float()
+            img = img.half() if getattr(self.model, "fp16", False) else img.float()
             img /= 255.0
 
             from neuro_pilot.utils.torch_utils import imagenet_normalize
+
             img = imagenet_normalize(img)
 
             return img

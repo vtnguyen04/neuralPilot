@@ -1,10 +1,10 @@
-
 import unittest
 import torch
 import shutil
 from pathlib import Path
 from neuro_pilot.engine.model import NeuroPilot
 from neuro_pilot.data import prepare_dataloaders
+
 
 class TestDataloaderVerification(unittest.TestCase):
     def setUp(self):
@@ -44,8 +44,8 @@ class TestDataloaderVerification(unittest.TestCase):
                 "batch_size": 1,
                 "image_size": 32,
                 "num_workers": 0,
-                "augment": {}
-            }
+                "augment": {},
+            },
         )
         self.cfg = self.model.cfg_obj
 
@@ -71,11 +71,12 @@ class TestDataloaderVerification(unittest.TestCase):
         print(f"✅ Waypoints Batch Indices Shape: {batch['batch_idx_waypoints'].shape}")
 
         # Verify 10 points per sample in batch_idx_waypoints
-        expected_wp_indices = 1 * 10 # batch_size (1) * num_waypoints (10)
-        self.assertEqual(batch['batch_idx_waypoints'].numel(), expected_wp_indices)
+        expected_wp_indices = 1 * 10  # batch_size (1) * num_waypoints (10)
+        self.assertEqual(batch["batch_idx_waypoints"].numel(), expected_wp_indices)
 
         print("\n--- Conclusion ---")
         print("Dataloader logic is confirmed and standardized.")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,4 +1,3 @@
-
 import time
 import torch
 import numpy as np
@@ -13,11 +12,12 @@ from neuro_pilot.utils.logger import logger
 
 console = Console()
 
+
 def run_performance_test(backend_path, imgsz=(1, 3, 640, 640), iterations=200, warmup=20):
     """
     Measures Latency and Throughput with professional-grade precision.
     """
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     try:
         with console.status(f"[bold cyan]Initializing {Path(backend_path).name} on {device}..."):
@@ -25,7 +25,7 @@ def run_performance_test(backend_path, imgsz=(1, 3, 640, 640), iterations=200, w
 
         input_shape = (imgsz[0], imgsz[1], imgsz[2], imgsz[3])
         dummy_input = torch.randn(input_shape, device=device)
-        if hasattr(backend, 'fp16') and backend.fp16:
+        if hasattr(backend, "fp16") and backend.fp16:
             dummy_input = dummy_input.half()
 
         console.print(f"  [yellow]Warmup ({warmup} iterations)...[/yellow]")
@@ -72,7 +72,7 @@ def run_performance_test(backend_path, imgsz=(1, 3, 640, 640), iterations=200, w
             "P95": f"{p95:.2f} ms",
             "FPS": f"{fps:.1f}",
             "Jitter (Std)": f"{std_dev:.3f}",
-            "Status": "[bold green]PASS[/bold green]"
+            "Status": "[bold green]PASS[/bold green]",
         }
 
     except Exception as e:
@@ -80,8 +80,9 @@ def run_performance_test(backend_path, imgsz=(1, 3, 640, 640), iterations=200, w
         return {
             "Backend": "Unknown",
             "Path": Path(backend_path).name,
-            "Status": f"[bold red]FAIL: {str(e)[:30]}...[/bold red]"
+            "Status": f"[bold red]FAIL: {str(e)[:30]}...[/bold red]",
         }
+
 
 def main():
     parser = argparse.ArgumentParser(description="NeuroPilot Production Performance Benchmark")
@@ -100,7 +101,9 @@ def main():
 
     results = []
     for w in args.weights:
-        res = run_performance_test(w, imgsz=(args.batch, 3, args.imgsz[0], args.imgsz[1]), iterations=args.iters, warmup=args.warmup)
+        res = run_performance_test(
+            w, imgsz=(args.batch, 3, args.imgsz[0], args.imgsz[1]), iterations=args.iters, warmup=args.warmup
+        )
         results.append(res)
 
     table = Table(title=f"Benchmark Results (Batch Size: {args.batch}, Resolution: {args.imgsz})")
@@ -122,6 +125,7 @@ def main():
 
     console.print(table)
     console.print("\n[dim]* Latency measured with time.perf_counter() and GPU synchronization.[/dim]\n")
+
 
 if __name__ == "__main__":
     main()

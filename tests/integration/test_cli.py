@@ -1,8 +1,8 @@
-
 import unittest
 import subprocess
 import os
 import sys
+
 
 class TestCLI(unittest.TestCase):
     def setUp(self):
@@ -11,17 +11,27 @@ class TestCLI(unittest.TestCase):
         self.python = sys.executable
 
     def test_cli_help(self):
-        result = subprocess.run([sys.executable, "-m", "neuro_pilot.main", "--help"],
-                                capture_output=True, text=True, env=self.env)
+        result = subprocess.run(
+            [sys.executable, "-m", "neuro_pilot.main", "--help"], capture_output=True, text=True, env=self.env
+        )
         self.assertEqual(result.returncode, 0)
         self.assertIn("NeuroPilot CLI", result.stdout)
 
     def test_cli_benchmark(self):
         # Run a quick benchmark (shortened)
         # Pointing to config to avoid loading huge weights
-        cmd = [sys.executable, "-m", "neuro_pilot.main", "benchmark",
-               "--model", "tests/sample_model.yaml",
-               "--imgsz", "32", "--batch", "1"]
+        cmd = [
+            sys.executable,
+            "-m",
+            "neuro_pilot.main",
+            "benchmark",
+            "--model",
+            "tests/sample_model.yaml",
+            "--imgsz",
+            "32",
+            "--batch",
+            "1",
+        ]
 
         # Force CPU
         env = self.env.copy()
@@ -39,5 +49,6 @@ class TestCLI(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("export", result.stdout.lower())
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

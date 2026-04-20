@@ -8,8 +8,10 @@ from neuro_pilot.utils.metrics import bbox_iou
 from neuro_pilot.utils.ops import xywh2xyxy, make_anchors, dist2bbox, get_bathtub_weights
 from neuro_pilot.utils.tal import TaskAlignedAssigner, bbox2dist
 
+
 class FocalLoss(nn.Module):
     """Standard Focal Loss for heatmap classification."""
+
     def __init__(self, gamma: float = 1.5, alpha: float = 0.25):
         super().__init__()
         self.gamma = gamma
@@ -28,12 +30,14 @@ class FocalLoss(nn.Module):
             loss *= alpha_factor
         return loss.mean()
 
+
 class HeatmapLoss(nn.Module):
     """Heatmap decoder loss using MSE + Dice."""
+
     def __init__(self, dice_weight=5.0, device=None):
         super().__init__()
         self.dice_weight = dice_weight
-        self.device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
 
     def generate_heatmap(self, coords, H, W):
         """Generate ground truth heatmap from waypoint coordinates."""
@@ -42,41 +46,45 @@ class HeatmapLoss(nn.Module):
         sigma = max(H, W) / 160.0 * 3.0
         grid_y, grid_x = torch.meshgrid(
             torch.arange(H, device=device, dtype=torch.float32),
-            torch.arange(W, device=device, dtype=torch.float32), indexing='ij')
+            torch.arange(W, device=device, dtype=torch.float32),
+            indexing="ij",
+        )
         grid = torch.stack([grid_x, grid_y], dim=-1).view(1, H, W, 2)
         pts = (coords + 1) / 2 * torch.tensor([W, H], device=device).view(1, 1, 2)
 
         final_heatmap = torch.zeros((B, 1, H, W), device=device)
         for i in range(K - 1):
-            p1 = pts[:, i:i+1, :].view(B, 1, 1, 2)
-            p2 = pts[:, i+1:i+2, :].view(B, 1, 1, 2)
+            p1 = pts[:, i : i + 1, :].view(B, 1, 1, 2)
+            p2 = pts[:, i + 1 : i + 2, :].view(B, 1, 1, 2)
             v = p2 - p1
             w = grid - p1
             t = torch.clamp(torch.sum(w * v, dim=-1) / (torch.sum(v * v, dim=-1) + 1e-6), 0.0, 1.0)
             projection = p1 + t.unsqueeze(-1) * v
             dist_sq = torch.sum((grid - projection) ** 2, dim=-1)
-            segment_heatmap = torch.exp(-dist_sq / (2 * sigma ** 2))
+            segment_heatmap = torch.exp(-dist_sq / (2 * sigma**2))
             final_heatmap = torch.maximum(final_heatmap, segment_heatmap.unsqueeze(1))
         return final_heatmap
 
     def forward(self, pred_logits, gt_heatmaps):
         if pred_logits.shape[-2:] != gt_heatmaps.shape[-2:]:
-            gt_heatmaps = F.interpolate(gt_heatmaps, pred_logits.shape[-2:], mode='bilinear', align_corners=False)
+            gt_heatmaps = F.interpolate(gt_heatmaps, pred_logits.shape[-2:], mode="bilinear", align_corners=False)
 
         probs = torch.sigmoid(pred_logits)
-        mse_loss = F.mse_loss(probs, gt_heatmaps, reduction='none').mean(dim=(1, 2, 3))
+        mse_loss = F.mse_loss(probs, gt_heatmaps, reduction="none").mean(dim=(1, 2, 3))
 
         inter = (probs * gt_heatmaps).sum(dim=(2, 3))
         union = probs.sum(dim=(2, 3)) + gt_heatmaps.sum(dim=(2, 3))
         inter = torch.nan_to_num(inter)
         union = torch.nan_to_num(union)
-        dice = (1 - (2. * inter + 1e-6) / (union + 1e-6)).squeeze(-1)
+        dice = (1 - (2.0 * inter + 1e-6) / (union + 1e-6)).squeeze(-1)
         dice = torch.nan_to_num(dice, nan=1.0, posinf=1.0, neginf=1.0)
 
         return 10.0 * mse_loss + self.dice_weight * dice
 
+
 class DFLoss(nn.Module):
     """Distribution Focal Loss (DFL)."""
+
     def __init__(self, reg_max: int = 16) -> None:
         super().__init__()
         self.reg_max = reg_max
@@ -92,13 +100,25 @@ class DFLoss(nn.Module):
             + F.cross_entropy(pred_dist, tr.view(-1), reduction="none").view(tl.shape) * wr
         ).mean(-1, keepdim=True)
 
+
 class BboxLoss(nn.Module):
     def __init__(self, reg_max, use_dfl=False):
         super().__init__()
         self.reg_max = reg_max
         self.use_dfl = use_dfl
 
-    def forward(self, pred_dist, pred_bboxes, anchor_points, target_bboxes, target_scores, target_scores_sum, fg_mask, imgsz, stride_tensor):
+    def forward(
+        self,
+        pred_dist,
+        pred_bboxes,
+        anchor_points,
+        target_bboxes,
+        target_scores,
+        target_scores_sum,
+        fg_mask,
+        imgsz,
+        stride_tensor,
+    ):
         weight = target_scores.sum(-1)[fg_mask].unsqueeze(-1)
         iou = bbox_iou(pred_bboxes[fg_mask], target_bboxes[fg_mask], xywh=False, CIoU=True)
         iou = torch.nan_to_num(iou, nan=0.0, posinf=1.0, neginf=0.0).clamp(0, 1.0)
@@ -119,13 +139,16 @@ class BboxLoss(nn.Module):
         tr = tl + 1
         wl = tr - target
         wr = 1 - wl
-        return (F.cross_entropy(pred_dist, tl.view(-1), reduction="none").view(tl.shape) * wl +
-                F.cross_entropy(pred_dist, tr.view(-1), reduction="none").view(tl.shape) * wr).mean(-1, keepdim=True)
+        return (
+            F.cross_entropy(pred_dist, tl.view(-1), reduction="none").view(tl.shape) * wl
+            + F.cross_entropy(pred_dist, tr.view(-1), reduction="none").view(tl.shape) * wr
+        ).mean(-1, keepdim=True)
+
 
 class DetectionLoss:
     def __init__(self, model, config=None):
         device = next(model.parameters()).device
-        h = model.heads['detect']
+        h = model.heads["detect"]
         self.bce = nn.BCEWithLogitsLoss(reduction="none")
         self.stride = h.stride
         self.nc = h.nc
@@ -138,23 +161,26 @@ class DetectionLoss:
 
         if config is None:
             from neuro_pilot.cfg.schema import AppConfig
+
             loss_cfg = AppConfig().loss
         else:
-            loss_cfg = getattr(config, 'loss', config)
+            loss_cfg = getattr(config, "loss", config)
 
-        self.box_weight = getattr(loss_cfg, 'box', 7.5)
-        self.cls_weight = getattr(loss_cfg, 'cls_det', 0.5)
-        self.dfl_weight = getattr(loss_cfg, 'dfl', 1.5)
+        self.box_weight = getattr(loss_cfg, "box", 7.5)
+        self.cls_weight = getattr(loss_cfg, "cls_det", 0.5)
+        self.dfl_weight = getattr(loss_cfg, "dfl", 1.5)
 
     def preprocess(self, targets: torch.Tensor, batch_size: int, scale_tensor: torch.Tensor) -> torch.Tensor:
         nl, ne = targets.shape
-        if nl == 0: return torch.zeros(batch_size, 0, ne - 1, device=self.device)
+        if nl == 0:
+            return torch.zeros(batch_size, 0, ne - 1, device=self.device)
         i = targets[:, 0]
         _, counts = i.unique(return_counts=True)
         out = torch.zeros(batch_size, counts.max(), ne - 1, device=self.device)
         for j in range(batch_size):
             matches = i == j
-            if n := matches.sum(): out[j, :n] = targets[matches, 1:]
+            if n := matches.sum():
+                out[j, :n] = targets[matches, 1:]
 
         out[..., 1:5] = xywh2xyxy(out[..., 1:5].mul_(scale_tensor))
         out = torch.nan_to_num(out, nan=0.0, posinf=320.0, neginf=-320.0)
@@ -168,25 +194,29 @@ class DetectionLoss:
 
     def __call__(self, preds, batch):
         loss = torch.zeros(3, device=self.device)
-        if isinstance(preds, dict) and "one2many" in preds: preds = preds["one2many"]
+        if isinstance(preds, dict) and "one2many" in preds:
+            preds = preds["one2many"]
         pred_distri = preds["boxes"].permute(0, 2, 1).contiguous()
         pred_scores = preds["scores"].permute(0, 2, 1).contiguous()
         anchor_points, stride_tensor = make_anchors(preds["feats"], self.stride, 0.5)
         batch_size = pred_scores.shape[0]
         imgsz = torch.tensor(preds["feats"][0].shape[2:], device=self.device) * self.stride[0]
 
-        if 'batch_idx' in batch and 'cls' in batch and 'bboxes' in batch:
-            targets_flat = torch.cat((batch['batch_idx'].view(-1, 1), batch['cls'].view(-1, 1), batch['bboxes']), 1).to(self.device)
+        if "batch_idx" in batch and "cls" in batch and "bboxes" in batch:
+            targets_flat = torch.cat((batch["batch_idx"].view(-1, 1), batch["cls"].view(-1, 1), batch["bboxes"]), 1).to(
+                self.device
+            )
         else:
             targets_list = []
             for i in range(batch_size):
-                boxes = batch['bboxes'][i].to(self.device)
-                cls = batch['categories'][i].to(self.device).view(-1, 1)
+                boxes = batch["bboxes"][i].to(self.device)
+                cls = batch["categories"][i].to(self.device).view(-1, 1)
                 idx = torch.full_like(cls, i)
                 targets_list.append(torch.cat([idx, cls, boxes], 1))
             targets_flat = torch.cat(targets_list, 0)
 
-        if targets_flat.shape[0] == 0: return loss * 0.0, loss.detach()
+        if targets_flat.shape[0] == 0:
+            return loss * 0.0, loss.detach()
         targets = self.preprocess(targets_flat, batch_size, scale_tensor=imgsz[[1, 0, 1, 0]])
         gt_labels, gt_bboxes = targets.split((1, 4), 2)
         mask_gt = gt_bboxes.sum(2, keepdim=True).gt_(0.0)
@@ -196,12 +226,8 @@ class DetectionLoss:
         pd_bboxes_pixels = (pred_bboxes.detach() * stride_tensor).type(gt_bboxes.dtype)
 
         _, target_bboxes, target_scores, fg_mask, _ = self.assigner(
-            pred_scores.detach().sigmoid(),
-            pd_bboxes_pixels,
-            anc_points_pixels,
-            gt_labels,
-            gt_bboxes,
-            mask_gt)
+            pred_scores.detach().sigmoid(), pd_bboxes_pixels, anc_points_pixels, gt_labels, gt_bboxes, mask_gt
+        )
 
         target_scores_sum = max(target_scores.sum(), 1)
 
@@ -209,13 +235,23 @@ class DetectionLoss:
         loss[1] = torch.nan_to_num(loss_cls, nan=0.0, posinf=0.0, neginf=0.0)
 
         if fg_mask.any():
-            loss[0], loss[2] = self.bbox_loss(pred_distri, pred_bboxes, anchor_points, target_bboxes / stride_tensor,
-                                            target_scores, target_scores_sum, fg_mask, imgsz, stride_tensor)
+            loss[0], loss[2] = self.bbox_loss(
+                pred_distri,
+                pred_bboxes,
+                anchor_points,
+                target_bboxes / stride_tensor,
+                target_scores,
+                target_scores_sum,
+                fg_mask,
+                imgsz,
+                stride_tensor,
+            )
 
         loss[0] *= self.box_weight
         loss[1] *= self.cls_weight
         loss[2] *= self.dfl_weight
         return loss, loss.detach()
+
 
 class FDATLoss(nn.Module):
     """Frenet-Decomposed Anisotropic Trajectory Loss.
@@ -379,7 +415,7 @@ class CollisionLoss(nn.Module):
                 y1 = int(torch.clamp(box[1] * scale - self.margin * H, 0, H - 1))
                 x2 = int(torch.clamp(box[2] * scale + self.margin * H, 0, W - 1))
                 y2 = int(torch.clamp(box[3] * scale + self.margin * H, 0, H - 1))
-                occupancy[:, :, y1:y2 + 1, x1:x2 + 1] = 1.0
+                occupancy[:, :, y1 : y2 + 1, x1 : x2 + 1] = 1.0
         else:
             return torch.tensor(0.0, device=device, requires_grad=False)
 
@@ -495,14 +531,43 @@ class MotionRegularizationLoss(nn.Module):
         mismatch = F.smooth_l1_loss(pred_speed, v_normalized.detach())
         return mismatch
 
+
+class WingLoss(nn.Module):
+    """Wing Loss for robust regression, sensitive to small errors.
+    Reference: Wing Loss for Robust Facial Landmark Localisation with CNNs (CVPR 2018).
+    """
+
+    def __init__(self, w: float = 10.0, epsilon: float = 2.0):
+        super().__init__()
+        self.w = w
+        self.epsilon = epsilon
+        self.C = w - w * torch.log(torch.tensor(1.0 + w / epsilon))
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        diff = torch.abs(pred - target)
+        loss = torch.where(diff < self.w, self.w * torch.log(1.0 + diff / self.epsilon), diff - self.C.to(pred.device))
+        return loss.mean()
+
+
 class MultiTaskLossManager(nn.Module):
     """Multi-task loss with uncertainty-aware weighting."""
+
     def __init__(self, config, model, device=None):
         super().__init__()
         self.device = device or next(model.parameters()).device
         self.heatmap_loss = HeatmapLoss(device=self.device)
-        self.traj_loss = nn.SmoothL1Loss(reduction='none', beta=0.1)
-        self.det_loss = DetectionLoss(model, config) if 'detect' in getattr(model, 'heads', {}) else None
+
+        loss_cfg = getattr(config, "loss", config)
+        self.traj_loss_type = getattr(loss_cfg, "traj_loss_type", "smooth_l1")
+
+        if self.traj_loss_type == "l2":
+            self.traj_loss = nn.MSELoss(reduction="none")
+        elif self.traj_loss_type == "wing":
+            self.traj_loss = WingLoss()
+        else:  # Default smooth_l1
+            self.traj_loss = nn.SmoothL1Loss(reduction="none", beta=0.1)
+
+        self.det_loss = DetectionLoss(model, config) if "detect" in getattr(model, "heads", {}) else None
         self.ce_cls = nn.CrossEntropyLoss()
         self.collision_loss = CollisionLoss()
         self.progress_loss = ProgressLoss()
@@ -512,98 +577,104 @@ class MultiTaskLossManager(nn.Module):
         self.log_var_det = nn.Parameter(torch.zeros(1, device=self.device))
         self.log_var_cls = nn.Parameter(torch.zeros(1, device=self.device))
 
-        loss_cfg = getattr(config, 'loss', config)
-        self.lambda_heatmap = getattr(loss_cfg, 'lambda_heatmap', 1.0)
-        self.lambda_traj = getattr(loss_cfg, 'lambda_traj', 1.0)
-        self.lambda_det = getattr(loss_cfg, 'lambda_det', 1.0)
-        self.lambda_cls = getattr(loss_cfg, 'lambda_cls', 1.0)
-        self.lambda_smooth = getattr(loss_cfg, 'lambda_smooth', 0.1)
-        self.lambda_gate = getattr(loss_cfg, 'lambda_gate', 0.5)
-        self.lambda_collision = getattr(loss_cfg, 'lambda_collision', 0.0)
-        self.lambda_progress = getattr(loss_cfg, 'lambda_progress', 0.0)
-        self.lambda_jepa = getattr(loss_cfg, 'lambda_jepa', 0.0)
-        self.lambda_sigreg = getattr(loss_cfg, 'lambda_sigreg', 0.0)
+        self.lambda_heatmap = getattr(loss_cfg, "lambda_heatmap", 1.0)
+        self.lambda_traj = getattr(loss_cfg, "lambda_traj", 1.0)
+        self.lambda_det = getattr(loss_cfg, "lambda_det", 1.0)
+        self.lambda_cls = getattr(loss_cfg, "lambda_cls", 1.0)
+        self.lambda_smooth = getattr(loss_cfg, "lambda_smooth", 0.1)
+        self.lambda_gate = getattr(loss_cfg, "lambda_gate", 0.5)
+        self.lambda_collision = getattr(loss_cfg, "lambda_collision", 0.0)
+        self.lambda_progress = getattr(loss_cfg, "lambda_progress", 0.0)
+        self.lambda_jepa = getattr(loss_cfg, "lambda_jepa", 0.0)
+        self.lambda_sigreg = getattr(loss_cfg, "lambda_sigreg", 0.0)
 
         # Temporal losses (only activated when lambdas > 0)
-        self.lambda_temporal_consistency = getattr(loss_cfg, 'lambda_temporal_consistency', 0.0)
-        self.lambda_motion_prior = getattr(loss_cfg, 'lambda_motion_prior', 0.0)
+        self.lambda_temporal_consistency = getattr(loss_cfg, "lambda_temporal_consistency", 0.0)
+        self.lambda_motion_prior = getattr(loss_cfg, "lambda_motion_prior", 0.0)
         if self.lambda_temporal_consistency > 0:
             self.temporal_consistency_loss = TemporalConsistencyLoss()
         if self.lambda_motion_prior > 0:
             self.motion_reg_loss = MotionRegularizationLoss()
 
-        self.use_fdat = getattr(loss_cfg, 'use_fdat', False)
-        self.use_uncertainty = getattr(loss_cfg, 'use_uncertainty', True)
+        self.use_fdat = getattr(loss_cfg, "use_fdat", False)
+        self.use_uncertainty = getattr(loss_cfg, "use_uncertainty", True)
         if self.use_fdat:
             self.fdat_loss = FDATLoss(
-                alpha_lane=getattr(loss_cfg, 'fdat_alpha_lane', 10.0),
-                beta_lane=getattr(loss_cfg, 'fdat_beta_lane', 1.0),
-                alpha_inter=getattr(loss_cfg, 'fdat_alpha_inter', 5.0),
-                beta_inter=getattr(loss_cfg, 'fdat_beta_inter', 3.0),
-                lambda_heading=getattr(loss_cfg, 'fdat_lambda_heading', 2.0),
-                lambda_endpoint=getattr(loss_cfg, 'fdat_lambda_endpoint', 5.0),
-                tau_start=getattr(loss_cfg, 'fdat_tau_start', 2.0),
-                tau_end=getattr(loss_cfg, 'fdat_tau_end', 2.0),
+                alpha_lane=getattr(loss_cfg, "fdat_alpha_lane", 10.0),
+                beta_lane=getattr(loss_cfg, "fdat_beta_lane", 1.0),
+                alpha_inter=getattr(loss_cfg, "fdat_alpha_inter", 5.0),
+                beta_inter=getattr(loss_cfg, "fdat_beta_inter", 3.0),
+                lambda_heading=getattr(loss_cfg, "fdat_lambda_heading", 2.0),
+                lambda_endpoint=getattr(loss_cfg, "fdat_lambda_endpoint", 5.0),
+                tau_start=getattr(loss_cfg, "fdat_tau_start", 2.0),
+                tau_end=getattr(loss_cfg, "fdat_tau_end", 2.0),
                 lambda_smooth=self.lambda_smooth,
             )
-            logger.info("MultiTaskLossManager: FDAT trajectory loss ENABLED")
+            logger.info(f"MultiTaskLossManager: FDAT trajectory loss ENABLED (mode: {self.traj_loss_type})")
+        else:
+            logger.info(f"MultiTaskLossManager: Trajectory loss type: {self.traj_loss_type}")
 
     def _uncertainty_weight(self, loss, log_var, lambda_val=1.0):
-        if lambda_val == 0: return torch.tensor(0.0, device=loss.device)
+        if lambda_val == 0:
+            return torch.tensor(0.0, device=loss.device)
         if not self.use_uncertainty:
-             return loss * lambda_val
+            return loss * lambda_val
         clamped_log_var = torch.clamp(log_var, -2.0, 2.0)
         precision = torch.exp(-clamped_log_var)
         return precision * (loss * lambda_val) + clamped_log_var
 
     def forward(self, predictions: dict, targets: dict, ema_model=None, batch=None) -> dict:
-        gt_wp = targets.get('waypoints')
+        gt_wp = targets.get("waypoints")
 
         l_jepa = torch.tensor(0.0, device=self.device)
         l_sigreg = torch.tensor(0.0, device=self.device)
-        if self.lambda_jepa > 0 and 'jepa_pred' in predictions and ema_model is not None and batch is not None:
+        if self.lambda_jepa > 0 and "jepa_pred" in predictions and ema_model is not None and batch is not None:
             with torch.no_grad():
-                ema_out = ema_model(batch['image'], return_intermediate=True)
-            if isinstance(ema_out, dict) and 'jepa_context' in ema_out:
-                jepa_target_ctx = ema_out['jepa_context'].detach()
-                l_jepa = F.mse_loss(predictions['jepa_pred'], jepa_target_ctx)
+                ema_out = ema_model(batch["image"], return_intermediate=True)
+            if isinstance(ema_out, dict) and "jepa_context" in ema_out:
+                jepa_target_ctx = ema_out["jepa_context"].detach()
+                l_jepa = F.mse_loss(predictions["jepa_pred"], jepa_target_ctx)
 
-        if self.lambda_sigreg > 0 and 'sigreg_loss' in predictions:
-            l_sigreg = predictions['sigreg_loss']
+        if self.lambda_sigreg > 0 and "sigreg_loss" in predictions:
+            l_sigreg = predictions["sigreg_loss"]
 
         l_heat_raw = torch.tensor(0.0, device=self.device)
-        pred_hm = predictions.get('heatmap')
+        pred_hm = predictions.get("heatmap")
         if pred_hm is not None and self.lambda_heatmap > 0:
-            if isinstance(pred_hm, dict): pred_hm = pred_hm['heatmap']
+            if isinstance(pred_hm, dict):
+                pred_hm = pred_hm["heatmap"]
             _, _, H, W = pred_hm.shape
             gt_hm = self.heatmap_loss.generate_heatmap(gt_wp, H, W)
             l_heat_raw = self.heatmap_loss(pred_hm, gt_hm)
 
         l_det_raw = torch.tensor(0.0, device=self.device)
         det_loss_items = torch.zeros(3, device=self.device)
-        det_head_out = predictions.get('detect', predictions if 'boxes' in predictions else None)
+        det_head_out = predictions.get("detect", predictions if "boxes" in predictions else None)
         if det_head_out is not None and self.lambda_det > 0:
-            if isinstance(det_head_out, tuple): det_head_out = det_head_out[1]
+            if isinstance(det_head_out, tuple):
+                det_head_out = det_head_out[1]
             det_loss_val, det_loss_items = self.det_loss(det_head_out, targets)
             l_det_raw = det_loss_val.sum()
 
         l_traj_raw = torch.tensor(0.0, device=self.device)
         l_smooth = torch.tensor(0.0, device=self.device)
-        pred_wp = predictions.get('waypoints')
+        pred_wp = predictions.get("waypoints")
         if pred_wp is not None:
             if gt_wp.shape[1] == 0:
                 l_traj_raw = torch.tensor(0.0, device=self.device)
             else:
                 if gt_wp.shape[1] != pred_wp.shape[1]:
                     if gt_wp.shape[1] > 1:
-                        gt_wp_loss = torch.nn.functional.interpolate(gt_wp.permute(0,2,1).float(), size=pred_wp.shape[1], mode='linear', align_corners=True).permute(0,2,1)
+                        gt_wp_loss = torch.nn.functional.interpolate(
+                            gt_wp.permute(0, 2, 1).float(), size=pred_wp.shape[1], mode="linear", align_corners=True
+                        ).permute(0, 2, 1)
                     else:
                         gt_wp_loss = gt_wp.repeat(1, pred_wp.shape[1], 1)
                 else:
                     gt_wp_loss = gt_wp
 
                 if self.use_fdat:
-                    gate = predictions.get('gate_score')
+                    gate = predictions.get("gate_score")
                     l_traj_raw = self.fdat_loss(pred_wp, gt_wp_loss, gate)
                 else:
                     l_traj_raw = self.traj_loss(pred_wp, gt_wp_loss).mean(dim=(1, 2))
@@ -611,32 +682,35 @@ class MultiTaskLossManager(nn.Module):
                     l_smooth = (diff[:, 1:] - diff[:, :-1]).pow(2).mean(dim=(1, 2))
 
         l_cls_raw = torch.tensor(0.0, device=self.device)
-        pred_cls = predictions.get('classes')
-        gt_cls = targets.get('command_idx')
+        pred_cls = predictions.get("classes")
+        gt_cls = targets.get("command_idx")
         if pred_cls is not None and gt_cls is not None:
-            if gt_cls.dim() > 1: gt_cls = gt_cls.argmax(dim=-1)
+            if gt_cls.dim() > 1:
+                gt_cls = gt_cls.argmax(dim=-1)
             l_cls_raw = self.ce_cls(pred_cls, gt_cls.long())
 
         batch_size = gt_wp.shape[0] if gt_wp is not None else 1
 
         l_gate = torch.tensor(0.0, device=self.device)
-        if 'gate_score' in predictions:
-            pred_gate = predictions['gate_score']
+        if "gate_score" in predictions:
+            pred_gate = predictions["gate_score"]
             if gt_cls is not None:
-                 gt_gate = (gt_cls != 0).to(pred_gate.dtype).view(-1, 1, 1)
-                 with torch.amp.autocast(device_type=self.device.type if hasattr(self.device, 'type') else 'cuda', enabled=False):
-                     p_gate = torch.clamp(torch.nan_to_num(pred_gate.float(), nan=0.0), 0.0, 1.0)
-                     t_gate = torch.clamp(torch.nan_to_num(gt_gate.float(), nan=0.0), 0.0, 1.0)
-                     l_gate = F.binary_cross_entropy(p_gate, t_gate, reduction='none').view(batch_size)
+                gt_gate = (gt_cls != 0).to(pred_gate.dtype).view(-1, 1, 1)
+                with torch.amp.autocast(
+                    device_type=self.device.type if hasattr(self.device, "type") else "cuda", enabled=False
+                ):
+                    p_gate = torch.clamp(torch.nan_to_num(pred_gate.float(), nan=0.0), 0.0, 1.0)
+                    t_gate = torch.clamp(torch.nan_to_num(gt_gate.float(), nan=0.0), 0.0, 1.0)
+                    l_gate = F.binary_cross_entropy(p_gate, t_gate, reduction="none").view(batch_size)
             else:
-                 l_gate = pred_gate.mean(dim=(1, 2))
+                l_gate = pred_gate.mean(dim=(1, 2))
 
-        wp_mask = targets.get('waypoints_mask', torch.ones(batch_size, device=self.device))
+        wp_mask = targets.get("waypoints_mask", torch.ones(batch_size, device=self.device))
 
         l_traj_exist = torch.tensor(0.0, device=self.device)
         predict_traj_exist = False
-        if pred_wp is not None and isinstance(predictions.get('trajectory'), dict):
-            has_traj_logit = predictions['trajectory'].get('has_traj_logit')
+        if pred_wp is not None and isinstance(predictions.get("trajectory"), dict):
+            has_traj_logit = predictions["trajectory"].get("has_traj_logit")
             if has_traj_logit is not None:
                 with torch.no_grad():
                     alpha_tqfl = 5.0
@@ -650,17 +724,19 @@ class MultiTaskLossManager(nn.Module):
                     target_exist = torch.clamp(target_exist, 0.0, 1.0).mean(dim=1)
 
                 l_traj_exist = F.binary_cross_entropy_with_logits(
-                    has_traj_logit.squeeze(-1),
-                    target_exist.to(has_traj_logit.dtype),
-                    reduction='mean'
+                    has_traj_logit.squeeze(-1), target_exist.to(has_traj_logit.dtype), reduction="mean"
                 )
                 predict_traj_exist = True
 
         lambda_traj_exist = self.lambda_traj * 0.5
 
         if wp_mask.any():
-            l_heat_raw = (l_heat_raw * wp_mask).sum() / (wp_mask.sum() + 1e-6) if l_heat_raw.dim() == 2 else l_heat_raw.mean()
-            l_traj_raw = (l_traj_raw * wp_mask).sum() / (wp_mask.sum() + 1e-6) if l_traj_raw.dim() == 2 else l_traj_raw.mean()
+            l_heat_raw = (
+                (l_heat_raw * wp_mask).sum() / (wp_mask.sum() + 1e-6) if l_heat_raw.dim() == 2 else l_heat_raw.mean()
+            )
+            l_traj_raw = (
+                (l_traj_raw * wp_mask).sum() / (wp_mask.sum() + 1e-6) if l_traj_raw.dim() == 2 else l_traj_raw.mean()
+            )
             l_smooth = (l_smooth * wp_mask).sum() / (wp_mask.sum() + 1e-6) if l_smooth.dim() == 2 else l_smooth.mean()
             l_gate = (l_gate * wp_mask).sum() / (wp_mask.sum() + 1e-6) if l_gate.dim() == 2 else l_gate.mean()
         else:
@@ -675,11 +751,11 @@ class MultiTaskLossManager(nn.Module):
         if pred_wp is not None:
             if self.lambda_collision > 0:
                 det_boxes = None
-                if 'bboxes' in targets:
-                    det_boxes = targets['bboxes'].view(-1, 4).to(self.device) if targets['bboxes'].numel() > 0 else None
-                pred_hm_for_coll = predictions.get('heatmap')
+                if "bboxes" in targets:
+                    det_boxes = targets["bboxes"].view(-1, 4).to(self.device) if targets["bboxes"].numel() > 0 else None
+                pred_hm_for_coll = predictions.get("heatmap")
                 if isinstance(pred_hm_for_coll, dict):
-                    pred_hm_for_coll = pred_hm_for_coll.get('heatmap')
+                    pred_hm_for_coll = pred_hm_for_coll.get("heatmap")
                 l_collision = self.collision_loss(pred_wp, det_boxes, pred_hm_for_coll)
 
             if self.lambda_progress > 0:
@@ -694,33 +770,52 @@ class MultiTaskLossManager(nn.Module):
         gated_l_traj_raw = l_traj_raw * pgp_gate
         gated_l_heat_raw = l_heat_raw * pgp_gate
 
-        total = (self._uncertainty_weight(gated_l_heat_raw, self.log_var_heatmap, self.lambda_heatmap) +
-                 self._uncertainty_weight(gated_l_traj_raw, self.log_var_traj, self.lambda_traj) +
-                 self._uncertainty_weight(l_det_raw, self.log_var_det, self.lambda_det) +
-                 self._uncertainty_weight(l_cls_raw, self.log_var_cls, self.lambda_cls) +
-                 self.lambda_smooth * l_smooth + self.lambda_gate * l_gate +
-                 self.lambda_collision * l_collision + self.lambda_progress * l_progress +
-                 self.lambda_jepa * l_jepa + self.lambda_sigreg * l_sigreg)
+        total = (
+            self._uncertainty_weight(gated_l_heat_raw, self.log_var_heatmap, self.lambda_heatmap)
+            + self._uncertainty_weight(gated_l_traj_raw, self.log_var_traj, self.lambda_traj)
+            + self._uncertainty_weight(l_det_raw, self.log_var_det, self.lambda_det)
+            + self._uncertainty_weight(l_cls_raw, self.log_var_cls, self.lambda_cls)
+            + self.lambda_smooth * l_smooth
+            + self.lambda_gate * l_gate
+            + self.lambda_collision * l_collision
+            + self.lambda_progress * l_progress
+            + self.lambda_jepa * l_jepa
+            + self.lambda_sigreg * l_sigreg
+        )
 
         if predict_traj_exist:
-             total += lambda_traj_exist * l_traj_exist
+            total += lambda_traj_exist * l_traj_exist
 
         # Temporal losses (only computed when configured with lambda > 0)
         l_temporal = torch.tensor(0.0, device=self.device)
         l_motion_prior = torch.tensor(0.0, device=self.device)
         if pred_wp is not None:
-            if self.lambda_temporal_consistency > 0 and hasattr(self, 'temporal_consistency_loss'):
-                prev_wp = predictions.get('prev_waypoints')
+            if self.lambda_temporal_consistency > 0 and hasattr(self, "temporal_consistency_loss"):
+                prev_wp = predictions.get("prev_waypoints")
                 l_temporal = self.temporal_consistency_loss(pred_wp, prev_wp)
                 total += self.lambda_temporal_consistency * l_temporal
 
-            if self.lambda_motion_prior > 0 and hasattr(self, 'motion_reg_loss'):
-                v_ego = targets.get('vEgo')
+            if self.lambda_motion_prior > 0 and hasattr(self, "motion_reg_loss"):
+                v_ego = targets.get("vEgo")
                 l_motion_prior = self.motion_reg_loss(pred_wp, v_ego)
                 total += self.lambda_motion_prior * l_motion_prior
 
-        return {'total': total, 'traj': l_traj_raw, 'heatmap': l_heat_raw, 'det': l_det_raw,
-                'box': det_loss_items[0], 'cls_det': det_loss_items[1], 'dfl': det_loss_items[2],
-                'smooth': l_smooth, 'cls': l_cls_raw, 'gate': l_gate, 'traj_exist': l_traj_exist,
-                'collision': l_collision, 'progress': l_progress, 'jepa': l_jepa, 'sigreg': l_sigreg,
-                'temporal': l_temporal, 'motion_prior': l_motion_prior}
+        return {
+            "total": total,
+            "traj": l_traj_raw,
+            "heatmap": l_heat_raw,
+            "det": l_det_raw,
+            "box": det_loss_items[0],
+            "cls_det": det_loss_items[1],
+            "dfl": det_loss_items[2],
+            "smooth": l_smooth,
+            "cls": l_cls_raw,
+            "gate": l_gate,
+            "traj_exist": l_traj_exist,
+            "collision": l_collision,
+            "progress": l_progress,
+            "jepa": l_jepa,
+            "sigreg": l_sigreg,
+            "temporal": l_temporal,
+            "motion_prior": l_motion_prior,
+        }

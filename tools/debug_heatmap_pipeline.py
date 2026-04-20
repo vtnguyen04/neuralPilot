@@ -1,4 +1,3 @@
-
 import shutil
 import torch
 import torch.nn as nn
@@ -61,10 +60,20 @@ class EpochMetrics:
 
     def update(self, loss_dict: dict) -> None:
         self.total += loss_dict["total"].item()
-        self.box += loss_dict.get("box", 0.0).item() if torch.is_tensor(loss_dict.get("box")) else loss_dict.get("box", 0.0)
-        self.heatmap += loss_dict.get("heatmap", 0.0).item() if torch.is_tensor(loss_dict.get("heatmap")) else loss_dict.get("heatmap", 0.0)
-        self.cls += loss_dict.get("cls", 0.0).item() if torch.is_tensor(loss_dict.get("cls")) else loss_dict.get("cls", 0.0)
-        self.traj += loss_dict.get("traj", 0.0).item() if torch.is_tensor(loss_dict.get("traj")) else loss_dict.get("traj", 0.0)
+        self.box += (
+            loss_dict.get("box", 0.0).item() if torch.is_tensor(loss_dict.get("box")) else loss_dict.get("box", 0.0)
+        )
+        self.heatmap += (
+            loss_dict.get("heatmap", 0.0).item()
+            if torch.is_tensor(loss_dict.get("heatmap"))
+            else loss_dict.get("heatmap", 0.0)
+        )
+        self.cls += (
+            loss_dict.get("cls", 0.0).item() if torch.is_tensor(loss_dict.get("cls")) else loss_dict.get("cls", 0.0)
+        )
+        self.traj += (
+            loss_dict.get("traj", 0.0).item() if torch.is_tensor(loss_dict.get("traj")) else loss_dict.get("traj", 0.0)
+        )
         self.count += 1
 
     def averages(self) -> dict:
@@ -98,9 +107,7 @@ def draw_gt_on_image(
     gt_mask = batch["batch_idx"] == idx
     gt_boxes = batch["bboxes"][gt_mask]
     for box in gt_boxes:
-        x1, y1, x2, y2 = (
-            xywh2xyxy(box.cpu().numpy().reshape(1, 4)).flatten() * S
-        )
+        x1, y1, x2, y2 = xywh2xyxy(box.cpu().numpy().reshape(1, 4)).flatten() * S
         cv2.rectangle(
             canvas,
             (int(x1), int(y1)),
@@ -112,7 +119,8 @@ def draw_gt_on_image(
     if batch.get("waypoints_mask", torch.ones(batch["image"].shape[0]))[idx] > 0:
         for wp in batch["waypoints"][idx]:
             # Skip padding (0,0) or check if they are real
-            if wp.sum() == 0: continue
+            if wp.sum() == 0:
+                continue
             x = int((wp[0].item() + 1) / 2 * S)
             y = int((wp[1].item() + 1) / 2 * S)
             cv2.circle(canvas, (x, y), 5, (0, 255, 0), -1)
@@ -152,9 +160,7 @@ def draw_pred_on_image(
 
 def render_heatmap(hm: np.ndarray, image_size: int) -> np.ndarray:
     hm_norm = (hm - hm.min()) / (hm.max() - hm.min() + 1e-6)
-    hm_color = cv2.applyColorMap(
-        (hm_norm * 255).astype(np.uint8), cv2.COLORMAP_JET
-    )
+    hm_color = cv2.applyColorMap((hm_norm * 255).astype(np.uint8), cv2.COLORMAP_JET)
     return cv2.resize(hm_color, (image_size, image_size))
 
 
@@ -180,9 +186,7 @@ class Visualizer:
         has_wp = batch.get("waypoints_mask", torch.ones(batch["image"].shape[0]))[idx] > 0
 
         if has_wp:
-            gt_hm = self.heatmap_loss.generate_heatmap(
-                batch["waypoints"][idx].unsqueeze(0), H, W
-            ).cpu().numpy()[0, 0]
+            gt_hm = self.heatmap_loss.generate_heatmap(batch["waypoints"][idx].unsqueeze(0), H, W).cpu().numpy()[0, 0]
         else:
             gt_hm = np.zeros((H, W))
 
@@ -199,7 +203,7 @@ def build_model_and_optimizer(cfg: TrainConfig, device: torch.device):
     model = DetectionModel(
         cfg=str(model_cfg),
         nc=cfg.nc,
-        scale='s',
+        scale="s",
     ).to(device)
 
     optimizer = optim.AdamW(
@@ -268,10 +272,7 @@ def run_validation(
     with torch.no_grad():
         for batch in val_loader:
             imgs = batch["image"].to(device)
-            targets = {
-                k: v.to(device) if isinstance(v, torch.Tensor) else v
-                for k, v in batch.items()
-            }
+            targets = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
             preds = model(imgs, cmd_onehot=targets["command"])
             loss_dict = criterion.advanced(preds, targets)
 
@@ -295,15 +296,10 @@ def save_visualizations(
     with torch.no_grad():
         batch = next(iter(val_loader))
         imgs = batch["image"].to(device)
-        targets = {
-            k: v.to(device) if isinstance(v, torch.Tensor) else v
-            for k, v in batch.items()
-        }
+        targets = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
 
         preds = model(imgs, cmd_onehot=targets["command"])
-        detections = non_max_suppression(
-            preds["bboxes"], conf_thres=cfg.conf_thres, nc=cfg.nc
-        )
+        detections = non_max_suppression(preds["bboxes"], conf_thres=cfg.conf_thres, nc=cfg.nc)
 
         num_samples = min(len(imgs), cfg.num_vis_samples)
         for i in range(num_samples):
@@ -348,40 +344,30 @@ def train(cfg: TrainConfig) -> None:
     val_pipe = StandardAugmentor(training=False, imgsz=data_cfg.data.image_size)
 
     tr_ds = NeuroPilotDataset(
-        dataset_yaml=data_cfg.data.dataset_yaml,
-        split='train',
-        transform=tr_pipe,
-        imgsz=data_cfg.data.image_size
+        dataset_yaml=data_cfg.data.dataset_yaml, split="train", transform=tr_pipe, imgsz=data_cfg.data.image_size
     )
     val_ds = NeuroPilotDataset(
-        dataset_yaml=data_cfg.data.dataset_yaml,
-        split='val',
-        transform=val_pipe,
-        imgsz=data_cfg.data.image_size
+        dataset_yaml=data_cfg.data.dataset_yaml, split="val", transform=val_pipe, imgsz=data_cfg.data.image_size
     )
 
     # Augment dataset size from 1300 -> 2600 by repeating samples BEFORE building Dataloader
     original_size = len(tr_ds.samples)
     tr_ds.samples = tr_ds.samples * 2
-    logger.info(
-        "Augmented training dataset size: %d -> %d (2600 target)",
-        original_size,
-        len(tr_ds.samples)
-    )
+    logger.info("Augmented training dataset size: %d -> %d (2600 target)", original_size, len(tr_ds.samples))
 
     train_loader = build_dataloader(
         tr_ds,
         batch=data_cfg.data.batch_size,
         shuffle=True,
         workers=data_cfg.data.num_workers,
-        collate_fn=custom_collate_fn
+        collate_fn=custom_collate_fn,
     )
     val_loader = build_dataloader(
         val_ds,
         batch=data_cfg.data.batch_size,
         shuffle=False,
         workers=data_cfg.data.num_workers,
-        collate_fn=custom_collate_fn
+        collate_fn=custom_collate_fn,
     )
 
     logger.info(
@@ -392,7 +378,7 @@ def train(cfg: TrainConfig) -> None:
 
     model, optimizer, scheduler = build_model_and_optimizer(cfg, device)
     # Inject real names from dataset
-    model.names = getattr(tr_ds, 'names', {i: f"class_{i}" for i in range(cfg.nc)})
+    model.names = getattr(tr_ds, "names", {i: f"class_{i}" for i in range(cfg.nc)})
 
     criterion = build_criterion(cfg, model, device)
     visualizer = Visualizer(HeatmapLoss(), image_size=cfg.image_size)
@@ -404,13 +390,10 @@ def train(cfg: TrainConfig) -> None:
         train_metrics = EpochMetrics()
         nan_count = 0
 
-        pbar = tqdm(train_loader, desc=f"Epoch [{epoch+1}/{cfg.epochs}]", ncols=110)
+        pbar = tqdm(train_loader, desc=f"Epoch [{epoch + 1}/{cfg.epochs}]", ncols=110)
         for batch in pbar:
             imgs = batch["image"].to(device)
-            targets = {
-                k: v.to(device) if isinstance(v, torch.Tensor) else v
-                for k, v in batch.items()
-            }
+            targets = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
 
             preds = model(imgs, cmd_onehot=targets["command"])
             loss_dict = criterion.advanced(preds, targets)
@@ -456,19 +439,15 @@ def train(cfg: TrainConfig) -> None:
                 val_avgs.get("heatmap", 0),
             )
 
-            epoch_vis_dir = vis_dir / f"epoch_{epoch+1:04d}"
+            epoch_vis_dir = vis_dir / f"epoch_{epoch + 1:04d}"
             epoch_vis_dir.mkdir(exist_ok=True)
             save_visualizations(model, train_loader, device, cfg, epoch_vis_dir, visualizer)
 
-            save_checkpoint(
-                ckpt_dir / "last.pt", epoch + 1, model, optimizer, val_avgs, cfg=data_cfg
-            )
+            save_checkpoint(ckpt_dir / "last.pt", epoch + 1, model, optimizer, val_avgs, cfg=data_cfg)
 
             if val_avgs.get("total", float("inf")) < best_val_loss:
                 best_val_loss = val_avgs["total"]
-                save_checkpoint(
-                    ckpt_dir / "best.pt", epoch + 1, model, optimizer, val_avgs, cfg=data_cfg
-                )
+                save_checkpoint(ckpt_dir / "best.pt", epoch + 1, model, optimizer, val_avgs, cfg=data_cfg)
                 logger.info("New best model saved (val_loss=%.4f)", best_val_loss)
 
     logger.info("Training complete. Best val loss: %.4f", best_val_loss)

@@ -1,12 +1,12 @@
-
 import unittest
 import torch
 from neuro_pilot.nn.modules.attention import CommandGate, VLFusion
 
+
 class TestCommandGate(unittest.TestCase):
     def test_gate_shape(self):
         gate = CommandGate(embed_dim=128)
-        x = torch.randn(2, 128, 28, 28) # [B, C, H, W]
+        x = torch.randn(2, 128, 28, 28)  # [B, C, H, W]
         out = gate(x)
         self.assertEqual(out.shape, (2, 1, 1))
         self.assertTrue(torch.all(out >= 0))
@@ -44,5 +44,6 @@ class TestCommandGate(unittest.TestCase):
         # Restore
         fusion.gate.forward = original_gate_forward
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

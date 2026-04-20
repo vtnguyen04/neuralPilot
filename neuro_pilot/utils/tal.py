@@ -5,6 +5,7 @@ import torch.nn as nn
 from neuro_pilot.utils.logger import logger as LOGGER
 from neuro_pilot.utils.metrics import bbox_iou
 
+
 class TaskAlignedAssigner(nn.Module):
     """A task-aligned assigner for object detection."""
 
@@ -167,6 +168,7 @@ class TaskAlignedAssigner(nn.Module):
         target_gt_idx = mask_pos.argmax(-2)
         return target_gt_idx, fg_mask, mask_pos
 
+
 def make_anchors(feats, strides, grid_cell_offset=0.5):
     """Generate anchors from features."""
     anchor_points, stride_tensor = [], []
@@ -182,6 +184,7 @@ def make_anchors(feats, strides, grid_cell_offset=0.5):
         stride_tensor.append(torch.full((h * w, 1), stride, dtype=dtype, device=device))
     return torch.cat(anchor_points), torch.cat(stride_tensor)
 
+
 def dist2bbox(distance, anchor_points, xywh=True, dim=-1):
     """Transform distance(ltrb) to box(xywh or xyxy)."""
     lt, rb = distance.chunk(2, dim)
@@ -192,6 +195,7 @@ def dist2bbox(distance, anchor_points, xywh=True, dim=-1):
         wh = x2y2 - x1y1
         return torch.cat([c_xy, wh], dim)
     return torch.cat((x1y1, x2y2), dim)
+
 
 def bbox2dist(anchor_points: torch.Tensor, bbox: torch.Tensor, reg_max: int | None = None) -> torch.Tensor:
     """Transform bbox(xyxy) to dist(ltrb)."""

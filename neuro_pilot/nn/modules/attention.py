@@ -2,22 +2,20 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
 class AttentionGate(nn.Module):
     """Simple Attention Gate for multi-modal feature fusion."""
+
     def __init__(self, F_g, F_l, F_int):
         super(AttentionGate, self).__init__()
         self.W_g = nn.Sequential(
-            nn.Conv2d(F_g, F_int, kernel_size=1, stride=1, padding=0, bias=True),
-            nn.BatchNorm2d(F_int)
+            nn.Conv2d(F_g, F_int, kernel_size=1, stride=1, padding=0, bias=True), nn.BatchNorm2d(F_int)
         )
         self.W_x = nn.Sequential(
-            nn.Conv2d(F_l, F_int, kernel_size=1, stride=1, padding=0, bias=True),
-            nn.BatchNorm2d(F_int)
+            nn.Conv2d(F_l, F_int, kernel_size=1, stride=1, padding=0, bias=True), nn.BatchNorm2d(F_int)
         )
         self.psi = nn.Sequential(
-            nn.Conv2d(F_int, 1, kernel_size=1, stride=1, padding=0, bias=True),
-            nn.BatchNorm2d(1),
-            nn.Sigmoid()
+            nn.Conv2d(F_int, 1, kernel_size=1, stride=1, padding=0, bias=True), nn.BatchNorm2d(1), nn.Sigmoid()
         )
         self.relu = nn.ReLU(inplace=True)
 
@@ -25,10 +23,11 @@ class AttentionGate(nn.Module):
         g1 = self.W_g(g)
         x1 = self.W_x(x)
         if g1.shape[2:] != x1.shape[2:]:
-            g1 = F.interpolate(g1, size=x1.shape[2:], mode='bilinear', align_corners=True)
+            g1 = F.interpolate(g1, size=x1.shape[2:], mode="bilinear", align_corners=True)
         psi = self.relu(g1 + x1)
         psi = self.psi(psi)
         return x * psi
+
 
 class CommandGate(nn.Module):
     """
@@ -39,14 +38,12 @@ class CommandGate(nn.Module):
     - If scene is simple, Gate -> 0.
     - If scene is complex, Gate -> 1.
     """
+
     def __init__(self, embed_dim=128):
         super().__init__()
         self.gap = nn.AdaptiveAvgPool2d(1)
         self.fc = nn.Sequential(
-            nn.Linear(embed_dim, embed_dim // 2),
-            nn.ReLU(inplace=True),
-            nn.Linear(embed_dim // 2, 1),
-            nn.Sigmoid()
+            nn.Linear(embed_dim, embed_dim // 2), nn.ReLU(inplace=True), nn.Linear(embed_dim // 2, 1), nn.Sigmoid()
         )
 
     def forward(self, x):
@@ -58,7 +55,7 @@ class CommandGate(nn.Module):
         """
         B, C, H, W = x.shape
         try:
-            with torch.amp.autocast(device_type=x.device.type if hasattr(x.device, 'type') else 'cuda', enabled=False):
+            with torch.amp.autocast(device_type=x.device.type if hasattr(x.device, "type") else "cuda", enabled=False):
                 x_f32 = x.float()
                 x_f32 = torch.clamp(torch.nan_to_num(x_f32, nan=0.0, posinf=10.0, neginf=-10.0), -10.0, 10.0)
                 x_gap = self.gap(x_f32).view(B, C)
@@ -69,16 +66,19 @@ class CommandGate(nn.Module):
                 gate = torch.clamp(torch.nan_to_num(gate, nan=0.5), 0.0, 1.0)
                 return gate.to(x.dtype)
         except:
-             x_gap = self.gap(x).view(B, C)
-             dtype = self.fc[0].weight.dtype
-             gate = self.fc(x_gap.to(dtype)).view(B, 1, 1)
-             return gate
+            x_gap = self.gap(x).view(B, C)
+            dtype = self.fc[0].weight.dtype
+            gate = self.fc(x_gap.to(dtype)).view(B, 1, 1)
+            return gate
+
 
 class VLFusion(nn.Module):
     """Vision-Language Fusion module using Cross-Attention and Context Gating.
     Inspired by YOLO-World and SAM.
     """
+
     forward_with_kwargs = True
+
     def __init__(self, c1, c2, num_heads=4):
         super().__init__()
         self.q = nn.Linear(c1, c1)
@@ -99,12 +99,13 @@ class VLFusion(nn.Module):
         """
         if isinstance(x, list):
             vision = x[0]
-            if len(x) > 1 and lang_feats is None: lang_feats = x[1]
+            if len(x) > 1 and lang_feats is None:
+                lang_feats = x[1]
         else:
             vision = x
 
-        if lang_feats is None and 'lang_feats' in kwargs:
-            lang_feats = kwargs['lang_feats']
+        if lang_feats is None and "lang_feats" in kwargs:
+            lang_feats = kwargs["lang_feats"]
 
         B, C, H, W = vision.shape
         x_flat = vision.flatten(2).permute(0, 2, 1)
@@ -120,8 +121,9 @@ class VLFusion(nn.Module):
         x_flat = self.norm(x_flat + self.resid_gain * gate_score * attn_out)
         x_flat = torch.nan_to_num(x_flat, nan=0.0)
 
-        vision = x_flat.permute(0, 2, 1).reshape(B, C, H, W).to(x.dtype if hasattr(x, 'dtype') else torch.float32)
+        vision = x_flat.permute(0, 2, 1).reshape(B, C, H, W).to(x.dtype if hasattr(x, "dtype") else torch.float32)
         return {"feats": vision, "gate_score": gate_score}
+
 
 class CFRBridge(nn.Module):
     """
@@ -131,7 +133,9 @@ class CFRBridge(nn.Module):
     CRITICAL: Applies stop_gradient to Perception features to prevent
     Planning task from corrupting the Perception backbone.
     """
+
     forward_with_kwargs = True
+
     def __init__(self, c_plan, c_percept, num_heads=4):
         super().__init__()
         self.q = nn.Linear(c_plan, c_plan)
@@ -175,22 +179,25 @@ class CFRBridge(nn.Module):
 
         return out
 
+
 class LanguagePromptEncoder(nn.Module):
     """Semantic mapping for commands using cached CLIP embeddings with synonym support."""
+
     forward_with_kwargs = True
-    def __init__(self, embed_dim=128, num_prompts=10, mode='embedding', clip_dim=512):
+
+    def __init__(self, embed_dim=128, num_prompts=10, mode="embedding", clip_dim=512):
         super().__init__()
         self.mode = mode
-        if mode == 'clip':
+        if mode == "clip":
             max_synonyms = 5
-            self.register_buffer('cached_embeds', torch.randn(num_prompts, max_synonyms, clip_dim))
+            self.register_buffer("cached_embeds", torch.randn(num_prompts, max_synonyms, clip_dim))
             self.max_synonyms = max_synonyms
 
             self.projector = nn.Sequential(
                 nn.Linear(clip_dim, embed_dim),
                 nn.LayerNorm(embed_dim),
                 nn.ReLU(inplace=True),
-                nn.Linear(embed_dim, embed_dim)
+                nn.Linear(embed_dim, embed_dim),
             )
         else:
             self.embedding = nn.Embedding(num_prompts, embed_dim)
@@ -198,7 +205,7 @@ class LanguagePromptEncoder(nn.Module):
                 0: "go straight on drivable area",
                 1: "turn left at intersection",
                 2: "turn right at intersection",
-                3: "stop and wait at line"
+                3: "stop and wait at line",
             }
 
     def forward(self, x, indices=None, **kwargs):
@@ -210,24 +217,24 @@ class LanguagePromptEncoder(nn.Module):
             Tensor: [B, 1, embed_dim]
         """
         if indices is None:
-            if 'cmd' in kwargs:
-                indices = kwargs['cmd']
-            elif 'command_idx' in kwargs:
-                indices = kwargs['command_idx']
-            elif 'cmd_onehot' in kwargs:
-                indices = kwargs['cmd_onehot'].argmax(dim=1)
+            if "cmd" in kwargs:
+                indices = kwargs["cmd"]
+            elif "command_idx" in kwargs:
+                indices = kwargs["command_idx"]
+            elif "cmd_onehot" in kwargs:
+                indices = kwargs["cmd_onehot"].argmax(dim=1)
             elif isinstance(x, torch.Tensor) and x.dtype in {torch.long, torch.int}:
                 indices = x
             else:
-                B = x.shape[0] if hasattr(x, 'shape') else 1
-                indices = torch.zeros(B, dtype=torch.long, device=getattr(x, 'device', 'cpu'))
+                B = x.shape[0] if hasattr(x, "shape") else 1
+                indices = torch.zeros(B, dtype=torch.long, device=getattr(x, "device", "cpu"))
 
         if torch.is_tensor(indices) and indices.dim() > 1:
             if indices.shape[-1] == 4:
                 indices = indices.argmax(dim=-1)
             else:
                 indices = indices.view(-1)
-        if self.mode == 'clip':
+        if self.mode == "clip":
             if self.training:
                 syn_idx = torch.randint(0, self.max_synonyms, (indices.shape[0],), device=indices.device)
             else:

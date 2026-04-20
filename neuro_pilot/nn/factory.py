@@ -29,6 +29,7 @@ def build_model(
 
     if nc is None:
         from neuro_pilot.cfg.schema import HeadConfig
+
         nc = HeadConfig().num_classes
 
     logger.info(f"Building model from {cfg_path} (scale={scale}, nc={nc})")

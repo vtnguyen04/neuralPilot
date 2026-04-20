@@ -1,10 +1,11 @@
-
 import time
 import torch
+
 try:
     import psutil
 except (ImportError, ModuleNotFoundError):
     from unittest.mock import MagicMock
+
     psutil = MagicMock()
 import threading
 import os
@@ -17,11 +18,13 @@ from pathlib import Path
 from neuro_pilot.utils.logger import logger as LOGGER
 
 MACOS = sys.platform == "darwin"
-RANK = int(os.getenv('RANK', -1))
+RANK = int(os.getenv("RANK", -1))
+
 
 def check_requirements(requirements):
     """Placeholder for dependency validation."""
     pass
+
 
 class ConsoleLogger:
     """Console output capture with batched streaming to file, API, or custom callback.
@@ -108,11 +111,13 @@ class ConsoleLogger:
         for line in lines:
             line = line.rstrip()
 
-            if "─" in line: continue
+            if "─" in line:
+                continue
 
             if " ━━" in line:
                 is_complete = "100%" in line
-                if not is_complete: continue
+                if not is_complete:
+                    continue
 
                 parts = line.split()
                 seq_key = ""
@@ -164,7 +169,8 @@ class ConsoleLogger:
 
     def _flush_buffer(self):
         with self.buffer_lock:
-            if not self.buffer: return
+            if not self.buffer:
+                return
             lines = self.buffer.copy()
             self.buffer.clear()
             self.chunk_id += 1
@@ -186,6 +192,7 @@ class ConsoleLogger:
         try:
             if self.is_api:
                 import requests
+
                 payload = {"timestamp": datetime.now().isoformat(), "message": content}
                 requests.post(str(self.destination), json=payload, timeout=5)
             else:
@@ -193,26 +200,32 @@ class ConsoleLogger:
                 with self.destination.open("a", encoding="utf-8") as f:
                     f.write(content + "\n")
         except Exception as e:
-             self.original_stderr.write(f"Console logger write error: {e}\n")
+            self.original_stderr.write(f"Console logger write error: {e}\n")
 
     class _ConsoleCapture:
         __slots__ = ("callback", "original")
+
         def __init__(self, original, callback):
             self.original = original
             self.callback = callback
+
         def write(self, text):
             self.original.write(text)
             self.callback(text)
+
         def flush(self):
             self.original.flush()
 
     class _LogHandler(logging.Handler):
         __slots__ = ("callback",)
+
         def __init__(self, callback):
             super().__init__()
             self.callback = callback
+
         def emit(self, record):
             self.callback(self.format(record) + "\n")
+
 
 class SystemLogger:
     """Log dynamic system metrics for training monitoring."""
@@ -228,9 +241,11 @@ class SystemLogger:
         self._prev_time = time.time()
 
     def _init_nvidia(self):
-        if MACOS: return False
+        if MACOS:
+            return False
         try:
             import pynvml
+
             pynvml.nvmlInit()
             self.pynvml = pynvml
             return True

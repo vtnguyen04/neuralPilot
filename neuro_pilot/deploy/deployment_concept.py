@@ -1,10 +1,12 @@
 import time
 
+
 class CommandSupervisor:
     """
     Pseudo-code for NeuroPilot Command Logic 'Supervisor'.
     This logic sits ABOVE the E2E model.
     """
+
     def __init__(self, route_plan):
         self.state = "LANE_FOLLOW"
         self.route_plan = route_plan
@@ -27,10 +29,10 @@ class CommandSupervisor:
             cmd = 0
 
             if dist_to_intersection < 0.2:
-                 next_action = self.route_plan[self.current_step]
-                 self.state = "INTERSECTION_TRAVERSE"
-                 self.target_command = next_action
-                 self.exit_time = time.time() + 2.0
+                next_action = self.route_plan[self.current_step]
+                self.state = "INTERSECTION_TRAVERSE"
+                self.target_command = next_action
+                self.exit_time = time.time() + 2.0
 
         elif self.state == "INTERSECTION_TRAVERSE":
             cmd = self.target_command

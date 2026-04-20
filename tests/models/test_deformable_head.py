@@ -63,8 +63,7 @@ class TestDeformableTrajectoryHead:
     def test_output_shape(self):
         B, C, H, W = 2, 256, 10, 10
         head = DeformableTrajectoryHead(
-            ch=[C], num_commands=4, num_waypoints=60,
-            embed_dim=256, num_heads=4, num_layers=2, n_points=4
+            ch=[C], num_commands=4, num_waypoints=60, embed_dim=256, num_heads=4, num_layers=2, n_points=4
         )
         x = torch.randn(B, C, H, W)
         out = head(x, cmd=torch.zeros(B, dtype=torch.long), vEgo=torch.ones(B))
@@ -159,10 +158,8 @@ class TestProgressLoss:
 class TestBuildDeformableModel:
     def test_build_from_yaml(self):
         from neuro_pilot.nn.factory import build_model
-        model = build_model(
-            "neuro_pilot/cfg/models/neuralPilot_deformable.yaml",
-            ch=3, nc=14, scale="s"
-        )
+
+        model = build_model("neuro_pilot/cfg/models/neuralPilot_deformable.yaml", ch=3, nc=14, scale="s")
         assert model is not None
         total_params = sum(p.numel() for p in model.parameters())
         assert total_params > 0

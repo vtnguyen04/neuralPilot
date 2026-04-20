@@ -4,29 +4,62 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+
 class Callback:
     """Base Callback class following Ultralytics/Lightning style."""
-    def on_train_start(self, trainer): pass
-    def on_train_end(self, trainer): pass
-    def on_epoch_start(self, trainer): pass
-    def on_epoch_end(self, trainer): pass
-    def on_batch_start(self, trainer): pass
-    def on_batch_end(self, trainer): pass
-    def on_val_start(self, trainer): pass
-    def on_val_batch_start(self, trainer): pass
-    def on_val_batch_end(self, trainer): pass
-    def on_val_end(self, trainer): pass
 
-    def on_predict_start(self, predictor): pass
-    def on_predict_batch_start(self, predictor): pass
-    def on_predict_batch_end(self, predictor): pass
-    def on_predict_end(self, predictor): pass
+    def on_train_start(self, trainer):
+        pass
 
-    def on_export_start(self, exporter): pass
-    def on_export_end(self, exporter): pass
+    def on_train_end(self, trainer):
+        pass
+
+    def on_epoch_start(self, trainer):
+        pass
+
+    def on_epoch_end(self, trainer):
+        pass
+
+    def on_batch_start(self, trainer):
+        pass
+
+    def on_batch_end(self, trainer):
+        pass
+
+    def on_val_start(self, trainer):
+        pass
+
+    def on_val_batch_start(self, trainer):
+        pass
+
+    def on_val_batch_end(self, trainer):
+        pass
+
+    def on_val_end(self, trainer):
+        pass
+
+    def on_predict_start(self, predictor):
+        pass
+
+    def on_predict_batch_start(self, predictor):
+        pass
+
+    def on_predict_batch_end(self, predictor):
+        pass
+
+    def on_predict_end(self, predictor):
+        pass
+
+    def on_export_start(self, exporter):
+        pass
+
+    def on_export_end(self, exporter):
+        pass
+
 
 class CallbackList:
     """Container to manage and execute a list of callbacks."""
+
     def __init__(self, callbacks=None):
         self.callbacks = callbacks if callbacks else []
 
@@ -34,55 +67,73 @@ class CallbackList:
         self.callbacks.append(callback)
 
     def on_train_start(self, trainer):
-        for cb in self.callbacks: cb.on_train_start(trainer)
+        for cb in self.callbacks:
+            cb.on_train_start(trainer)
 
     def on_train_end(self, trainer):
-        for cb in self.callbacks: cb.on_train_end(trainer)
+        for cb in self.callbacks:
+            cb.on_train_end(trainer)
 
     def on_epoch_start(self, trainer):
-        for cb in self.callbacks: cb.on_epoch_start(trainer)
+        for cb in self.callbacks:
+            cb.on_epoch_start(trainer)
 
     def on_epoch_end(self, trainer):
-        for cb in self.callbacks: cb.on_epoch_end(trainer)
+        for cb in self.callbacks:
+            cb.on_epoch_end(trainer)
 
     def on_batch_start(self, trainer):
-        for cb in self.callbacks: cb.on_batch_start(trainer)
+        for cb in self.callbacks:
+            cb.on_batch_start(trainer)
 
     def on_batch_end(self, trainer):
-        for cb in self.callbacks: cb.on_batch_end(trainer)
+        for cb in self.callbacks:
+            cb.on_batch_end(trainer)
 
     def on_val_start(self, trainer):
-        for cb in self.callbacks: cb.on_val_start(trainer)
+        for cb in self.callbacks:
+            cb.on_val_start(trainer)
 
     def on_val_batch_start(self, trainer):
-        for cb in self.callbacks: cb.on_val_batch_start(trainer)
+        for cb in self.callbacks:
+            cb.on_val_batch_start(trainer)
 
     def on_val_batch_end(self, trainer):
-        for cb in self.callbacks: cb.on_val_batch_end(trainer)
+        for cb in self.callbacks:
+            cb.on_val_batch_end(trainer)
 
     def on_val_end(self, trainer):
-        for cb in self.callbacks: cb.on_val_end(trainer)
+        for cb in self.callbacks:
+            cb.on_val_end(trainer)
 
     def on_predict_start(self, predictor):
-        for cb in self.callbacks: cb.on_predict_start(predictor)
+        for cb in self.callbacks:
+            cb.on_predict_start(predictor)
 
     def on_predict_batch_start(self, predictor):
-        for cb in self.callbacks: cb.on_predict_batch_start(predictor)
+        for cb in self.callbacks:
+            cb.on_predict_batch_start(predictor)
 
     def on_predict_batch_end(self, predictor):
-        for cb in self.callbacks: cb.on_predict_batch_end(predictor)
+        for cb in self.callbacks:
+            cb.on_predict_batch_end(predictor)
 
     def on_predict_end(self, predictor):
-        for cb in self.callbacks: cb.on_predict_end(predictor)
+        for cb in self.callbacks:
+            cb.on_predict_end(predictor)
 
     def on_export_start(self, exporter):
-        for cb in self.callbacks: cb.on_export_start(exporter)
+        for cb in self.callbacks:
+            cb.on_export_start(exporter)
 
     def on_export_end(self, exporter):
-        for cb in self.callbacks: cb.on_export_end(exporter)
+        for cb in self.callbacks:
+            cb.on_export_end(exporter)
+
 
 class LoggingCallback(Callback):
     """Handles all logging (Console, CSV, TensorBoard)."""
+
     def __init__(self, logger_obj):
         self.logger = logger_obj
 
@@ -90,7 +141,7 @@ class LoggingCallback(Callback):
         self.logger.reset()
 
     def on_batch_end(self, trainer):
-        if hasattr(trainer, 'batch_metrics'):
+        if hasattr(trainer, "batch_metrics"):
             self.logger.log_batch(trainer.batch_metrics)
 
     def on_epoch_end(self, trainer):
@@ -99,19 +150,21 @@ class LoggingCallback(Callback):
     def on_val_end(self, trainer):
         pass
 
+
 class CheckpointCallback(Callback):
     """Handles Model Checkpointing (Best/Last)."""
+
     def __init__(self, ckpt_dir: Path, cfg):
         self.ckpt_dir = ckpt_dir
         self.cfg = cfg
-        self.best_fitness = -float('inf')
+        self.best_fitness = -float("inf")
 
     def on_val_end(self, trainer):
-        if not hasattr(trainer, 'save_checkpoint'):
+        if not hasattr(trainer, "save_checkpoint"):
             return
 
-        fitness = getattr(trainer, 'fitness', 0.0)
-        if fitness == 0.0 and hasattr(trainer, 'val_loss'):
+        fitness = getattr(trainer, "fitness", 0.0)
+        if fitness == 0.0 and hasattr(trainer, "val_loss"):
             fitness = -trainer.val_loss
 
         is_best = fitness > self.best_fitness
@@ -122,34 +175,39 @@ class CheckpointCallback(Callback):
         # Ensure last.pt is ALWAYS saved
         trainer.save_checkpoint(trainer.last, fitness, is_best=is_best)
 
+
 class VisualizationCallback(Callback):
     """
     Visualizes training/validation batches (Images + GT + Preds).
     Task-aware: only renders panels for active tasks.
     """
+
     def __init__(self, log_dir: Path, active_tasks: set = None):
         self.log_dir = log_dir
         self.log_dir.mkdir(parents=True, exist_ok=True)
         import matplotlib
-        matplotlib.use('Agg')
+
+        matplotlib.use("Agg")
         import matplotlib.pyplot as plt
+
         self.plt = plt
         self.names = {}
         self.active_tasks = active_tasks
 
     def _denormalize(self, img_tensor):
         from neuro_pilot.utils.torch_utils import imagenet_denormalize
+
         return imagenet_denormalize(img_tensor)
 
     def visualize_batch(self, trainer, batch_idx, mode="train"):
-        if not hasattr(trainer, 'current_batch') or not hasattr(trainer, 'current_output'):
+        if not hasattr(trainer, "current_batch") or not hasattr(trainer, "current_output"):
             return
 
         from neuro_pilot.utils.plotting import visualize_batch
 
         # Resolve active_tasks: prefer instance attr, fallback to trainer's method
         active = self.active_tasks
-        if active is None and hasattr(trainer, '_get_active_tasks'):
+        if active is None and hasattr(trainer, "_get_active_tasks"):
             active = trainer._get_active_tasks()
 
         visualize_batch(
@@ -157,28 +215,32 @@ class VisualizationCallback(Callback):
             trainer.current_output,
             self.log_dir / f"{mode}_batch{batch_idx}.jpg",
             names=self.names,
-            active_tasks=active
+            active_tasks=active,
         )
 
     def on_batch_end(self, trainer):
-        if hasattr(trainer, 'batch_idx') and trainer.batch_idx in (0, 1, 2):
-             self.visualize_batch(trainer, trainer.batch_idx, "train")
+        if hasattr(trainer, "batch_idx") and trainer.batch_idx in (0, 1, 2):
+            self.visualize_batch(trainer, trainer.batch_idx, "train")
 
     def on_val_batch_end(self, validator):
-        if hasattr(validator, 'batch_idx') and validator.batch_idx in (0, 1, 2):
-             self.visualize_batch(validator, validator.batch_idx, "val")
+        if hasattr(validator, "batch_idx") and validator.batch_idx in (0, 1, 2):
+            self.visualize_batch(validator, validator.batch_idx, "val")
 
     def on_val_end(self, trainer):
         pass
 
+
 class PlottingCallback(Callback):
     """Plots Loss/Metric Curves from CSV logs at end of training."""
+
     def __init__(self, log_dir: Path):
         self.log_dir = log_dir
         import matplotlib.pyplot as plt
+
         self.plt = plt
         try:
             import pandas as pd
+
             self.pd = pd
         except ImportError:
             self.pd = None
@@ -189,7 +251,8 @@ class PlottingCallback(Callback):
         train_csv = self.log_dir / "train_metrics.csv"
         val_csv = self.log_dir / "val_metrics.csv"
 
-        if not train_csv.exists(): return
+        if not train_csv.exists():
+            return
 
         try:
             df_t = self.pd.read_csv(train_csv)
@@ -197,10 +260,11 @@ class PlottingCallback(Callback):
         except Exception:
             return
 
-        exclude = ['epoch', 'mode']
-        metrics = [c for c in df_t.select_dtypes(include=['number']).columns if c not in exclude]
+        exclude = ["epoch", "mode"]
+        metrics = [c for c in df_t.select_dtypes(include=["number"]).columns if c not in exclude]
 
-        if not metrics: return
+        if not metrics:
+            return
 
         n_metrics = len(metrics)
         n_cols = 3
@@ -212,24 +276,24 @@ class PlottingCallback(Callback):
         else:
             axes = [axes]
 
-        numeric_cols = df_t.select_dtypes(include=['number']).columns
-        df_t_ep = df_t[numeric_cols].groupby('epoch').mean()
+        numeric_cols = df_t.select_dtypes(include=["number"]).columns
+        df_t_ep = df_t[numeric_cols].groupby("epoch").mean()
 
         for i, metric in enumerate(metrics):
             ax = axes[i]
             if metric in df_t_ep.columns:
-                ax.plot(df_t_ep.index, df_t_ep[metric], label='Train', marker='.', color='blue')
+                ax.plot(df_t_ep.index, df_t_ep[metric], label="Train", marker=".", color="blue")
 
             if not df_v.empty and metric in df_v.columns:
-                ax.plot(df_v['epoch'], df_v[metric], label='Val', marker='.', color='orange')
+                ax.plot(df_v["epoch"], df_v[metric], label="Val", marker=".", color="orange")
 
             ax.set_title(metric)
-            ax.set_xlabel('Epoch')
+            ax.set_xlabel("Epoch")
             ax.grid(True, alpha=0.3)
             ax.legend()
 
         for i in range(n_metrics, len(axes)):
-            axes[i].axis('off')
+            axes[i].axis("off")
 
         self.plt.tight_layout()
         self.plt.savefig(self.log_dir / "results.png", dpi=200)

@@ -4,6 +4,7 @@ import shutil
 from pathlib import Path
 from neuro_pilot import NeuroPilot
 
+
 class TestTrainingResume(unittest.TestCase):
     def setUp(self):
         self.exp_name = "test_resume_unittest"
@@ -36,7 +37,7 @@ class TestTrainingResume(unittest.TestCase):
             f.write("val: val/images\n")
             f.write("names: {0: class0}\n")
 
-        self.data_dict = {'dataset_yaml': str(self.yaml_path)}
+        self.data_dict = {"dataset_yaml": str(self.yaml_path)}
 
         # Clean old weights
         if self.exp_dir.exists():
@@ -46,21 +47,21 @@ class TestTrainingResume(unittest.TestCase):
         # Clean up experiment directory after tests
         if self.exp_dir.exists():
             shutil.rmtree(self.exp_dir)
-        if hasattr(self, 'tmp_data') and self.tmp_data.exists():
+        if hasattr(self, "tmp_data") and self.tmp_data.exists():
             shutil.rmtree(self.tmp_data)
 
     def test_resume_flow(self):
         """Verify that training can stop after 1 epoch and resume correctly."""
         print("\n--- Phase 1: Initial Training (1 Epoch) ---")
-        model = NeuroPilot(device='cpu')
+        model = NeuroPilot(device="cpu")
         # Train for 1 epoch
         model.train(
             max_epochs=1,
             experiment_name=self.exp_name,
             batch_size=4,
             data=self.data_dict,
-            image_size=32, # Optimization: 320 -> 32
-            augment=False
+            image_size=32,  # Optimization: 320 -> 32
+            augment=False,
         )
 
         last_ckpt = self.exp_dir / "weights" / "last.pt"
@@ -68,19 +69,20 @@ class TestTrainingResume(unittest.TestCase):
 
         # Explicitly clean up Phase 1 model to free GPU memory
         del model
-        if torch.cuda.is_available(): torch.cuda.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
         print("\n--- Phase 2: Resume Training (Target 2 Epochs) ---")
         # Fresh model instance
-        model_resume = NeuroPilot(device='cpu')
+        model_resume = NeuroPilot(device="cpu")
         metrics = model_resume.train(
             resume=True,
             max_epochs=2,
             experiment_name=self.exp_name,
             batch_size=4,
             data=self.data_dict,
-            image_size=32, # Optimization: 320 -> 32
-            augment=False
+            image_size=32,  # Optimization: 320 -> 32
+            augment=False,
         )
 
         self.assertIsNotNone(metrics, "Resume training should return metrics")
@@ -90,6 +92,7 @@ class TestTrainingResume(unittest.TestCase):
         torch.cuda.empty_cache()
         # Note: In real setup, we'd check if trainer.epoch started from 1,
         # but here we mainly verify it runs to completion without error.
+
 
 if __name__ == "__main__":
     unittest.main()

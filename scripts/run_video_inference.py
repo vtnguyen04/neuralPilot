@@ -7,7 +7,26 @@ from tqdm import tqdm
 from neuro_pilot.engine.model import NeuroPilot
 from neuro_pilot.utils.torch_utils import select_device
 
-def run_video_inference(weights, source, imgsz=None, conf=0.25, iou=0.45, device='', save=True, save_dir='runs/predict', show=False, command=1, scale='s', frames=0, half_opt=False, skip_heatmap=False, timeline=None, model_cfg=None, **kwargs):
+
+def run_video_inference(
+    weights,
+    source,
+    imgsz=None,
+    conf=0.25,
+    iou=0.45,
+    device="",
+    save=True,
+    save_dir="runs/predict",
+    show=False,
+    command=1,
+    scale="s",
+    frames=0,
+    half_opt=False,
+    skip_heatmap=False,
+    timeline=None,
+    model_cfg=None,
+    **kwargs,
+):
     # 0. Setup Device
     device = select_device(device)
     cv2.setNumThreads(1)
@@ -15,10 +34,7 @@ def run_video_inference(weights, source, imgsz=None, conf=0.25, iou=0.45, device
     # 1. Load Model
     print(f"Loading model from {weights} (scale={scale})...")
 
-    overrides = {
-        "device": device,
-        "skip_heatmap_inference": skip_heatmap
-    }
+    overrides = {"device": device, "skip_heatmap_inference": skip_heatmap}
     if model_cfg:
         overrides["model_cfg"] = model_cfg
         print(f"Overriding model config with: {model_cfg}")
@@ -27,7 +43,7 @@ def run_video_inference(weights, source, imgsz=None, conf=0.25, iou=0.45, device
     model.to(device)
 
     # Half precision optimization
-    half = half_opt and (device.type != 'cpu')
+    half = half_opt and (device.type != "cpu")
     if half:
         print("Using half precision (FP16).")
         model.half()
@@ -38,7 +54,8 @@ def run_video_inference(weights, source, imgsz=None, conf=0.25, iou=0.45, device
     timeline_data = None
     if timeline:
         import json
-        with open(timeline, 'r') as f:
+
+        with open(timeline, "r") as f:
             timeline_data = json.load(f)
         print(f"Loaded timeline with {len(timeline_data)} segments.")
 
@@ -50,14 +67,7 @@ def run_video_inference(weights, source, imgsz=None, conf=0.25, iou=0.45, device
 
     # 4. Inference Loop
     results_gen = model.predict(
-        source,
-        stream=True,
-        conf=conf,
-        iou=iou,
-        cmd=cmd_fixed,
-        timeline=timeline,
-        half=half,
-        imgsz=imgsz
+        source, stream=True, conf=conf, iou=iou, cmd=cmd_fixed, timeline=timeline, half=half, imgsz=imgsz
     )
 
     count = 0
@@ -67,7 +77,7 @@ def run_video_inference(weights, source, imgsz=None, conf=0.25, iou=0.45, device
         # Determine total frames and FPS
         total_frames = None
         fps = 30
-        if Path(source).exists() and Path(source).suffix[1:].lower() in ['mp4', 'avi', 'mov', 'mkv', 'webm']:
+        if Path(source).exists() and Path(source).suffix[1:].lower() in ["mp4", "avi", "mov", "mkv", "webm"]:
             cap_temp = cv2.VideoCapture(source)
             total_frames = int(cap_temp.get(cv2.CAP_PROP_FRAME_COUNT))
             fps = cap_temp.get(cv2.CAP_PROP_FPS) or 30
@@ -97,21 +107,28 @@ def run_video_inference(weights, source, imgsz=None, conf=0.25, iou=0.45, device
                 display_cmd = command
                 if timeline_data:
                     for seg in timeline_data:
-                        if seg['start'] <= count <= seg['end']:
-                            display_cmd = seg['command']
+                        if seg["start"] <= count <= seg["end"]:
+                            display_cmd = seg["command"]
                             break
 
                 # Draw Command on frame
                 cmd_names = {0: "FOLLOW", 1: "LEFT", 2: "RIGHT", 3: "STRAIGHT"}
-                cv2.putText(plot_bgr, f"CMD: {display_cmd} ({cmd_names.get(display_cmd, '??')})", (20, 50),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 3)
+                cv2.putText(
+                    plot_bgr,
+                    f"CMD: {display_cmd} ({cmd_names.get(display_cmd, '??')})",
+                    (20, 50),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    1.2,
+                    (0, 255, 0),
+                    3,
+                )
 
                 plot_rgb = cv2.cvtColor(plot_bgr, cv2.COLOR_BGR2RGB)
 
             if show:
                 try:
                     cv2.imshow("NeuroPilot Video Inference", cv2.cvtColor(plot_rgb, cv2.COLOR_RGB2BGR))
-                    if cv2.waitKey(1) & 0xFF == ord('q'):
+                    if cv2.waitKey(1) & 0xFF == ord("q"):
                         break
                 except Exception as e:
                     print(f"Warning: Could not show window: {e}")
@@ -123,7 +140,7 @@ def run_video_inference(weights, source, imgsz=None, conf=0.25, iou=0.45, device
                     filename = Path(source).stem + "_out.avi"
                     save_path = str(Path(save_dir) / filename)
                     oh, ow = plot_rgb.shape[:2]
-                    fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+                    fourcc = cv2.VideoWriter_fourcc(*"MJPG")
                     out = cv2.VideoWriter(save_path, fourcc, fps, (ow, oh))
 
                 if out is not None and out.isOpened():
@@ -139,11 +156,12 @@ def run_video_inference(weights, source, imgsz=None, conf=0.25, iou=0.45, device
         if out:
             out.release()
         cv2.destroyAllWindows()
-        if 'pbar' in locals():
+        if "pbar" in locals():
             pbar.close()
 
     if save_path:
         print(f"\nResults saved to {save_path}")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -152,9 +170,9 @@ if __name__ == "__main__":
     parser.add_argument("--imgsz", type=int, default=320, help="inference size")
     parser.add_argument("--conf", type=float, default=0.25, help="confidence threshold")
     parser.add_argument("--iou", type=float, default=0.45, help="NMS IOU threshold")
-    parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
-    parser.add_argument('--half', action='store_true', help='use FP16 half-precision inference')
-    parser.add_argument('--nosave', action='store_false', dest='save', help='do not save results')
+    parser.add_argument("--device", default="", help="cuda device, i.e. 0 or 0,1,2,3 or cpu")
+    parser.add_argument("--half", action="store_true", help="use FP16 half-precision inference")
+    parser.add_argument("--nosave", action="store_false", dest="save", help="do not save results")
     parser.set_defaults(save=True)
     parser.add_argument("--save-dir", type=str, default="runs/predict", help="directory to save results")
     parser.add_argument("--show", action="store_true", help="show results")
@@ -164,7 +182,9 @@ if __name__ == "__main__":
     parser.add_argument("--model-cfg", type=str, help="Override model config path (YAML)")
     parser.add_argument("--frames", type=int, default=0, help="limit frames to process")
     parser.add_argument("--skip-heatmap-inference", action="store_true", default=True, help="Skip heatmap head")
-    parser.add_argument("--with-heatmap", action="store_false", dest="skip_heatmap_inference", help="Enable heatmap head")
+    parser.add_argument(
+        "--with-heatmap", action="store_false", dest="skip_heatmap_inference", help="Enable heatmap head"
+    )
     args = parser.parse_args()
 
     run_video_inference(
@@ -183,5 +203,5 @@ if __name__ == "__main__":
         model_cfg=args.model_cfg,
         frames=args.frames,
         half_opt=args.half,
-        skip_heatmap=args.skip_heatmap_inference
+        skip_heatmap=args.skip_heatmap_inference,
     )

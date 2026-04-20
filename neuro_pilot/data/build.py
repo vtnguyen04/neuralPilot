@@ -5,10 +5,12 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, distributed
 
+
 class InfiniteDataLoader(DataLoader):
     """DataLoader that reuses workers for infinite iteration.
     Reduces overhead of worker creation between epochs.
     """
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         object.__setattr__(self, "batch_sampler", _RepeatSampler(self.batch_sampler))
@@ -36,8 +38,10 @@ class InfiniteDataLoader(DataLoader):
         """Restart the internal iterator from the base DataLoader logic."""
         self.iterator = super().__iter__()
 
+
 class _RepeatSampler:
     """Sampler that repeats indefinitely."""
+
     def __init__(self, sampler):
         self.sampler = sampler
 
@@ -45,13 +49,17 @@ class _RepeatSampler:
         while True:
             yield from iter(self.sampler)
 
+
 def seed_worker(worker_id):
     """Reproducibility seed for workers."""
     worker_seed = torch.initial_seed() % 2**32
     np.random.seed(worker_seed)
     random.seed(worker_seed)
 
-def build_dataloader(dataset, batch, workers, shuffle=True, rank=-1, sampler=None, drop_last=False, pin_memory=True, collate_fn=None):
+
+def build_dataloader(
+    dataset, batch, workers, shuffle=True, rank=-1, sampler=None, drop_last=False, pin_memory=True, collate_fn=None
+):
     """Dataloader factory supporting training.
 
     Args:
@@ -72,7 +80,7 @@ def build_dataloader(dataset, batch, workers, shuffle=True, rank=-1, sampler=Non
     if collate_fn is None:
         collate_fn = getattr(dataset, "collate_fn", None)
         if collate_fn is None and hasattr(dataset, "dataset"):
-             collate_fn = getattr(dataset.dataset, "collate_fn", None)
+            collate_fn = getattr(dataset.dataset, "collate_fn", None)
 
     if sampler is None and rank != -1:
         sampler = distributed.DistributedSampler(dataset, shuffle=shuffle)
@@ -86,5 +94,5 @@ def build_dataloader(dataset, batch, workers, shuffle=True, rank=-1, sampler=Non
         pin_memory=nd > 0 and pin_memory,
         collate_fn=collate_fn,
         worker_init_fn=seed_worker,
-        drop_last=drop_last
+        drop_last=drop_last,
     )

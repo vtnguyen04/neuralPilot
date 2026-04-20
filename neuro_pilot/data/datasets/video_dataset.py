@@ -44,6 +44,7 @@ class ClipSample:
         timestamps: Optional per-frame timestamps (seconds).
         ego_states: Optional per-frame ego vehicle states.
     """
+
     frame_paths: list[str] = field(default_factory=list)
     video_path: str = ""
     frame_indices: list[int] | None = None
@@ -170,6 +171,7 @@ class BaseVideoDataset(BaseDrivingDataset):
         if sample.video_path and sample.frame_indices is not None:
             # MP4 Fast Random Access Path (Decord)
             import decord
+
             indices = self._sample_indices(len(sample.frame_indices))
             vr = decord.VideoReader(sample.video_path, ctx=decord.cpu(0))
 
@@ -177,14 +179,16 @@ class BaseVideoDataset(BaseDrivingDataset):
             abs_indices = [sample.frame_indices[fi] for fi in indices]
             try:
                 frames_num = vr.get_batch(abs_indices).asnumpy()
-                for img in frames_num: # Output is RGB directly from decord!
+                for img in frames_num:  # Output is RGB directly from decord!
                     # Process directly (we convert to BGR here because _process_frame expects BGR)
                     import cv2
+
                     bgr_img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
                     clip_tensors.append(self._process_frame(bgr_img))
                     temporal_mask.append(True)
             except Exception as e:
                 import logging
+
                 logging.getLogger("neuro_pilot.data").error(f"Decord Error '{sample.video_path}': {e}")
                 for _ in indices:
                     clip_tensors.append(torch.zeros(3, *self.imgsz))
@@ -233,6 +237,7 @@ class BaseVideoDataset(BaseDrivingDataset):
 
         # Command
         from neuro_pilot.cfg.schema import HeadConfig
+
         num_commands = HeadConfig().num_commands
         cmd_onehot = torch.zeros(num_commands)
         cmd_onehot[min(command, num_commands - 1)] = 1.0
@@ -243,7 +248,7 @@ class BaseVideoDataset(BaseDrivingDataset):
 
         return {
             # Standard keys (same as image datasets — detection/heatmap/cls use this)
-            "image": current_image,           # [C, H, W] — single frame
+            "image": current_image,  # [C, H, W] — single frame
             "image_path": sample.frame_paths[-1] if sample.frame_paths else "",
             "command": cmd_onehot,
             "command_idx": command,
@@ -255,7 +260,7 @@ class BaseVideoDataset(BaseDrivingDataset):
             "curvature": torch.tensor(0.0),
             "vEgo": torch.tensor(v_ego, dtype=torch.float32),
             # Temporal keys (ONLY used by trajectory head + temporal aggregator)
-            "clip_images": clip_images,       # [T, C, H, W] — full clip
+            "clip_images": clip_images,  # [T, C, H, W] — full clip
             "temporal_mask": torch.tensor(temporal_mask, dtype=torch.bool),
         }
 

@@ -1,18 +1,19 @@
-
 import unittest
 import torch
 import torch.nn as nn
 from neuro_pilot.engine.backend.factory import AutoBackend
 from neuro_pilot.engine.backend.pytorch import PyTorchBackend
 
+
 class MockModel(nn.Module):
     def forward(self, x, command=None):
         return x * 2
 
+
 class TestAutoBackend(unittest.TestCase):
     def test_pytorch_backend(self):
         model = MockModel()
-        backend = AutoBackend.create(model, device=torch.device('cpu'))
+        backend = AutoBackend.create(model, device=torch.device("cpu"))
 
         self.assertIsInstance(backend, PyTorchBackend)
 
@@ -29,5 +30,6 @@ class TestAutoBackend(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             AutoBackend.create("non_existent.pt")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

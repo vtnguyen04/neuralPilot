@@ -14,6 +14,7 @@ from .logger import MetricLogger
 from .callbacks import CallbackList, LoggingCallback, CheckpointCallback, VisualizationCallback, PlottingCallback
 from .validator import Validator
 
+
 class EpochMetrics:
     def __init__(self):
         self.total = {}
@@ -26,12 +27,14 @@ class EpochMetrics:
         self.count += 1
 
     def averages(self):
-        if self.count == 0: return {}
+        if self.count == 0:
+            return {}
         return {k: v / self.count for k, v in self.total.items()}
 
 
 class ModelEMA:
     """Updated Exponential Moving Average (EMA) implementation with ramp-up logic."""
+
     def __init__(self, model, decay=0.9999, tau=2000):
         self.ema = deepcopy(model).eval()
         for p in self.ema.parameters():
@@ -52,27 +55,30 @@ class ModelEMA:
                 if v.dtype.is_floating_point:
                     v.copy_(v * d + msd[k].detach() * (1.0 - d))
 
+
 class BaseTrainer:
     """
     Standardized Base Trainer for NeuroPilot.
     Handles the common setup, logging, and evaluation logic.
     """
+
     def __init__(self, cfg, overrides=None):
         from neuro_pilot.cfg.schema import deep_update
+
         self.overrides = overrides or {}
         if self.overrides:
-             cfg_dict = cfg.model_dump()
-             cfg_dict = deep_update(cfg_dict, self.overrides)
-             self.cfg = type(cfg)(**cfg_dict)
+            cfg_dict = cfg.model_dump()
+            cfg_dict = deep_update(cfg_dict, self.overrides)
+            self.cfg = type(cfg)(**cfg_dict)
         else:
-             self.cfg = cfg
+            self.cfg = cfg
 
         self.device = select_device(self.cfg.trainer.device)
 
         logger.info(f"Using device: {self.device}")
         self.save_dir = Path("experiments") / self.cfg.trainer.experiment_name
         self.save_dir.mkdir(parents=True, exist_ok=True)
-        self.resume = self.overrides.get('resume', False)
+        self.resume = self.overrides.get("resume", False)
 
         self.save_args()
 
@@ -80,7 +86,7 @@ class BaseTrainer:
         self.optimizer = None
         self.scheduler = None
         self.ema = None
-        self.scaler = torch.amp.GradScaler('cuda', enabled=self.cfg.trainer.use_amp, growth_interval=2000)
+        self.scaler = torch.amp.GradScaler("cuda", enabled=self.cfg.trainer.use_amp, growth_interval=2000)
         self.epoch = 0
         self.best_fitness = 0.0
         self.fitness = 0.0
@@ -96,27 +102,28 @@ class BaseTrainer:
         self.best = self.wdir / "best.pt"
 
     def _get_active_tasks(self):
-        """Return set of active task names based on loss config and model heads.
-        """
-        loss_cfg = getattr(self.cfg, 'loss', {})
+        """Return set of active task names based on loss config and model heads."""
+        loss_cfg = getattr(self.cfg, "loss", {})
+
         def _get(k):
             return loss_cfg.get(k, 1.0) if isinstance(loss_cfg, dict) else getattr(loss_cfg, k, 1.0)
 
-        heads = getattr(self.model, 'heads', {}) if self.model else {}
-        tasks = {'trajectory'}  # always active
-        if ('detect' in heads) and _get('lambda_det') > 0:
-            tasks.add('detection')
-        if ('heatmap' in heads) and _get('lambda_heatmap') > 0:
-            tasks.add('heatmap')
-        if _get('lambda_gate') > 0:
-            tasks.add('gate')
-        if _get('lambda_jepa') > 0 or _get('lambda_sigreg') > 0:
-            tasks.add('jepa')
+        heads = getattr(self.model, "heads", {}) if self.model else {}
+        tasks = {"trajectory"}  # always active
+        if ("detect" in heads) and _get("lambda_det") > 0:
+            tasks.add("detection")
+        if ("heatmap" in heads) and _get("lambda_heatmap") > 0:
+            tasks.add("heatmap")
+        if _get("lambda_gate") > 0:
+            tasks.add("gate")
+        if _get("lambda_jepa") > 0 or _get("lambda_sigreg") > 0:
+            tasks.add("jepa")
         return tasks
 
     def save_args(self):
         """Save configuration arguments to YAML."""
         import yaml
+
         args_path = self.save_dir / "args.yaml"
         with open(args_path, "w") as f:
             yaml.dump(self.cfg.model_dump(), f, sort_keys=False)
@@ -125,8 +132,9 @@ class BaseTrainer:
         """Prints a professional startup banner and categorized hyperparameters with premium styling."""
         # Branding Header
         from neuro_pilot import __version__
-        header = colorstr('bright_cyan', 'bold', f"\n{' ' * 20}NeuroPilot 🚀 v{__version__}{' ' * 20}")
-        sub_header = colorstr('white', f"{' ' * 18}Advanced Multi-Task Autonomy{' ' * 18}\n")
+
+        header = colorstr("bright_cyan", "bold", f"\n{' ' * 20}NeuroPilot 🚀 v{__version__}{' ' * 20}")
+        sub_header = colorstr("white", f"{' ' * 18}Advanced Multi-Task Autonomy{' ' * 18}\n")
         print(f"{colorstr('bright_cyan', '━' * 60)}")
         print(header)
         print(sub_header)
@@ -135,67 +143,76 @@ class BaseTrainer:
         # System Info Section
         import sys
         import platform
-        sys_info = f"{colorstr('bright_green', 'bold', 'System:')} {platform.system()} {platform.release()} | " \
-                   f"{colorstr('bright_green', 'bold', 'Python:')} {sys.version.split(' ')[0]} | " \
-                   f"{colorstr('bright_green', 'bold', 'Torch:')} {torch.__version__} | " \
-                   f"{colorstr('bright_green', 'bold', 'CUDA:')} {torch.version.cuda if torch.cuda.is_available() else 'N/A'}"
+
+        sys_info = (
+            f"{colorstr('bright_green', 'bold', 'System:')} {platform.system()} {platform.release()} | "
+            f"{colorstr('bright_green', 'bold', 'Python:')} {sys.version.split(' ')[0]} | "
+            f"{colorstr('bright_green', 'bold', 'Torch:')} {torch.__version__} | "
+            f"{colorstr('bright_green', 'bold', 'CUDA:')} {torch.version.cuda if torch.cuda.is_available() else 'N/A'}"
+        )
         logger.info(sys_info)
 
         # Framework Status
-        logger.info(colorstr('bright_black', 'Optimized for High-Safety E2E Control Dashboard') + '\n')
+        logger.info(colorstr("bright_black", "Optimized for High-Safety E2E Control Dashboard") + "\n")
 
         # Hyperparameters Header
-        logger.info(colorstr('bright_yellow', 'bold', f"{'╍' * 20} HYPERPARAMETERS {'╍' * 20}"))
+        logger.info(colorstr("bright_yellow", "bold", f"{'╍' * 20} HYPERPARAMETERS {'╍' * 20}"))
 
         def print_dict(d, indent=""):
             for k, v in d.items():
                 if v is None:
                     continue
-                key_styled = colorstr('cyan', f"{k}")
+                key_styled = colorstr("cyan", f"{k}")
                 if isinstance(v, dict):
                     if any(sub_v is not None for sub_v in v.values()):
                         logger.info(f"{indent}{key_styled.upper()}:")
                         print_dict(v, indent + "  ")
                 else:
-                    val_styled = colorstr('bright_white', f"{v}")
+                    val_styled = colorstr("bright_white", f"{v}")
                     logger.info(f"{indent}{key_styled:<20} ⮕  {val_styled}")
 
         print_dict(args)
-        logger.info(colorstr('bright_yellow', 'bold', f"{'━' * 57}\n"))
+        logger.info(colorstr("bright_yellow", "bold", f"{'━' * 57}\n"))
 
     def progress_string(self):
         """Returns the formatted header string aligned with metrics."""
         active = self._get_active_tasks()
         core_headers = ["total", "traj"]
-        if 'detection' in active: core_headers.extend(["box", "cls", "dfl"])
-        if 'heatmap' in active: core_headers.extend(["hm"])
-        if 'gate' in active: core_headers.extend(["gate"])
-        if 'jepa' in active: core_headers.extend(["jepa", "sigreg"])
+        if "detection" in active:
+            core_headers.extend(["box", "cls", "dfl"])
+        if "heatmap" in active:
+            core_headers.extend(["hm"])
+        if "gate" in active:
+            core_headers.extend(["gate"])
+        if "jepa" in active:
+            core_headers.extend(["jepa", "sigreg"])
 
         # Temporal losses if temporal is enabled
-        if getattr(self.cfg, 'temporal', None) and self.cfg.temporal.enabled:
+        if getattr(self.cfg, "temporal", None) and self.cfg.temporal.enabled:
             core_headers.extend(["temp", "mprior"])
 
         core_headers.extend(["L1", "wL1"])
 
         headers = ["Epoch", "mem"] + core_headers + ["inst", "sz"]
         str_out = ("%8s" * len(headers)) % tuple(headers)
-        return colorstr('bold', str_out)
+        return colorstr("bold", str_out)
 
     def train(self):
         """Ultralytics-style training entry point."""
         self.setup()
         self.print_args(self.cfg.model_dump())
 
-        start_msg = f"{colorstr('bright_blue', 'bold', '🚀 Training Phase Activated')} | " \
-                    f"{colorstr('cyan', 'Epochs')}: {self.cfg.trainer.max_epochs} | " \
-                    f"{colorstr('cyan', 'Batch')}: {self.cfg.data.batch_size} | " \
-                    f"{colorstr('cyan', 'Device')}: {self.device}"
+        start_msg = (
+            f"{colorstr('bright_blue', 'bold', '🚀 Training Phase Activated')} | "
+            f"{colorstr('cyan', 'Epochs')}: {self.cfg.trainer.max_epochs} | "
+            f"{colorstr('cyan', 'Batch')}: {self.cfg.data.batch_size} | "
+            f"{colorstr('cyan', 'Device')}: {self.device}"
+        )
         logger.info(start_msg)
         self.fit(self.train_loader, self.val_loader)
 
         # Format final metrics as a professional, minimal table
-        metrics = getattr(self, 'val_metrics', {})
+        metrics = getattr(self, "val_metrics", {})
         if metrics:
             active = self._get_active_tasks()
             footer_width = 100
@@ -203,16 +220,18 @@ class BaseTrainer:
             print(f"{'Experiment':<25}: {self.cfg.trainer.experiment_name}")
             print(f"{'Active Tasks':<25}: {', '.join(sorted(active))}")
             print(f"{'Path':<25}: {self.save_dir}")
-            print(f"{'-'*footer_width}")
+            print(f"{'-' * footer_width}")
 
             # Detection Table — only when detection is active
-            if 'detection' in active:
+            if "detection" in active:
                 header_str = f"{'':>20}{'Class':>15}{'Images':>10}{'Instances':>12}{'Box(P':>12}{'R':>10}{'mAP50':>10}{'mAP50-95):':>12}"
                 print(colorstr("bold", header_str))
                 all_str = f"{'':>20}{'all':>15}{'-':>10}{metrics.get('Total_Instances', '-'):>12}{metrics.get('Precision', 0):>12.3f}{metrics.get('Recall', 0):>10.3f}{metrics.get('mAP_50', 0):>10.3f}{metrics.get('mAP_50-95', 0):>12.3f}"
                 print(colorstr("bold", all_str))
-                for c in metrics.get('per_class', []):
-                    print(f"{'':>20}{c.get('Class', ''):>15}{'-':>10}{c.get('Instances', '-'):>12}{c['Precision']:>12.3f}{c['Recall']:>10.3f}{c['mAP_50']:>10.3f}{c['mAP_50-95']:>12.3f}")
+                for c in metrics.get("per_class", []):
+                    print(
+                        f"{'':>20}{c.get('Class', ''):>15}{'-':>10}{c.get('Instances', '-'):>12}{c['Precision']:>12.3f}{c['Recall']:>10.3f}{c['mAP_50']:>10.3f}{c['mAP_50-95']:>12.3f}"
+                    )
 
             # === Trajectory Metrics Table ===
             traj_header = f"{'':>20}{'L1':>12}{'wL1':>12}{'ADE':>12}{'FDE':>12}{'Lateral':>12}{'Longitudinal':>14}"
@@ -225,8 +244,14 @@ class BaseTrainer:
             v_loss = f"{metrics.get('avg_loss', 0):>15.4f}"
             fitness = f"{getattr(self, 'fitness', 0.0):>15.4f}"
 
-            print(colorstr("bright_magenta", "bold", f"\n{'':>20}{'Validation Loss':<25}") + f": {colorstr('bright_white', v_loss)}")
-            print(colorstr("bright_green", "bold", f"{'':>20}{'Best Fitness':<25}") + f": {colorstr('bright_white', fitness)}\n")
+            print(
+                colorstr("bright_magenta", "bold", f"\n{'':>20}{'Validation Loss':<25}")
+                + f": {colorstr('bright_white', v_loss)}"
+            )
+            print(
+                colorstr("bright_green", "bold", f"{'':>20}{'Best Fitness':<25}")
+                + f": {colorstr('bright_white', fitness)}\n"
+            )
 
         return self.fitness
 
@@ -237,7 +262,6 @@ class BaseTrainer:
     def fit(self, train_loader, val_loader):
         """Main training loop."""
         raise NotImplementedError
-
 
     def train_one_epoch(self, dataloader):
         """Logic for a single epoch."""
@@ -254,25 +278,28 @@ class BaseTrainer:
 
         ema_state = None
         if self.ema:
-            ema_state = self.ema.module.state_dict() if hasattr(self.ema, 'module') else self.ema.ema.state_dict()
+            ema_state = self.ema.module.state_dict() if hasattr(self.ema, "module") else self.ema.ema.state_dict()
 
         model_state = self.model.state_dict()
 
         state = {
-            'epoch': self.epoch,
-            'state_dict': ema_state if ema_state else model_state,
-            'model': model_state if ema_state else None,
-            'ema': ema_state,
-            'optimizer': self.optimizer.state_dict() if self.optimizer else None,
-            'fitness': fitness,
-            'cfg': self.cfg,
-            'names': getattr(self.model, 'names', default_names(self.cfg.head.num_classes if hasattr(self.cfg, 'head') else 14)),
-            'model_cfg': self.overrides.get('model_cfg'),
-            'scaler': self.scaler.state_dict() if getattr(self, 'scaler', None) else None,
-            'date': __import__('datetime').datetime.now().isoformat(),
+            "epoch": self.epoch,
+            "state_dict": ema_state if ema_state else model_state,
+            "model": model_state if ema_state else None,
+            "ema": ema_state,
+            "optimizer": self.optimizer.state_dict() if self.optimizer else None,
+            "fitness": fitness,
+            "cfg": self.cfg,
+            "names": getattr(
+                self.model, "names", default_names(self.cfg.head.num_classes if hasattr(self.cfg, "head") else 14)
+            ),
+            "model_cfg": self.overrides.get("model_cfg"),
+            "scaler": self.scaler.state_dict() if getattr(self, "scaler", None) else None,
+            "date": __import__("datetime").datetime.now().isoformat(),
         }
 
         from neuro_pilot.utils.torch_utils import save_checkpoint as sc_impl
+
         logger.info(f"Saving checkpoint to {path}...")
         sc_impl(state, is_best=is_best, filename=path.name, save_dir=str(path.parent))
         if is_best:
@@ -282,11 +309,13 @@ class BaseTrainer:
         """Early stopping logic."""
         return False
 
+
 class Trainer(BaseTrainer):
     """
     MultiTask Trainer.
     Inherits from BaseTrainer for setup and logging.
     """
+
     def __init__(self, config, overrides=None):
         super().__init__(config, overrides)
         self.num_classes = config.head.num_classes
@@ -296,42 +325,44 @@ class Trainer(BaseTrainer):
         """Setup model, loss, optimizer, and callbacks."""
         if self.model is None:
             from neuro_pilot.nn.factory import build_model
-            model_cfg_path = self.overrides.get('model_cfg')
-            if model_cfg_path and Path(model_cfg_path).suffix in ['.yaml', '.yml']:
+
+            model_cfg_path = self.overrides.get("model_cfg")
+            if model_cfg_path and Path(model_cfg_path).suffix in [".yaml", ".yml"]:
                 logger.info(f"Loading dynamic model from {model_cfg_path}")
                 self.model = build_model(cfg_path=model_cfg_path, ch=3, verbose=True).to(self.device)
             else:
                 logger.info("Loading default yolo_style model")
                 self.model = build_model(
-                    cfg_path="neuro_pilot/cfg/models/neuralPilot.yaml",
-                    nc=self.num_classes,
-                    verbose=True
+                    cfg_path="neuro_pilot/cfg/models/neuralPilot.yaml", nc=self.num_classes, verbose=True
                 ).to(self.device)
         else:
             self.model = self.model.to(self.device)
 
-        if hasattr(self.model, 'info'):
+        if hasattr(self.model, "info"):
             self.model.info()
 
         self.criterion = MultiTaskLossManager(self.cfg, self.model, device=self.device)
         active = self._get_active_tasks()
 
         self.loss_names = ["total", "traj"]
-        if 'detection' in active: self.loss_names.extend(["box", "cls_det", "dfl"])
-        if 'heatmap' in active: self.loss_names.extend(["heatmap"])
-        if 'gate' in active: self.loss_names.extend(["gate"])
+        if "detection" in active:
+            self.loss_names.extend(["box", "cls_det", "dfl"])
+        if "heatmap" in active:
+            self.loss_names.extend(["heatmap"])
+        if "gate" in active:
+            self.loss_names.extend(["gate"])
         self.loss_names.extend(["L1", "wL1"])
 
-        opt_type = getattr(self.cfg.trainer, 'optimizer', 'auto')
+        opt_type = getattr(self.cfg.trainer, "optimizer", "auto")
         self.optimizer = self.build_optimizer(
             self.model,
             name=opt_type,
             lr=self.cfg.trainer.learning_rate,
             momentum=self.cfg.trainer.momentum,
-            decay=self.cfg.trainer.weight_decay
+            decay=self.cfg.trainer.weight_decay,
         )
 
-        if hasattr(self.cfg.trainer, 'use_ema') and self.cfg.trainer.use_ema:
+        if hasattr(self.cfg.trainer, "use_ema") and self.cfg.trainer.use_ema:
             self.ema = ModelEMA(self.model, decay=self.cfg.trainer.ema_decay)
         else:
             self.ema = None
@@ -339,26 +370,34 @@ class Trainer(BaseTrainer):
         ckpt_dir = self.save_dir
         self.val_logger_obj = MetricLogger(ckpt_dir, "val", "val_metrics.csv")
         viz_cb = VisualizationCallback(ckpt_dir / "viz", active_tasks=active)
-        if hasattr(self.model, 'names'):
+        if hasattr(self.model, "names"):
             viz_cb.names = self.model.names
 
-        self.callbacks = CallbackList([
-            LoggingCallback(MetricLogger(ckpt_dir, "train", "train_metrics.csv")),
-            CheckpointCallback(ckpt_dir, self.cfg),
-            viz_cb,
-            PlottingCallback(ckpt_dir)
-        ])
+        self.callbacks = CallbackList(
+            [
+                LoggingCallback(MetricLogger(ckpt_dir, "train", "train_metrics.csv")),
+                CheckpointCallback(ckpt_dir, self.cfg),
+                viz_cb,
+                PlottingCallback(ckpt_dir),
+            ]
+        )
 
         from neuro_pilot.data import prepare_dataloaders
+
         self.train_loader, self.val_loader = prepare_dataloaders(self.cfg)
 
         ds = self.train_loader.dataset
-        while hasattr(ds, 'dataset'): ds = ds.dataset
+        while hasattr(ds, "dataset"):
+            ds = ds.dataset
 
         # Priority: 1. Dataset names, 2. Existing model names (if not default), 3. Default class_i
-        is_default = all(isinstance(v, str) and v.startswith("class_") for v in self.model.names.values()) if hasattr(self.model, 'names') and isinstance(self.model.names, dict) else True
+        is_default = (
+            all(isinstance(v, str) and v.startswith("class_") for v in self.model.names.values())
+            if hasattr(self.model, "names") and isinstance(self.model.names, dict)
+            else True
+        )
 
-        if hasattr(ds, 'names') and ds.names:
+        if hasattr(ds, "names") and ds.names:
             if isinstance(ds.names, list):
                 self.model.names = {i: n for i, n in enumerate(ds.names)}
             else:
@@ -368,7 +407,13 @@ class Trainer(BaseTrainer):
 
         self.initialize_anchors(self.train_loader)
 
-        self.validator = Validator(self.cfg, self.ema.ema if self.ema else self.model, self.criterion, self.device, active_tasks=self._get_active_tasks())
+        self.validator = Validator(
+            self.cfg,
+            self.ema.ema if self.ema else self.model,
+            self.criterion,
+            self.device,
+            active_tasks=self._get_active_tasks(),
+        )
         self.validator.callbacks = self.callbacks
         self.validator.names = self.model.names
 
@@ -381,18 +426,19 @@ class Trainer(BaseTrainer):
         """Restore model, optimizer, EMA, and other states from a checkpoint."""
         ckpt_path = self.resume if isinstance(self.resume, (str, Path)) else self.last
         if not Path(ckpt_path).exists():
-             logger.warning(f"Resume checkpoint {ckpt_path} not found. Starting from scratch.")
-             return
+            logger.warning(f"Resume checkpoint {ckpt_path} not found. Starting from scratch.")
+            return
 
         from neuro_pilot.utils.torch_utils import load_checkpoint
+
         ckpt = load_checkpoint(ckpt_path, self.model, self.optimizer, self.scaler)
 
-        self.epoch = ckpt.get('epoch', -1) + 1
-        self.best_fitness = ckpt.get('fitness', 0.0)
+        self.epoch = ckpt.get("epoch", -1) + 1
+        self.best_fitness = ckpt.get("fitness", 0.0)
 
-        if self.ema and 'ema' in ckpt:
-            self.ema.ema.load_state_dict(ckpt['ema'])
-            self.ema.updates = ckpt.get('updates', 0)
+        if self.ema and "ema" in ckpt:
+            self.ema.ema.load_state_dict(ckpt["ema"])
+            self.ema.updates = ckpt.get("updates", 0)
             logger.info("EMA state restored from checkpoint")
 
         logger.info(f"Resuming training from epoch {self.epoch}")
@@ -414,10 +460,11 @@ class Trainer(BaseTrainer):
         for m in model.modules():
             if isinstance(m, bn):
                 other_params.add(m.weight)
-                if m.bias is not None: other_params.add(m.bias)
-            elif hasattr(m, 'weight') and isinstance(m.weight, nn.Parameter):
+                if m.bias is not None:
+                    other_params.add(m.bias)
+            elif hasattr(m, "weight") and isinstance(m.weight, nn.Parameter):
                 decay_params.add(m.weight)
-            if hasattr(m, 'bias') and isinstance(m.bias, nn.Parameter):
+            if hasattr(m, "bias") and isinstance(m.bias, nn.Parameter):
                 bias_params.add(m.bias)
 
         assigned = decay_params | bias_params | other_params
@@ -430,35 +477,43 @@ class Trainer(BaseTrainer):
         g1 = list(bias_params)
         g2 = list(other_params - set(g0) - set(g1))
 
-        if name.lower() == 'adamw':
+        if name.lower() == "adamw":
             beta1 = 0.9 if momentum == 0.937 else momentum
             optimizer = optim.AdamW(g2, lr=lr, betas=(beta1, 0.999), weight_decay=0.0)
-        elif name.lower() == 'sgd':
+        elif name.lower() == "sgd":
             optimizer = optim.SGD(g2, lr=lr, momentum=momentum, nesterov=True)
         else:
             optimizer = optim.Adam(g2, lr=lr, betas=(momentum, 0.999), weight_decay=0.0)
 
-        if g0: optimizer.add_param_group({'params': g0, 'weight_decay': decay})
-        if g1: optimizer.add_param_group({'params': g1, 'weight_decay': 0.0})
+        if g0:
+            optimizer.add_param_group({"params": g0, "weight_decay": decay})
+        if g1:
+            optimizer.add_param_group({"params": g1, "weight_decay": 0.0})
 
-        logger.info(f"Optimizer: {type(optimizer).__name__} with {len(g0)} decayed, {len(g1)} bias, {len(g2)} norm/other")
+        logger.info(
+            f"Optimizer: {type(optimizer).__name__} with {len(g0)} decayed, {len(g1)} bias, {len(g2)} norm/other"
+        )
         return optimizer
 
     def initialize_anchors(self, dataloader: DataLoader):
-        if self.anchors_initialized: return
-        if not hasattr(self.model, 'set_anchors'): return
+        if self.anchors_initialized:
+            return
+        if not hasattr(self.model, "set_anchors"):
+            return
 
         logger.info("Computing anchor trajectory from dataset...")
         all_gt = []
         for batch in dataloader:
-            gt = batch['waypoints']
-            if hasattr(self.model, 'num_waypoints') and gt.shape[1] != self.model.num_waypoints:
-                 if gt.shape[1] > 1:
-                     gt = torch.nn.functional.interpolate(gt.permute(0,2,1).float(), size=self.model.num_waypoints, mode='linear', align_corners=True).permute(0,2,1)
-                 elif gt.shape[1] == 1:
-                     gt = gt.repeat(1, self.model.num_waypoints, 1)
-                 else:
-                     continue # Skip empty tracks for anchors
+            gt = batch["waypoints"]
+            if hasattr(self.model, "num_waypoints") and gt.shape[1] != self.model.num_waypoints:
+                if gt.shape[1] > 1:
+                    gt = torch.nn.functional.interpolate(
+                        gt.permute(0, 2, 1).float(), size=self.model.num_waypoints, mode="linear", align_corners=True
+                    ).permute(0, 2, 1)
+                elif gt.shape[1] == 1:
+                    gt = gt.repeat(1, self.model.num_waypoints, 1)
+                else:
+                    continue  # Skip empty tracks for anchors
             all_gt.append(gt)
         if len(all_gt) > 0:
             self.model.set_anchors(torch.cat(all_gt).mean(0).to(self.device))
@@ -471,7 +526,8 @@ class Trainer(BaseTrainer):
         self.epoch_metrics = EpochMetrics()
 
         nw = max(round(self.cfg.trainer.warmup_epochs * len(dataloader)), 100)
-        if torch.cuda.is_available(): torch.cuda.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
         # Format description to be exactly 8 chars to match "Epoch" column
         desc = f"{self.epoch}/{self.cfg.trainer.max_epochs - 1}"
@@ -486,16 +542,16 @@ class Trainer(BaseTrainer):
             batch = self._prepare_batch(batch)
 
             self.optimizer.zero_grad()
-            with torch.amp.autocast('cuda', enabled=self.cfg.trainer.use_amp):
+            with torch.amp.autocast("cuda", enabled=self.cfg.trainer.use_amp):
                 # Pass clip_images if available (temporal models)
-                model_kwargs = {k: v for k, v in batch.items() if k not in ('image', 'targets', 'image_path')}
-                if 'clip_images' in batch:
-                    model_kwargs['clip_images'] = batch['clip_images']
+                model_kwargs = {k: v for k, v in batch.items() if k not in ("image", "targets", "image_path")}
+                if "clip_images" in batch:
+                    model_kwargs["clip_images"] = batch["clip_images"]
 
-                output = self.model(batch['image'], return_intermediate=True, **model_kwargs)
-                ema_model = self.ema.ema if hasattr(self, 'ema') and self.ema else None
-                loss_dict = self.criterion(output, batch.get('targets', batch), ema_model=ema_model, batch=batch)
-                loss = loss_dict['total']
+                output = self.model(batch["image"], return_intermediate=True, **model_kwargs)
+                ema_model = self.ema.ema if hasattr(self, "ema") and self.ema else None
+                loss_dict = self.criterion(output, batch.get("targets", batch), ema_model=ema_model, batch=batch)
+                loss = loss_dict["total"]
 
             if not torch.isfinite(loss):
                 logger.warning(f"NaN/Inf Loss at Epoch {self.epoch} Batch {batch_idx} — skipping step")
@@ -505,7 +561,8 @@ class Trainer(BaseTrainer):
             self.scaler.scale(loss).backward()
             self._update_optimizer()
 
-            if self.ema: self.ema.update(self.model)
+            if self.ema:
+                self.ema.update(self.model)
             self._handle_batch_metrics(loss_dict, output, batch)
             self.current_output = output
             self.callbacks.on_batch_end(self)
@@ -519,7 +576,7 @@ class Trainer(BaseTrainer):
             for j, x in enumerate(self.optimizer.param_groups):
                 # Apply warmup to all groups, but cap bias_lr to something sensible if it's too high
                 warmup_lr_start = 0.0
-                if j == 1: # Bias group in our simplified grouping (g1)
+                if j == 1:  # Bias group in our simplified grouping (g1)
                     warmup_lr_start = min(self.cfg.trainer.warmup_bias_lr, self.cfg.trainer.learning_rate * 5)
 
                 x["lr"] = np.interp(ni, xi, [warmup_lr_start, self.cfg.trainer.learning_rate])
@@ -529,23 +586,24 @@ class Trainer(BaseTrainer):
     def _prepare_batch(self, batch):
         """Move batch tensors to device and construct targets dict."""
         from neuro_pilot.utils.torch_utils import prepare_batch
+
         batch = prepare_batch(batch, self.device)
-        img = batch['image']
+        img = batch["image"]
 
         # Add clip_images back to batch cleanly if it exists (prepare_batch handles dicts)
-        if 'clip_images' in batch and batch['clip_images'] is not None:
-             batch['clip_images'] = batch['clip_images'].to(self.device, non_blocking=True)
+        if "clip_images" in batch and batch["clip_images"] is not None:
+            batch["clip_images"] = batch["clip_images"].to(self.device, non_blocking=True)
 
         targets = {
-            'waypoints': batch['waypoints'],
-            'waypoints_mask': batch.get('waypoints_mask', torch.ones(img.size(0), device=self.device)),
-            'bboxes': batch['bboxes'],
-            'cls': batch.get('cls', batch.get('categories')),
-            'batch_idx': batch.get('batch_idx', torch.zeros(0, device=self.device)),
-            'curvature': batch.get('curvature', torch.zeros(img.size(0), device=self.device)),
-            'command_idx': batch['command_idx']
+            "waypoints": batch["waypoints"],
+            "waypoints_mask": batch.get("waypoints_mask", torch.ones(img.size(0), device=self.device)),
+            "bboxes": batch["bboxes"],
+            "cls": batch.get("cls", batch.get("categories")),
+            "batch_idx": batch.get("batch_idx", torch.zeros(0, device=self.device)),
+            "curvature": batch.get("curvature", torch.zeros(img.size(0), device=self.device)),
+            "command_idx": batch["command_idx"],
         }
-        batch['targets'] = targets
+        batch["targets"] = targets
         self.current_batch = batch
         return batch
 
@@ -577,10 +635,10 @@ class Trainer(BaseTrainer):
         # Filter loss_dict: only keep metrics relevant to active tasks
         # Map from task name to the loss keys that belong to it
         task_keys = {
-            'detection': {'det', 'box', 'cls_det', 'dfl'},
-            'heatmap': {'heatmap'},
-            'gate': {'gate'},
-            'jepa': {'jepa', 'sigreg'},
+            "detection": {"det", "box", "cls_det", "dfl"},
+            "heatmap": {"heatmap"},
+            "gate": {"gate"},
+            "jepa": {"jepa", "sigreg"},
         }
         excluded_keys = set()
         for task_name, keys in task_keys.items():
@@ -588,95 +646,96 @@ class Trainer(BaseTrainer):
                 excluded_keys.update(keys)
 
         # Keep extra losses (like temporal/motion_prior if they exist)
-        filtered_loss = {k: (v.item() if hasattr(v, 'item') else v)
-                         for k, v in loss_dict.items()
-                         if k not in excluded_keys}
+        filtered_loss = {
+            k: (v.item() if hasattr(v, "item") else v) for k, v in loss_dict.items() if k not in excluded_keys
+        }
 
-        pred_path = output.get('waypoints', output.get('control_points'))
+        pred_path = output.get("waypoints", output.get("control_points"))
         l1_err = 0.0
         if pred_path is not None:
             pred_path = pred_path.float()
-            gt = batch['targets']['waypoints']
+            gt = batch["targets"]["waypoints"]
             if gt.shape[1] == 0:
-                filtered_loss['L1'] = 0.0
-                filtered_loss['wL1'] = 0.0
+                filtered_loss["L1"] = 0.0
+                filtered_loss["wL1"] = 0.0
             else:
                 if gt.shape[1] != pred_path.shape[1]:
-                     if gt.shape[1] > 1:
-                         gt = torch.nn.functional.interpolate(gt.permute(0,2,1).float(), size=pred_path.shape[1], mode='linear', align_corners=True).permute(0,2,1)
-                     else:
-                         gt = gt.repeat(1, pred_path.shape[1], 1)
+                    if gt.shape[1] > 1:
+                        gt = torch.nn.functional.interpolate(
+                            gt.permute(0, 2, 1).float(), size=pred_path.shape[1], mode="linear", align_corners=True
+                        ).permute(0, 2, 1)
+                    else:
+                        gt = gt.repeat(1, pred_path.shape[1], 1)
                 err_abs = (pred_path - gt).abs()
                 l1_err = err_abs.mean().item()
-                filtered_loss['L1'] = l1_err
+                filtered_loss["L1"] = l1_err
 
                 from neuro_pilot.utils.ops import get_bathtub_weights
+
                 T = pred_path.shape[1]
                 w = get_bathtub_weights(T, self.cfg.loss.fdat_tau_start, self.cfg.loss.fdat_tau_end, device=self.device)
                 weighted_l1 = (err_abs.mean(-1) * w).mean().item()
-                filtered_loss['wL1'] = weighted_l1
+                filtered_loss["wL1"] = weighted_l1
 
         self.epoch_metrics.update(filtered_loss)
         self.batch_metrics = self.epoch_metrics.averages()
 
-        self._update_pbar(batch['image'])
+        self._update_pbar(batch["image"])
 
-        self._update_pbar(batch['image'])
+        self._update_pbar(batch["image"])
 
     def _update_pbar(self, img):
         """Formatted progress bar update."""
-        mem = f"{torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0:.3g}G"
+        mem = f"{torch.cuda.memory_reserved() / 1e9 if torch.cuda.is_available() else 0:.3g}G"
         active = self._get_active_tasks()
 
-        metrics_vals = [
-            f"{self.batch_metrics['total']:.3g}",
-            f"{self.batch_metrics.get('traj', 0):.3g}"
-        ]
+        metrics_vals = [f"{self.batch_metrics['total']:.3g}", f"{self.batch_metrics.get('traj', 0):.3g}"]
 
-        if 'detection' in active:
-            metrics_vals.extend([
-                f"{self.batch_metrics.get('box', 0):.3g}",
-                f"{self.batch_metrics.get('cls_det', 0):.3g}",
-                f"{self.batch_metrics.get('dfl', 0):.3g}"
-            ])
+        if "detection" in active:
+            metrics_vals.extend(
+                [
+                    f"{self.batch_metrics.get('box', 0):.3g}",
+                    f"{self.batch_metrics.get('cls_det', 0):.3g}",
+                    f"{self.batch_metrics.get('dfl', 0):.3g}",
+                ]
+            )
 
-        if 'heatmap' in active:
+        if "heatmap" in active:
             metrics_vals.append(f"{self.batch_metrics.get('heatmap', 0):.3g}")
 
-        if 'gate' in active:
+        if "gate" in active:
             metrics_vals.append(f"{self.batch_metrics.get('gate', 0):.3g}")
 
-        if 'jepa' in active:
-            metrics_vals.extend([
-                f"{self.batch_metrics.get('jepa', 0):.3g}",
-                f"{self.batch_metrics.get('sigreg', 0):.3g}"
-            ])
+        if "jepa" in active:
+            metrics_vals.extend(
+                [f"{self.batch_metrics.get('jepa', 0):.3g}", f"{self.batch_metrics.get('sigreg', 0):.3g}"]
+            )
 
-        if getattr(self.cfg, 'temporal', None) and self.cfg.temporal.enabled:
-            metrics_vals.extend([
-                f"{self.batch_metrics.get('temporal', 0):.3g}",
-                f"{self.batch_metrics.get('motion_prior', 0):.3g}"
-            ])
+        if getattr(self.cfg, "temporal", None) and self.cfg.temporal.enabled:
+            metrics_vals.extend(
+                [f"{self.batch_metrics.get('temporal', 0):.3g}", f"{self.batch_metrics.get('motion_prior', 0):.3g}"]
+            )
 
-        metrics_vals.extend([
-            f"{self.batch_metrics.get('L1', 0):.3g}",
-            f"{self.batch_metrics.get('wL1', 0):.3g}"
-        ])
+        metrics_vals.extend([f"{self.batch_metrics.get('L1', 0):.3g}", f"{self.batch_metrics.get('wL1', 0):.3g}"])
         # Compact 8-char alignment for all values
         pbar_desc = ("%8s" * 1 + "%8s" * len(metrics_vals) + "%8s" * 2) % (
-            mem, *metrics_vals, f"{img.shape[0]}", f"{img.shape[-1]}"
+            mem,
+            *metrics_vals,
+            f"{img.shape[0]}",
+            f"{img.shape[-1]}",
         )
         # Use custom format to ensure alignment: desc (Epoch) then postfix (rest)
-        self.pbar.bar_format = "{desc}{postfix} {percent} {bar:10} {n_str}/{t_str} [{rate_str}, {elapsed_str}<{remaining_str}]"
+        self.pbar.bar_format = (
+            "{desc}{postfix} {percent} {bar:10} {n_str}/{t_str} [{rate_str}, {elapsed_str}<{remaining_str}]"
+        )
         self.pbar.set_postfix_str(pbar_desc, refresh=False)
-        self.batch_metrics['lr'] = self.optimizer.param_groups[0]['lr']
-
-
+        self.batch_metrics["lr"] = self.optimizer.param_groups[0]["lr"]
 
     def fit(self, train_loader, val_loader):
         self.initialize_anchors(train_loader)
 
         from neuro_pilot.utils.torch_utils import one_cycle
+
         lf = one_cycle(1, self.cfg.trainer.lr_final, self.cfg.trainer.max_epochs)
         self.scheduler = optim.lr_scheduler.LambdaLR(self.optimizer, lr_lambda=lf)
         self.scheduler.last_epoch = self.epoch - 1
@@ -684,7 +743,7 @@ class Trainer(BaseTrainer):
         self.callbacks.on_train_start(self)
 
         early_stop_counter = 0
-        best_fitness_global = -float('inf')
+        best_fitness_global = -float("inf")
 
         print(self.progress_string())
 
@@ -692,11 +751,14 @@ class Trainer(BaseTrainer):
             self.epoch = epoch
 
             if epoch == (self.cfg.trainer.max_epochs - 10):
-                if hasattr(self.train_loader.dataset, 'apply_refinement_policy'):
+                if hasattr(self.train_loader.dataset, "apply_refinement_policy"):
                     self.train_loader.dataset.apply_refinement_policy()
                     from neuro_pilot.utils.logger import colorstr
-                    logger.info(f"{colorstr('bright_blue', 'bold', 'Refinement State:')} Mosaic closed, synthetic refinement samples injected.")
-                    if hasattr(self.train_loader, 'reset'):
+
+                    logger.info(
+                        f"{colorstr('bright_blue', 'bold', 'Refinement State:')} Mosaic closed, synthetic refinement samples injected."
+                    )
+                    if hasattr(self.train_loader, "reset"):
                         self.train_loader.reset()
 
             self.train_one_epoch(train_loader)
@@ -709,19 +771,20 @@ class Trainer(BaseTrainer):
             eval_model = self.ema.ema if self.ema else self.model
             self.validator.model = eval_model
             val_metrics = self.validator(val_loader)
-            self.val_loss = val_metrics.get('avg_loss', 0.0)
+            self.val_loss = val_metrics.get("avg_loss", 0.0)
             self.val_metrics = val_metrics
 
             from neuro_pilot.utils.metrics import calculate_fitness
+
             active = self._get_active_tasks()
             fitness_weights = {
-                'map50': self.cfg.loss.fitness_map50,
-                'map95': self.cfg.loss.fitness_map95,
-                'l1': self.cfg.loss.fitness_l1
+                "map50": self.cfg.loss.fitness_map50,
+                "map95": self.cfg.loss.fitness_map95,
+                "l1": self.cfg.loss.fitness_l1,
             }
             self.fitness = calculate_fitness(val_metrics, weights=fitness_weights, active_tasks=active)
-            val_metrics['fitness'] = self.fitness
-            self.model.names = getattr(self.model, 'names', self.num_classes)
+            val_metrics["fitness"] = self.fitness
+            self.model.names = getattr(self.model, "names", self.num_classes)
             self.model.cfg = self.cfg
 
             for k, v in val_metrics.items():
@@ -729,7 +792,6 @@ class Trainer(BaseTrainer):
             self.val_logger_obj.log_epoch(epoch, "val")
 
             self.callbacks.on_val_end(self)
-
 
             if self.scheduler:
                 self.scheduler.step()
@@ -745,4 +807,4 @@ class Trainer(BaseTrainer):
                 break
 
         self.callbacks.on_train_end(self)
-        return getattr(self, 'val_metrics', {})
+        return getattr(self, "val_metrics", {})

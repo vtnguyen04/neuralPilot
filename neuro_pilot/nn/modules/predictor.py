@@ -2,6 +2,7 @@ import torch
 from torch import nn
 from .transformer import Transformer, ConditionalBlock
 
+
 class ARPredictor(nn.Module):
     """Autoregressive predictor for next-step embedding prediction."""
 

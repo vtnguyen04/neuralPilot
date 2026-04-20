@@ -35,6 +35,7 @@ def imagenet_denormalize(img: torch.Tensor, device=None) -> torch.Tensor:
         mean, std = mean.half(), std.half()
     return img * std + mean
 
+
 def select_device(device="", verbose=True):
     """
     Selects the best available device (CUDA or CPU).
@@ -47,24 +48,25 @@ def select_device(device="", verbose=True):
         return device
 
     s = str(device).lower()
-    if s == 'cpu':
-        return torch.device('cpu')
+    if s == "cpu":
+        return torch.device("cpu")
 
     if torch.cuda.is_available():
-        if s == '' or s == 'cuda' or s.isdigit():
+        if s == "" or s == "cuda" or s.isdigit():
             idx = int(s) if s.isdigit() else 0
             if verbose:
                 p = torch.cuda.get_device_properties(idx)
                 logger.info(f"Using CUDA:{idx} ({p.name}, {p.total_memory / 1024**2:.0f}MiB)")
-            return torch.device(f'cuda:{idx}')
-        if s.startswith('cuda:'):
+            return torch.device(f"cuda:{idx}")
+        if s.startswith("cuda:"):
             return torch.device(s)
 
     if verbose:
         logger.info("CUDA not available, using CPU.")
-    return torch.device('cpu')
+    return torch.device("cpu")
 
-def save_checkpoint(state, is_best, filename='checkpoint.pt', save_dir='weights'):
+
+def save_checkpoint(state, is_best, filename="checkpoint.pt", save_dir="weights"):
     """Save training checkpoint including metadata."""
     save_path = Path(save_dir)
     save_path.mkdir(parents=True, exist_ok=True)
@@ -77,8 +79,9 @@ def save_checkpoint(state, is_best, filename='checkpoint.pt', save_dir='weights'
         return
 
     if is_best:
-        best_path = save_path / filename.replace('last', 'best') if 'last' in filename else save_path / 'best.pt'
+        best_path = save_path / filename.replace("last", "best") if "last" in filename else save_path / "best.pt"
         import shutil
+
         try:
             shutil.copyfile(filepath, best_path)
         except Exception as e:
@@ -90,21 +93,22 @@ def load_checkpoint(filepath, model, optimizer=None, scaler=None):
     if not Path(filepath).exists():
         raise FileNotFoundError(f"Checkpoint not found at {filepath}")
 
-    checkpoint = torch.load(filepath, map_location='cpu', weights_only=False)
-    model.load_state_dict(checkpoint['state_dict'])
+    checkpoint = torch.load(filepath, map_location="cpu", weights_only=False)
+    model.load_state_dict(checkpoint["state_dict"])
 
-    if optimizer and 'optimizer' in checkpoint:
-        optimizer.load_state_dict(checkpoint['optimizer'])
+    if optimizer and "optimizer" in checkpoint:
+        optimizer.load_state_dict(checkpoint["optimizer"])
 
-    if scaler and 'scaler' in checkpoint:
-        scaler.load_state_dict(checkpoint['scaler'])
+    if scaler and "scaler" in checkpoint:
+        scaler.load_state_dict(checkpoint["scaler"])
 
-    epoch = checkpoint.get('epoch', 0)
-    fitness = checkpoint.get('fitness', 0.0)
+    epoch = checkpoint.get("epoch", 0)
+    fitness = checkpoint.get("fitness", 0.0)
 
     logger.info(f"Loaded checkpoint from epoch {epoch} (fitness={fitness:.4f})")
 
     return checkpoint
+
 
 def find_latest_checkpoint(experiment_name: str) -> Path | None:
     """Find the latest checkpoint for an experiment."""
@@ -131,18 +135,23 @@ def find_latest_checkpoint(experiment_name: str) -> Path | None:
 
     return None
 
+
 def fuse_conv_and_bn(conv, bn):
     """Fuse Conv2d() and BatchNorm2d() layers https://tehnokv.com/posts/fusing-batchnorm-and-conv/."""
-    fusedconv = torch.nn.Conv2d(
-        conv.in_channels,
-        conv.out_channels,
-        kernel_size=conv.kernel_size,
-        stride=conv.stride,
-        padding=conv.padding,
-        dilation=conv.dilation,
-        groups=conv.groups,
-        bias=True,
-    ).requires_grad_(False).to(conv.weight.device)
+    fusedconv = (
+        torch.nn.Conv2d(
+            conv.in_channels,
+            conv.out_channels,
+            kernel_size=conv.kernel_size,
+            stride=conv.stride,
+            padding=conv.padding,
+            dilation=conv.dilation,
+            groups=conv.groups,
+            bias=True,
+        )
+        .requires_grad_(False)
+        .to(conv.weight.device)
+    )
 
     w_conv = conv.weight.clone().view(conv.out_channels, -1)
     w_bn = torch.diag(bn.weight.div(torch.sqrt(bn.eps + bn.running_var)))
@@ -154,23 +163,30 @@ def fuse_conv_and_bn(conv, bn):
 
     return fusedconv
 
+
 def smart_inference_mode():
     """Applies torch.inference_mode() decorator if torch>=1.9.0 else torch.no_grad() decorator."""
+
     def decorate(fn):
         return (torch.inference_mode if torch.__version__ >= "1.9.0" else torch.no_grad)()(fn)
+
     return decorate
+
 
 def one_cycle(y1=0.0, y2=1.0, steps=100):
     """Returns a lambda function for a cosine learning rate scheduler."""
     return lambda x: ((1 - math.cos(x * math.pi / steps)) / 2) * (y2 - y1) + y1
 
+
 class ModelEMA:
-    """ Updated Exponential Moving Average (EMA) from https://github.com/rwightman/pytorch-image-models
+    """Updated Exponential Moving Average (EMA) from https://github.com/rwightman/pytorch-image-models
     Keeps a moving average of everything in the model state_dict (parameters and buffers)
     For exponential moving average (EMA) of model weights.
     """
+
     def __init__(self, model, decay=0.9999, tau=2000, updates=0):
         from copy import deepcopy
+
         self.ema = deepcopy(model).eval()
         self.updates = updates
         self.decay = lambda x: decay * (1 - math.exp(-x / tau))
@@ -188,9 +204,9 @@ class ModelEMA:
                     v *= d
                     v += (1 - d) * msd[k].detach()
 
-    def update_attr(self, model, include=(), exclude=('process_group', 'reducer')):
+    def update_attr(self, model, include=(), exclude=("process_group", "reducer")):
         for k, v in model.__dict__.items():
-            if (len(include) and k not in include) or k in exclude or k.startswith('_'):
+            if (len(include) and k not in include) or k in exclude or k.startswith("_"):
                 continue
             setattr(self.ema, k, v)
 
@@ -209,7 +225,4 @@ def prepare_batch(batch: dict, device: torch.device) -> dict:
     Task-agnostic: works with any dict structure from any dataset.
     Returns a new dict with tensors moved to device.
     """
-    return {
-        k: v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v
-        for k, v in batch.items()
-    }
+    return {k: v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}

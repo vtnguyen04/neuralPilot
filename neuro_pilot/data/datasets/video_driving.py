@@ -87,12 +87,8 @@ class VideoDrivingDataset(BaseVideoDataset):
             self.names = {i: n for i, n in enumerate(self.names)}
 
         # Camera defaults (can be overridden per-frame)
-        self._default_intrinsic = np.array(
-            self.data_yaml.get("intrinsic_matrix", np.eye(3).tolist())
-        )
-        self._default_extrinsic = np.array(
-            self.data_yaml.get("extrinsic_matrix", np.eye(4).tolist())
-        )
+        self._default_intrinsic = np.array(self.data_yaml.get("intrinsic_matrix", np.eye(3).tolist()))
+        self._default_extrinsic = np.array(self.data_yaml.get("extrinsic_matrix", np.eye(4).tolist()))
 
         super().__init__(
             clip_length=clip_length,
@@ -104,8 +100,7 @@ class VideoDrivingDataset(BaseVideoDataset):
         )
 
         logger.info(
-            f"VideoDrivingDataset: {len(self.samples)} clips, "
-            f"T={clip_length}, stride={frame_stride}, split={split}"
+            f"VideoDrivingDataset: {len(self.samples)} clips, T={clip_length}, stride={frame_stride}, split={split}"
         )
 
     def _build_samples(self) -> list[ClipSample]:
@@ -179,9 +174,7 @@ class VideoDrivingDataset(BaseVideoDataset):
 
         # Sort frames within each sequence
         for seq_id in sequences:
-            sequences[seq_id].sort(
-                key=lambda f: f.get("timestamp", f.get("frame_idx", 0))
-            )
+            sequences[seq_id].sort(key=lambda f: f.get("timestamp", f.get("frame_idx", 0)))
 
         # Create clips with sliding window
         clips = []
@@ -215,27 +208,31 @@ class VideoDrivingDataset(BaseVideoDataset):
                     frame_paths.append(str(full_p))
 
             if len(frames) < span:
-                clips.append(ClipSample(
-                    frame_paths=frame_paths,
-                    video_path=video_full_str,
-                    frame_indices=[f.get("frame_idx", 0) for f in frames] if is_mp4 else None,
-                    label_data=frames[-1],
-                    video_id=seq_id,
-                    ego_states=[f.get("ego_state", {}) for f in frames],
-                ))
+                clips.append(
+                    ClipSample(
+                        frame_paths=frame_paths,
+                        video_path=video_full_str,
+                        frame_indices=[f.get("frame_idx", 0) for f in frames] if is_mp4 else None,
+                        label_data=frames[-1],
+                        video_id=seq_id,
+                        ego_states=[f.get("ego_state", {}) for f in frames],
+                    )
+                )
             else:
                 step = max(1, self.frame_stride)
                 for start in range(0, len(frames) - span + 1, step):
                     end = start + span
                     slice_f = frames[start:end]
-                    clips.append(ClipSample(
-                        frame_paths=frame_paths[start:end] if not is_mp4 else [],
-                        video_path=video_full_str,
-                        frame_indices=[f.get("frame_idx", i) for i, f in enumerate(slice_f)] if is_mp4 else None,
-                        label_data=slice_f[-1],
-                        video_id=seq_id,
-                        ego_states=[f.get("ego_state", {}) for f in slice_f],
-                    ))
+                    clips.append(
+                        ClipSample(
+                            frame_paths=frame_paths[start:end] if not is_mp4 else [],
+                            video_path=video_full_str,
+                            frame_indices=[f.get("frame_idx", i) for i, f in enumerate(slice_f)] if is_mp4 else None,
+                            label_data=slice_f[-1],
+                            video_id=seq_id,
+                            ego_states=[f.get("ego_state", {}) for f in slice_f],
+                        )
+                    )
 
         return clips
 
@@ -283,10 +280,7 @@ class VideoDrivingDataset(BaseVideoDataset):
 
             # Get frame image paths
             image_extensions = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
-            frame_files = sorted([
-                f for f in frame_dir.iterdir()
-                if f.suffix.lower() in image_extensions
-            ])
+            frame_files = sorted([f for f in frame_dir.iterdir() if f.suffix.lower() in image_extensions])
 
             frame_paths = [str(f) for f in frame_files]
 
@@ -295,20 +289,24 @@ class VideoDrivingDataset(BaseVideoDataset):
             n = min(len(frames), len(frame_paths))
 
             if n < span:
-                clips.append(ClipSample(
-                    frame_paths=frame_paths[:n],
-                    label_data=frames[n - 1] if frames else {},
-                    video_id=seq_dir.name,
-                ))
+                clips.append(
+                    ClipSample(
+                        frame_paths=frame_paths[:n],
+                        label_data=frames[n - 1] if frames else {},
+                        video_id=seq_dir.name,
+                    )
+                )
             else:
                 step = max(1, self.frame_stride)
                 for start in range(0, n - span + 1, step):
                     end = start + span
-                    clips.append(ClipSample(
-                        frame_paths=frame_paths[start:end],
-                        label_data=frames[end - 1],
-                        video_id=seq_dir.name,
-                    ))
+                    clips.append(
+                        ClipSample(
+                            frame_paths=frame_paths[start:end],
+                            label_data=frames[end - 1],
+                            video_id=seq_dir.name,
+                        )
+                    )
 
         return clips
 
@@ -319,10 +317,7 @@ class VideoDrivingDataset(BaseVideoDataset):
             return clips
 
         image_extensions = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
-        frame_files = sorted([
-            f for f in self.data_path.iterdir()
-            if f.suffix.lower() in image_extensions
-        ])
+        frame_files = sorted([f for f in self.data_path.iterdir() if f.suffix.lower() in image_extensions])
 
         if not frame_files:
             return clips
@@ -333,11 +328,13 @@ class VideoDrivingDataset(BaseVideoDataset):
         step = max(1, self.frame_stride)
         for start in range(0, len(frame_paths) - span + 1, step):
             end = start + span
-            clips.append(ClipSample(
-                frame_paths=frame_paths[start:end],
-                label_data={},
-                video_id="default",
-            ))
+            clips.append(
+                ClipSample(
+                    frame_paths=frame_paths[start:end],
+                    label_data={},
+                    video_id="default",
+                )
+            )
 
         return clips
 
@@ -368,13 +365,17 @@ class VideoDrivingDataset(BaseVideoDataset):
             state = label_data["state"]
             if isinstance(state, str):
                 import ast
+
                 state = ast.literal_eval(state)
             wp = torch.tensor(state, dtype=torch.float32).view(-1, 2)
             if wp.shape[0] != self.requested_waypoints:
-                wp = torch.nn.functional.interpolate(
-                    wp.permute(1, 0).unsqueeze(0),
-                    size=self.requested_waypoints, mode="linear", align_corners=True
-                ).squeeze(0).permute(1, 0)
+                wp = (
+                    torch.nn.functional.interpolate(
+                        wp.permute(1, 0).unsqueeze(0), size=self.requested_waypoints, mode="linear", align_corners=True
+                    )
+                    .squeeze(0)
+                    .permute(1, 0)
+                )
             result["waypoints"] = wp.tolist()
 
         # Priority 3: 3D trajectory + camera projection (CoVLA local format)

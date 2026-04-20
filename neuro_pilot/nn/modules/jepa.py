@@ -3,6 +3,7 @@ import torch.nn as nn
 from .mlp import MLP
 from .regularization import SIGReg
 
+
 class JEPAPredictor(nn.Module):
     """
     Joint-Embedding Predictive Architecture (JEPA) Predictor.
@@ -37,8 +38,8 @@ class JEPAPredictor(nn.Module):
         # Calculate sketch isotropic gaussian regularizer on contextual embedding
         # SIGReg is designed for image-level embeddings (like ViT CLS token).
         # We apply Global Average Pooling to prevent OOM and accurately represent the scene.
-        x_pooled = x.mean(dim=[2, 3]) # (B, C)
-        sigreg_input = x_pooled.unsqueeze(0) # (1, B, C)
+        x_pooled = x.mean(dim=[2, 3])  # (B, C)
+        sigreg_input = x_pooled.unsqueeze(0)  # (1, B, C)
         l_sigreg = self.sigreg(sigreg_input)
 
         # Predict target latent

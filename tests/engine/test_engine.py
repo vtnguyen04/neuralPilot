@@ -2,13 +2,14 @@ import unittest
 import torch
 from neuro_pilot.engine.model import NeuroPilot
 
+
 class TestEngine(unittest.TestCase):
     def setUp(self):
         # Use dummy config
-        self.cfg_path = 'tests/sample_model.yaml'
+        self.cfg_path = "tests/sample_model.yaml"
         # We need a dummy task that uses this config
         # multitask task in engine/task.py uses 'neuralPilot.yaml' by default or override
-        self.model = NeuroPilot(model=self.cfg_path, task="multitask", device='cpu', scale='l')
+        self.model = NeuroPilot(model=self.cfg_path, task="multitask", device="cpu", scale="l")
 
     def test_neuropilot_init(self):
         self.assertIsNotNone(self.model.model)
@@ -18,5 +19,6 @@ class TestEngine(unittest.TestCase):
         out = self.model(img)
         self.assertIsInstance(out, dict)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

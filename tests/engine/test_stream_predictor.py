@@ -1,10 +1,10 @@
-
 import unittest
 import numpy as np
 import os
 import cv2
 from neuro_pilot.engine.model import NeuroPilot
 from neuro_pilot.engine.results import Results
+
 
 class TestStreamPredictor(unittest.TestCase):
     def setUp(self):
@@ -18,6 +18,7 @@ class TestStreamPredictor(unittest.TestCase):
 
     def tearDown(self):
         import shutil
+
         if os.path.exists(self.test_dir):
             shutil.rmtree(self.test_dir)
 
@@ -30,10 +31,11 @@ class TestStreamPredictor(unittest.TestCase):
         # Using stream=True should return a generator
         results_gen = self.model.predict(self.test_dir, stream=True)
         import types
+
         self.assertIsInstance(results_gen, types.GeneratorType)
 
         results_list = list(results_gen)
-        self.assertEqual(len(results_list), 3) # 3 batches of 1
+        self.assertEqual(len(results_list), 3)  # 3 batches of 1
         self.assertIsInstance(results_list[0][0], Results)
 
     def test_numpy_prediction(self):
@@ -42,5 +44,6 @@ class TestStreamPredictor(unittest.TestCase):
         self.assertEqual(len(results), 1)
         self.assertIsInstance(results[0], Results)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

@@ -1,4 +1,3 @@
-
 import torch
 import sys
 from pathlib import Path
@@ -9,6 +8,7 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))
 
 from neuro_pilot.models.yolo import DetectionModel
+
 
 def verify_v2_architecture():
     print("Verifying NeuroPilot v2 (YAML Architecture)...")
@@ -25,6 +25,7 @@ def verify_v2_architecture():
     except Exception as e:
         print(f"FAILED to build model: {e}")
         import traceback
+
         traceback.print_exc()
         raise e
 
@@ -68,8 +69,10 @@ def verify_v2_architecture():
     except Exception as e:
         print(f"FAILED forward pass: {e}")
         import traceback
+
         traceback.print_exc()
         raise e
+
 
 if __name__ == "__main__":
     verify_v2_architecture()

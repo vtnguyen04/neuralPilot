@@ -1,9 +1,9 @@
-
 import unittest
 import torch
 import os
 from neuro_pilot.engine.model import NeuroPilot
 from neuro_pilot.engine.results import Results
+
 
 class TestUnifiedAPI(unittest.TestCase):
     def setUp(self):
@@ -28,11 +28,12 @@ class TestUnifiedAPI(unittest.TestCase):
         if os.path.exists(output_file):
             os.remove(output_file)
 
-        self.model.export(format='onnx', file=output_file, simplify=False)
+        self.model.export(format="onnx", file=output_file, simplify=False)
         self.assertTrue(os.path.exists(output_file))
 
         if os.path.exists(output_file):
             os.remove(output_file)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

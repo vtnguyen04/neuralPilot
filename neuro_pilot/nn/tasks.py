@@ -43,6 +43,7 @@ for _name, _obj in list(globals().items()):
     except Exception:
         pass
 
+
 def _resolve_module(m_name):
     """Resolve module/class by name safely.
 
@@ -57,14 +58,15 @@ def _resolve_module(m_name):
         return _SAFE_MAP[m_name]
     if "." in m_name:
         module_name, attr = m_name.rsplit(".", 1)
-        if module_name == 'nn':
-            module_name = 'torch.nn'
+        if module_name == "nn":
+            module_name = "torch.nn"
         try:
             mod = importlib.import_module(module_name)
         except ModuleNotFoundError:
             mod = importlib.import_module(f"torch.{module_name}")
         return getattr(mod, attr)
     raise ImportError(f"Unknown module name: {m_name}")
+
 
 def _substitute_args(args, nc, nm, nw):
     if not isinstance(args, list):
@@ -84,12 +86,15 @@ def _substitute_args(args, nc, nm, nw):
             args[j] = False
     return args
 
+
 def _scale_depth(n, gd):
     return max(round(n * gd), 1) if n > 1 else n
+
 
 # ─── Channel Handlers (Registration-based dispatch) ───
 # Each handler: (m, f, n, args, ch, nc, gw, d, layers, scale) → (c2, args, n)
 # To add a new module: just add a handler function + register in the dict below.
+
 
 def _conv_family_handler(m, f, n, args, ch, nc, gw, d, layers, scale):
     c1, c2 = ch[f], args[0]
@@ -103,11 +108,13 @@ def _conv_family_handler(m, f, n, args, ch, nc, gw, d, layers, scale):
         n = 1
     return c2, args, n
 
+
 def _upsample_handler(m, f, n, args, ch, nc, gw, d, layers, scale):
     c2 = ch[f]
     if len(args) == 2:
         args = [None, args[0], args[1]]
     return c2, args, n
+
 
 def _timm_handler(m, f, n, args, ch, nc, gw, d, layers, scale):
     model_name = args[0]
@@ -121,10 +128,12 @@ def _timm_handler(m, f, n, args, ch, nc, gw, d, layers, scale):
     c2 = m.get_channels(model_name)
     return c2, args, n
 
+
 def _neuropilot_backbone_handler(m, f, n, args, ch, nc, gw, d, layers, scale):
     model_name = args[0]
     c2 = m.get_channels(model_name)
     return c2, args, n
+
 
 def _feature_router_handler(m, f, n, args, ch, nc, gw, d, layers, scale):
     idx = args[0]
@@ -134,6 +143,7 @@ def _feature_router_handler(m, f, n, args, ch, nc, gw, d, layers, scale):
     else:
         c2 = backbone_ch
     return c2, args, n
+
 
 def _head_handler(m, f, n, args, ch, nc, gw, d, layers, scale):
     c2 = ch[f[0]] if isinstance(f, list) else ch[f]
@@ -146,9 +156,11 @@ def _head_handler(m, f, n, args, ch, nc, gw, d, layers, scale):
             args[3] = d.get("npr", 256)
     return c2, args, n
 
+
 def _concat_handler(m, f, n, args, ch, nc, gw, d, layers, scale):
     c2 = sum(ch[x] if isinstance(ch[x], int) else ch[x][-1] for x in f)
     return c2, args, n
+
 
 def _vlfusion_handler(m, f, n, args, ch, nc, gw, d, layers, scale):
     vision_ch = ch[f[0]]
@@ -157,12 +169,14 @@ def _vlfusion_handler(m, f, n, args, ch, nc, gw, d, layers, scale):
     args = [vision_ch, lang_ch, heads]
     return vision_ch, args, n
 
+
 def _cfr_bridge_handler(m, f, n, args, ch, nc, gw, d, layers, scale):
     plan_ch = ch[f[0]]
     percept_ch = ch[f[1]]
     heads = args[0] if len(args) > 0 else 4
     args = [plan_ch, percept_ch, heads]
     return plan_ch, args, n
+
 
 def _language_encoder_handler(m, f, n, args, ch, nc, gw, d, layers, scale):
     c2 = make_divisible(args[0] * gw, 8)
@@ -216,7 +230,7 @@ def _handle_module_specials(m, f, n, args, ch, nc, gw, d, layers, scale):
     Uses registration-based dispatch: add new module handlers via
     CHANNEL_HANDLERS or CHANNEL_HANDLERS_BY_NAME dictionaries.
     """
-    handler = CHANNEL_HANDLERS.get(m) or CHANNEL_HANDLERS_BY_NAME.get(getattr(m, '__name__', ''))
+    handler = CHANNEL_HANDLERS.get(m) or CHANNEL_HANDLERS_BY_NAME.get(getattr(m, "__name__", ""))
     if handler:
         return handler(m, f, n, args, ch, nc, gw, d, layers, scale)
 
@@ -224,22 +238,17 @@ def _handle_module_specials(m, f, n, args, ch, nc, gw, d, layers, scale):
     c2 = ch[f] if isinstance(f, int) else ch[f[0]]
     return c2, args, n
 
+
 def parse_model(d, ch):
     """Parse a NeuroPilot model dict into a PyTorch model."""
-    logger.info(
-        f"\n{'':>3}{'from':>18}{'n':>3}{'params':>10}  {'module':<40}{'arguments':<30}"
-    )
+    logger.info(f"\n{'':>3}{'from':>18}{'n':>3}{'params':>10}  {'module':<40}{'arguments':<30}")
     scale = d.get("scale", "n")
     if "scales" in d:
         if scale not in d["scales"]:
-            logger.warning(
-                f"Scale '{scale}' not found in yaml. Using 'n'. Available: {list(d['scales'].keys())}"
-            )
+            logger.warning(f"Scale '{scale}' not found in yaml. Using 'n'. Available: {list(d['scales'].keys())}")
             scale = "n"
         gd, gw, max_ch = d["scales"][scale]
-        logger.info(
-            f"YOLO-style Scaling: scale='{scale}', depth={gd}, width={gw}, max_ch={max_ch}"
-        )
+        logger.info(f"YOLO-style Scaling: scale='{scale}', depth={gd}, width={gw}, max_ch={max_ch}")
     else:
         gd = d.get("depth_multiple", 1.0)
         gw = d.get("width_multiple", 1.0)
@@ -268,11 +277,13 @@ def parse_model(d, ch):
         c1_map[i] = c2
     return nn.Sequential(*layers), sorted(save)
 
+
 def make_divisible(x, divisor):
     """Returns nearest x divisible by divisor."""
     if isinstance(divisor, torch.Tensor):
         divisor = int(divisor.max())
     return math.ceil(x / divisor) * divisor
+
 
 class DetectionModel(nn.Module):
     """Detection Model."""
@@ -309,11 +320,7 @@ class DetectionModel(nn.Module):
 
         self.head_indices = {}
         for i, m in enumerate(self.model):
-            name = (
-                str(m.type).lower()
-                if hasattr(m, "type")
-                else m.__class__.__name__.lower()
-            )
+            name = str(m.type).lower() if hasattr(m, "type") else m.__class__.__name__.lower()
             if "detect" in name:
                 self.head_indices["detect"] = i
             elif "trajectory" in name:
@@ -323,9 +330,7 @@ class DetectionModel(nn.Module):
             elif "classification" in name:
                 self.head_indices["classification"] = i
 
-        self.heads = nn.ModuleDict(
-            {k: self.model[i] for k, i in self.head_indices.items()}
-        )
+        self.heads = nn.ModuleDict({k: self.model[i] for k, i in self.head_indices.items()})
 
         idx = self.head_indices.get("detect")
         if idx is not None:
@@ -377,9 +382,7 @@ class DetectionModel(nn.Module):
         n_p = sum(x.numel() for x in self.parameters())
         n_g = sum(x.numel() for x in self.parameters() if x.requires_grad)
         len(list(self.modules()))
-        logger.info(
-            f"Model Summary: {len(self.model)} layers, {n_p} parameters, {n_g} gradients"
-        )
+        logger.info(f"Model Summary: {len(self.model)} layers, {n_p} parameters, {n_g} gradients")
 
     @staticmethod
     def _unwrap_input(val, module):
@@ -420,11 +423,7 @@ class DetectionModel(nn.Module):
             if isinstance(m, (Detect, HeatmapHead)) and not isinstance(xi, list):
                 xi = [xi]
 
-            if (
-                not self.training
-                and self.skip_heatmap_inference
-                and isinstance(m, HeatmapHead)
-            ):
+            if not self.training and self.skip_heatmap_inference and isinstance(m, HeatmapHead):
                 y.append(None)
                 continue
 

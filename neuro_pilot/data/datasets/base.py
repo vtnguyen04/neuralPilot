@@ -37,6 +37,7 @@ def register_dataset(name: str):
 
     The name must match the ``type`` field in the dataset YAML file.
     """
+
     def _decorator(cls: type[BaseDrivingDataset]) -> type[BaseDrivingDataset]:
         if name in DATASET_REGISTRY:
             raise ValueError(
@@ -46,6 +47,7 @@ def register_dataset(name: str):
             )
         DATASET_REGISTRY[name] = cls
         return cls
+
     return _decorator
 
 
@@ -83,9 +85,7 @@ class BaseDrivingDataset(Dataset, ABC):
         The default implementation raises NotImplementedError to force
         each dataset to provide its own logic.
         """
-        raise NotImplementedError(
-            f"{cls.__name__} must implement `from_config(config, split, yaml_dict)`."
-        )
+        raise NotImplementedError(f"{cls.__name__} must implement `from_config(config, split, yaml_dict)`.")
 
     # ---- Abstract interface ------------------------------------------------
     @abstractmethod
@@ -94,8 +94,7 @@ class BaseDrivingDataset(Dataset, ABC):
         ...
 
     @abstractmethod
-    def __len__(self) -> int:
-        ...
+    def __len__(self) -> int: ...
 
     # ---- Default collate ---------------------------------------------------
     @staticmethod

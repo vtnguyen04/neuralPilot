@@ -4,6 +4,7 @@ import time
 import torch
 from neuro_pilot.utils.logger import logger as LOGGER
 
+
 def non_max_suppression(
     prediction,
     conf_thres: float = 0.25,
@@ -48,6 +49,7 @@ def non_max_suppression(
     prediction = prediction.transpose(-1, -2)
     if not rotated:
         from neuro_pilot.utils.ops import xywh2xyxy
+
         prediction[..., :4] = xywh2xyxy(prediction[..., :4])
 
     t = time.time()
@@ -61,6 +63,7 @@ def non_max_suppression(
 
         if labels and len(labels[xi]) and not rotated:
             from neuro_pilot.utils.ops import xywh2xyxy
+
             lb = labels[xi]
             v = torch.zeros((len(lb), nc + extra + 4), device=x.device)
             v[:, :4] = xywh2xyxy(lb[:, 1:5])
@@ -103,12 +106,14 @@ def non_max_suppression(
         scores = x[:, 4]
         if rotated:
             from neuro_pilot.utils.metrics import probiou
+
             boxes = torch.cat((x[:, :2] + c, x[:, 2:4], x[:, -1:]), dim=-1)
             i = TorchNMS.fast_nms(boxes, scores, iou_thres, iou_func=probiou)
         else:
             boxes = x[:, :4] + c
             if "torchvision" in sys.modules:
                 import torchvision
+
                 i = torchvision.ops.nms(boxes, scores, iou_thres)
             else:
                 i = TorchNMS.nms(boxes, scores, iou_thres)
@@ -123,13 +128,16 @@ def non_max_suppression(
 
     return (output, keepi) if return_idxs else output
 
+
 class TorchNMS:
     """Ultralytics custom NMS implementation."""
+
     @staticmethod
     def fast_nms(boxes, scores, iou_threshold, use_triu=True, iou_func=None, exit_early=True):
         if boxes.numel() == 0 and exit_early:
             return torch.empty((0,), dtype=torch.int64, device=boxes.device)
         from neuro_pilot.utils.metrics import box_iou
+
         iou_func = iou_func or box_iou
         sorted_idx = torch.argsort(scores, descending=True)
         boxes = boxes[sorted_idx]
@@ -160,7 +168,8 @@ class TorchNMS:
             i = order[0]
             keep[keep_idx] = i
             keep_idx += 1
-            if order.numel() == 1: break
+            if order.numel() == 1:
+                break
             rest = order[1:]
             xx1, yy1 = torch.maximum(x1[i], x1[rest]), torch.maximum(y1[i], y1[rest])
             xx2, yy2 = torch.minimum(x2[i], x2[rest]), torch.minimum(y2[i], y2[rest])
@@ -172,6 +181,7 @@ class TorchNMS:
             iou = inter / (areas[i] + areas[rest] - inter)
             order = rest[iou <= iou_threshold]
         return keep[:keep_idx]
+
 
 def decode_and_nms(pred, conf_thres=0.25, iou_thres=0.45, **kwargs):
     """Alias for non_max_suppression."""

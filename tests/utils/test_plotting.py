@@ -4,10 +4,11 @@ import numpy as np
 from unittest.mock import patch
 from neuro_pilot.utils.plotting import Annotator, visualize_batch
 
+
 class TestPlotting(unittest.TestCase):
     def test_annotator_basic(self):
         # Patch cv2 locally
-        with patch('cv2.rectangle'), patch('cv2.putText'), patch('cv2.getTextSize') as mock_ts:
+        with patch("cv2.rectangle"), patch("cv2.putText"), patch("cv2.getTextSize") as mock_ts:
             mock_ts.return_value = ((50, 15), 5)
             img = np.zeros((100, 100, 3), dtype=np.uint8)
             ann = Annotator(img)
@@ -15,21 +16,22 @@ class TestPlotting(unittest.TestCase):
             self.assertEqual(ann.im.shape, (100, 100, 3))
 
     def test_visualize_batch_integration(self):
-        with patch('cv2.imwrite'), patch('cv2.getTextSize') as mock_ts:
+        with patch("cv2.imwrite"), patch("cv2.getTextSize") as mock_ts:
             mock_ts.return_value = ((50, 15), 5)
             batch = {
-                'image': torch.zeros(1, 3, 64, 64),
-                'bboxes': torch.tensor([[[0.5, 0.5, 0.2, 0.2]]]), # [B, N, 4] normalized
-                'waypoints': torch.zeros(1, 10, 2),
-                'categories': torch.tensor([[1]])
+                "image": torch.zeros(1, 3, 64, 64),
+                "bboxes": torch.tensor([[[0.5, 0.5, 0.2, 0.2]]]),  # [B, N, 4] normalized
+                "waypoints": torch.zeros(1, 10, 2),
+                "categories": torch.tensor([[1]]),
             }
             output = {
-                'bboxes': torch.randn(1, 100, 14 + 4), # Dummy YOLO output (N_anchors, nc+4)
-                'waypoints': torch.zeros(1, 10, 2)
+                "bboxes": torch.randn(1, 100, 14 + 4),  # Dummy YOLO output (N_anchors, nc+4)
+                "waypoints": torch.zeros(1, 10, 2),
             }
             save_path = "test_batch.jpg"
             visualize_batch(batch, output, save_path)
             self.assertTrue(True)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()
