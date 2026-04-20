@@ -2,6 +2,7 @@ import unittest
 import os
 from neuro_pilot.data.neuro_pilot_dataset import NeuroPilotDataset
 
+
 class TestYOLOLoading(unittest.TestCase):
     def test_load_dummy_yolo(self):
         print("\n=== Testing YOLO Data Loading ===")
@@ -9,12 +10,12 @@ class TestYOLOLoading(unittest.TestCase):
         yaml_path = "tests/data_yolo/data.yaml"
 
         if not os.path.exists(yaml_path):
-             print("Test skipped: data.yaml not found (cleaned up?).")
-             return
+            print("Test skipped: data.yaml not found (cleaned up?).")
+            return
 
         # 1. Init Dataset
         # split='train' reads key 'train' from yaml
-        ds = NeuroPilotDataset(split='train', dataset_yaml=yaml_path)
+        ds = NeuroPilotDataset(split="train", dataset_yaml=yaml_path)
 
         print(f"Loaded {len(ds)} samples.")
         self.assertGreaterEqual(len(ds), 1)
@@ -28,5 +29,6 @@ class TestYOLOLoading(unittest.TestCase):
 
         print("YOLO Loading verified successfully.")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

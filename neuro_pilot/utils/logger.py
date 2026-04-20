@@ -4,6 +4,7 @@ import torch
 from loguru import logger
 from pathlib import Path
 
+
 def set_logger(name="NeuroPilot", save_dir=None, endpoint=None):
     """
     Configure Loguru logger with custom format mimicking Ultralytics.
@@ -21,6 +22,7 @@ def set_logger(name="NeuroPilot", save_dir=None, endpoint=None):
         logger.add(log_file, format=fmt, level="DEBUG", rotation="10 MB")
 
     return logger
+
 
 def log_system_info():
     """Logs system information similar to Ultralytics startup."""
@@ -42,6 +44,7 @@ def log_system_info():
 
     except Exception as e:
         logger.warning(f"Failed to log system info: {e}")
+
 
 def colorstr(*args):
     """
@@ -74,6 +77,7 @@ def colorstr(*args):
         "underline": "\033[4m",
     }
     return "".join(colors[x] for x in colors_list) + f"{string}" + colors["end"]
+
 
 set_logger()
 

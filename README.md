@@ -58,6 +58,7 @@ NeuroPilot jointly learns **trajectory prediction**, **object detection**, **att
 - **Task-Aware Engine** — Dynamically toggle tasks via loss lambdas. Metrics, logs, and visualization adapt automatically.
 - **Dataset Registry (OCP)** — `@register_dataset` decorator pattern. Adding datasets requires **zero** factory modifications.
 - **FDAT Loss** — Frenet-Decomposed Anisotropic Trajectory Loss for lane-aware supervision.
+- **SOTA Loss Functions** — Support for **Wing Loss** (high-precision landmark regression), SmoothL1, and L2.
 - **Bézier Trajectory Head** — Cubic Bézier control points with FiLM command modulation and ego-speed conditioning.
 - **Deformable Attention** — Optional Deformable Trajectory Head with cross-attention for precise waypoint regression.
 - **JEPA World Model** — Optional Joint Embedding Predictive Architecture head for latent representation learning.
@@ -797,6 +798,26 @@ All training hyperparameters are defined in `neuro_pilot/cfg/default.yaml` and v
 | `mosaic` | `0.0` | Mosaic augmentation probability |
 | `mixup` | `0.0` | MixUp augmentation probability |
 | `fliplr` | `0.0` | Horizontal flip probability |
+
+### Trajectory Loss Benchmarking
+
+NeuroPilot supports automated benchmarking for different SOTA loss functions to find the optimal configuration for your dataset.
+
+You can run the built-in benchmark script to compare **SmoothL1**, **MSE (L2)**, and **Wing Loss** both with and without **FDAT** decomposition:
+
+```bash
+# Run the automated benchmark suite
+PYTHONPATH=. python scripts/benchmark_losses.py
+```
+
+This will run 5 sequential experiments:
+1. **Baseline L2** — Basic point regression.
+2. **Standard SmoothL1** — Industrial standard.
+3. **SOTA Wing** — High-precision regression.
+4. **FDAT (Ours)** — Frenet-Decomposed trajectory.
+5. **FDAT + Wing** — Combined optimal approach.
+
+Results for each experiment are stored in `runs/<exp_name>/` for direct comparison of ADE/FDE and lateral deviation.
 
 ---
 

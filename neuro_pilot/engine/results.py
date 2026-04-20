@@ -5,15 +5,22 @@ from pathlib import Path
 from typing import Optional
 from neuro_pilot.utils.plotting import Annotator, colors
 
+
 class Results:
     """
     Standardized results object for NeuroPilot.
     Unifies Detection, Trajectory, and Heatmap outputs.
     """
-    def __init__(self, orig_img: np.ndarray, path: str, names: dict,
-                 boxes: Optional[torch.Tensor] = None,
-                 waypoints: Optional[torch.Tensor] = None,
-                 heatmap: Optional[torch.Tensor] = None) -> None:
+
+    def __init__(
+        self,
+        orig_img: np.ndarray,
+        path: str,
+        names: dict,
+        boxes: Optional[torch.Tensor] = None,
+        waypoints: Optional[torch.Tensor] = None,
+        heatmap: Optional[torch.Tensor] = None,
+    ) -> None:
         self.orig_img = orig_img
         self.path = path
         self.names = names if isinstance(names, dict) else {i: n for i, n in enumerate(names)}
@@ -26,8 +33,20 @@ class Results:
     def __len__(self):
         return len(self.boxes) if self.boxes is not None else 0
 
-    def plot(self, conf: bool = True, line_width: Optional[int] = None, font_size: Optional[int] = None, font: str = "Arial.ttf",
-             pil: bool = False, labels: bool = True, boxes: bool = True, waypoints: bool = True, heatmap: bool = True, max_dim: int = 1280, **kwargs) -> np.ndarray:
+    def plot(
+        self,
+        conf: bool = True,
+        line_width: Optional[int] = None,
+        font_size: Optional[int] = None,
+        font: str = "Arial.ttf",
+        pil: bool = False,
+        labels: bool = True,
+        boxes: bool = True,
+        waypoints: bool = True,
+        heatmap: bool = True,
+        max_dim: int = 1280,
+        **kwargs,
+    ) -> np.ndarray:
         """Plot results on image side-by-side with resolution capping."""
         h0, w0 = self.orig_img.shape[:2]
         img = self.orig_img
@@ -48,7 +67,9 @@ class Results:
 
         plot_waypoints = None
         if self.waypoints is not None:
-            plot_waypoints = self.waypoints.clone() if isinstance(self.waypoints, torch.Tensor) else self.waypoints.copy()
+            plot_waypoints = (
+                self.waypoints.clone() if isinstance(self.waypoints, torch.Tensor) else self.waypoints.copy()
+            )
             if gain != 1.0:
                 plot_waypoints *= gain
 
@@ -66,20 +87,25 @@ class Results:
             wp = plot_waypoints.cpu().numpy() if isinstance(plot_waypoints, torch.Tensor) else plot_waypoints
             bw_bottom = int(80 * gain)
             bw_top = int(15 * gain)
-            annotator.drivable_area(wp, color=(0, 255, 0), alpha=0.35, base_width_bottom=bw_bottom, base_width_top=bw_top)
+            annotator.drivable_area(
+                wp, color=(0, 255, 0), alpha=0.35, base_width_bottom=bw_bottom, base_width_top=bw_top
+            )
             annotator.trajectory(wp, color=(255, 0, 255), thickness=max(1, int(2 * gain)))
             annotator.waypoints(wp, color=(200, 0, 200), radius=max(1, int(4 * gain)))
 
         if self.command is not None:
-             cmd_map = {0: "FOLLOW LANE", 1: "LEFT", 2: "RIGHT", 3: "STRAIGHT"}
-             cmd_txt = cmd_map.get(self.command if isinstance(self.command, int) else int(self.command), f"CMD:{self.command}")
-             annotator.text((20, 40), f"GO: {cmd_txt}", color=(255, 255, 0), bg_color=(0,0,0), scale=1.2)
+            cmd_map = {0: "FOLLOW LANE", 1: "LEFT", 2: "RIGHT", 3: "STRAIGHT"}
+            cmd_txt = cmd_map.get(
+                self.command if isinstance(self.command, int) else int(self.command), f"CMD:{self.command}"
+            )
+            annotator.text((20, 40), f"GO: {cmd_txt}", color=(255, 255, 0), bg_color=(0, 0, 0), scale=1.2)
 
         img_left = annotator.result()
 
         if heatmap and self.heatmap is not None:
             hm = torch.sigmoid(self.heatmap).detach().cpu().numpy().squeeze()
-            if hm.ndim == 3: hm = hm.mean(axis=0)
+            if hm.ndim == 3:
+                hm = hm.mean(axis=0)
 
             if hm.max() - hm.min() > 1e-4:
                 hm_img = (hm - hm.min()) / (hm.max() - hm.min())
@@ -125,7 +151,7 @@ class Results:
 
         # Since Predictor loads orig_img as RGB, self.plot produces an RGB image.
         # cv2.imwrite expects a BGR image.
-        if not kwargs.get('pil', False):
+        if not kwargs.get("pil", False):
             img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
 
         cv2.imwrite(str(p), img)
@@ -134,7 +160,7 @@ class Results:
     def show(self, **kwargs):
         """Display the image with detections."""
         img = self.plot(**kwargs)
-        if kwargs.get('pil', False):
+        if kwargs.get("pil", False):
             img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
 
         cv2.imshow("NeuroPilot Prediction", img)
@@ -157,14 +183,16 @@ class Results:
         res = {
             "path": self.path,
             "detections": [],
-            "waypoints": self.waypoints.tolist() if self.waypoints is not None else None
+            "waypoints": self.waypoints.tolist() if self.waypoints is not None else None,
         }
         if self.boxes is not None:
             for b in self.boxes:
-                res["detections"].append({
-                    "box": b[:4].tolist(),
-                    "conf": float(b[4]),
-                    "class": int(b[5]),
-                    "name": self.names.get(int(b[5]), str(b[5]))
-                })
+                res["detections"].append(
+                    {
+                        "box": b[:4].tolist(),
+                        "conf": float(b[4]),
+                        "class": int(b[5]),
+                        "name": self.names.get(int(b[5]), str(b[5])),
+                    }
+                )
         return res

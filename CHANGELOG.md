@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.1] - 2026-04-20
+
+### Added
+- **SOTA Trajectory Losses**: Added `WingLoss` implementation for high-precision waypoint regression.
+- **Flexible Loss Configuration**: Updated `MultiTaskLossManager` to support dynamic switching between `smooth_l1`, `l2`, and `wing` loss types via API or YAML.
+- **Automated Benchmarking**: Created `scripts/benchmark_losses.py` to facilitate standardized performance comparisons across different loss functions (ADE/FDE metrics).
+
+### Fixed
+- **Code Quality**: Performed global linting and formatting using `ruff` across 129 files to ensure PEP 8 compliance.
+- **Type Safety**: Improved type hinting in `neuro_pilot/utils/losses.py` and `neuro_pilot/cfg/schema.py`.
+- **Bug Fixes**: Resolved minor logical issues and unused variables identified during static analysis.
+
+### Changed
+- **Documentation**: Updated `README.md` with new benchmarking instructions and loss function descriptions.
+
+---
+
 ## [1.3.0] - 2026-04-16
 
 ### Added

@@ -2,8 +2,10 @@ import torch
 import torch.nn as nn
 from .conv import Conv
 
+
 class Bottleneck(nn.Module):
     """bottleneck."""
+
     def __init__(self, c1, c2, shortcut=True, g=1, k=(3, 3), e=0.5):
         super().__init__()
         c_ = int(c2 * e)
@@ -14,8 +16,10 @@ class Bottleneck(nn.Module):
     def forward(self, x):
         return x + self.cv2(self.cv1(x)) if self.add else self.cv2(self.cv1(x))
 
+
 class C3(nn.Module):
     """CSP Bottleneck with 3 convolutions."""
+
     def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):
         super().__init__()
         c_ = int(c2 * e)
@@ -27,15 +31,19 @@ class C3(nn.Module):
     def forward(self, x):
         return self.cv3(torch.cat((self.m(self.cv1(x)), self.cv2(x)), 1))
 
+
 class C3k(C3):
     """C3k is a CSP bottleneck module with customizable kernel sizes."""
+
     def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5, k=3):
         super().__init__(c1, c2, n, shortcut, g, e)
         c_ = int(c2 * e)
         self.m = nn.Sequential(*(Bottleneck(c_, c_, shortcut, g, k=(k, k), e=1.0) for _ in range(n)))
 
+
 class C2f(nn.Module):
     """Faster Implementation of CSP Bottleneck with 2 convolutions."""
+
     def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
         super().__init__()
         self.c = int(c2 * e)
@@ -48,14 +56,20 @@ class C2f(nn.Module):
         y.extend(m(y[-1]) for m in self.m)
         return self.cv2(torch.cat(y, 1))
 
+
 class C3k2(C2f):
     """Faster Implementation of CSP Bottleneck with 2 convolutions and optional C3k blocks."""
+
     def __init__(self, c1, c2, n=1, c3k=False, e=0.5, shortcut=True, g=1):
         super().__init__(c1, c2, n, shortcut, g, e)
-        self.m = nn.ModuleList(C3k(self.c, self.c, 2, shortcut, g) if c3k else Bottleneck(self.c, self.c, shortcut, g) for _ in range(n))
+        self.m = nn.ModuleList(
+            C3k(self.c, self.c, 2, shortcut, g) if c3k else Bottleneck(self.c, self.c, shortcut, g) for _ in range(n)
+        )
+
 
 class Attention(nn.Module):
     """Attention module that performs self-attention on the input tensor."""
+
     def __init__(self, dim, num_heads=8, attn_ratio=0.5):
         super().__init__()
         self.num_heads = num_heads
@@ -82,8 +96,10 @@ class Attention(nn.Module):
         x = self.proj(x)
         return x
 
+
 class PSABlock(nn.Module):
     """Position-Sensitive Attention block."""
+
     def __init__(self, c, attn_ratio=0.5, num_heads=4, shortcut=True):
         super().__init__()
         self.attn = Attention(c, attn_ratio=attn_ratio, num_heads=num_heads)
@@ -95,23 +111,29 @@ class PSABlock(nn.Module):
         x = x + self.ffn(x) if self.add else self.ffn(x)
         return x
 
+
 class C2PSA(nn.Module):
     """C2PSA module with attention mechanism."""
+
     def __init__(self, c1, c2, n=1, e=0.5):
         super().__init__()
         assert c1 == c2
         self.c = int(c1 * e)
         self.cv1 = Conv(c1, 2 * self.c, 1, 1)
         self.cv2 = Conv(2 * self.c, c1, 1)
-        self.m = nn.Sequential(*(PSABlock(self.c, attn_ratio=0.5, num_heads=self.c // 64 if self.c >= 64 else 1) for _ in range(n)))
+        self.m = nn.Sequential(
+            *(PSABlock(self.c, attn_ratio=0.5, num_heads=self.c // 64 if self.c >= 64 else 1) for _ in range(n))
+        )
 
     def forward(self, x):
         a, b = self.cv1(x).chunk(2, 1)
         b = self.m(b)
         return self.cv2(torch.cat((a, b), 1))
 
+
 class SPPF(nn.Module):
     """Spatial Pyramid Pooling - Fast (SPPF) layer."""
+
     def __init__(self, c1, c2, k=5):
         super().__init__()
         c_ = c1 // 2
@@ -124,6 +146,7 @@ class SPPF(nn.Module):
         y1 = self.m(x)
         y2 = self.m(y1)
         return self.cv2(torch.cat((x, y1, y2, self.m(y2)), 1))
+
 
 class DFL(nn.Module):
     """Integral module of Distribution Focal Loss (DFL).
@@ -147,6 +170,7 @@ class DFL(nn.Module):
         """Apply the DFL module to input tensor and return transformed output."""
         b, _, a = x.shape
         return self.conv(x.view(b, 4, self.c1, a).transpose(2, 1).softmax(1)).view(b, 4, a)
+
 
 class Proto(nn.Module):
     """Ultralytics YOLO models mask Proto module for segmentation models."""

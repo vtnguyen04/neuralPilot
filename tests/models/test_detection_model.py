@@ -5,23 +5,28 @@ import torch
 import os
 from neuro_pilot.nn.tasks import DetectionModel
 
+
 class TestDetectionModel(unittest.TestCase):
     def setUp(self):
-        self.cfg_path = 'neuro_pilot/cfg/models/neuralPilot.yaml'
+        self.cfg_path = "neuro_pilot/cfg/models/neuralPilot.yaml"
         # Patch TimmBackbone.get_channels to return valid channels
-        self.patcher = patch('neuro_pilot.nn.tasks.TimmBackbone.get_channels')
+        self.patcher = patch("neuro_pilot.nn.tasks.TimmBackbone.get_channels")
         self.mock_get_channels = self.patcher.start()
-        self.mock_get_channels.return_value = [32, 32, 64, 96, 960] # mobilenetv4 channels
+        self.mock_get_channels.return_value = [32, 32, 64, 96, 960]  # mobilenetv4 channels
 
         # Mock forward to return real tensors
-        self.patcher_forward = patch('neuro_pilot.nn.modules.backbone.TimmBackbone.forward')
+        self.patcher_forward = patch("neuro_pilot.nn.modules.backbone.TimmBackbone.forward")
         self.mock_forward = self.patcher_forward.start()
+
         def mock_forward_logic(x):
-            return [torch.zeros(x.shape[0], 32, x.shape[2]//2, x.shape[3]//2),
-                    torch.zeros(x.shape[0], 32, x.shape[2]//4, x.shape[3]//4),
-                    torch.zeros(x.shape[0], 64, x.shape[2]//8, x.shape[3]//8),
-                    torch.zeros(x.shape[0], 96, x.shape[2]//16, x.shape[3]//16),
-                    torch.zeros(x.shape[0], 960, x.shape[2]//32, x.shape[3]//32)]
+            return [
+                torch.zeros(x.shape[0], 32, x.shape[2] // 2, x.shape[3] // 2),
+                torch.zeros(x.shape[0], 32, x.shape[2] // 4, x.shape[3] // 4),
+                torch.zeros(x.shape[0], 64, x.shape[2] // 8, x.shape[3] // 8),
+                torch.zeros(x.shape[0], 96, x.shape[2] // 16, x.shape[3] // 16),
+                torch.zeros(x.shape[0], 960, x.shape[2] // 32, x.shape[3] // 32),
+            ]
+
         self.mock_forward.side_effect = mock_forward_logic
 
         # Ensure cfg exists
@@ -35,8 +40,8 @@ class TestDetectionModel(unittest.TestCase):
     def test_model_build(self):
         model = DetectionModel(cfg=self.cfg_path, verbose=False)
         self.assertIsNotNone(model)
-        self.assertTrue(hasattr(model, 'head_indices'))
-        self.assertIn('detect', model.head_indices)
+        self.assertTrue(hasattr(model, "head_indices"))
+        self.assertIn("detect", model.head_indices)
         self.assertIsNotNone(model.model)
         # Verify we have 4 heads in the list
         self.assertEqual(len(model.heads), 4)
@@ -55,15 +60,16 @@ class TestDetectionModel(unittest.TestCase):
 
         # Should return dict in training mode with multi-heads
         self.assertIsInstance(preds, dict)
-        self.assertIn('detect', preds)
-        self.assertIn('heatmap', preds)
-        self.assertIn('waypoints', preds)
-        self.assertIn('classes', preds) # New task
+        self.assertIn("detect", preds)
+        self.assertIn("heatmap", preds)
+        self.assertIn("waypoints", preds)
+        self.assertIn("classes", preds)  # New task
 
         # Check shapes
-        self.assertEqual(preds['waypoints'].shape, (2, 10, 2))
-        hm = preds['heatmap']
-        if isinstance(hm, dict): hm = hm['heatmap']
+        self.assertEqual(preds["waypoints"].shape, (2, 10, 2))
+        hm = preds["heatmap"]
+        if isinstance(hm, dict):
+            hm = hm["heatmap"]
         # Heatmap scale check - now full resolution
         self.assertEqual(hm.shape, (2, 1, 224, 224))
 
@@ -80,7 +86,8 @@ class TestDetectionModel(unittest.TestCase):
         # In eval, if multiple heads, it might still return dict if explicit
         # DetectionModel logic: if len(head_indices) > 1: return saved_outputs
         self.assertIsInstance(preds, dict)
-        self.assertIn('bboxes', preds) # Processed detection output
+        self.assertIn("bboxes", preds)  # Processed detection output
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

@@ -5,6 +5,7 @@ import unittest
 import os
 from neuro_pilot.data.augment import StandardAugmentor
 
+
 class TestAugmentationViz(unittest.TestCase):
     def test_visualize_augmentation(self):
         print("\n=== Visualizing Augmentation Consistency on REAL Image ===")
@@ -26,22 +27,17 @@ class TestAugmentationViz(unittest.TestCase):
 
         # 2. Define labels
         waypoints = np.array([[112, 220], [112, 180], [112, 140], [112, 100]], dtype=np.float32)
-        bboxes = [[102, 90, 122, 110]] # x1, y1, x2, y2
+        bboxes = [[102, 90, 122, 110]]  # x1, y1, x2, y2
         categories = [1]
 
         # 3. Augment
         augmentor = StandardAugmentor(training=True, imgsz=224)
-        labels = {
-            "img": img,
-            "waypoints": waypoints,
-            "bboxes": bboxes,
-            "cls": categories
-        }
+        labels = {"img": img, "waypoints": waypoints, "bboxes": bboxes, "cls": categories}
 
         aug_labels = augmentor(labels)
 
         # 4. Verify
-        self.assertIsInstance(aug_labels['img'], np.ndarray)
+        self.assertIsInstance(aug_labels["img"], np.ndarray)
         output_path = "augmentation_test_viz_real.jpg"
         # Visualization logic (simplified)
         img_viz = aug_labels["img"]
@@ -51,5 +47,6 @@ class TestAugmentationViz(unittest.TestCase):
         self.assertTrue(os.path.exists(output_path))
         print(f"Saved visualization to {output_path}")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

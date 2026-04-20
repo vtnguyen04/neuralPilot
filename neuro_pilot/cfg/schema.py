@@ -1,9 +1,11 @@
 from pydantic import BaseModel, Field, ConfigDict
 from typing import Any, Optional, Union
 
+
 class BackboneConfig(BaseModel):
     name: str = "mobilenetv4_conv_medium.e2400_r224_in1k"
     pretrained: bool = True
+
 
 class HeadConfig(BaseModel):
     num_control_points: int = 4
@@ -17,6 +19,7 @@ class HeadConfig(BaseModel):
     traj_num_layers: int = 2
     traj_num_points: int = 4
     traj_ffn_dim: int = 512
+
 
 class LossConfig(BaseModel):
     lambda_traj: float = 2.0
@@ -47,6 +50,7 @@ class LossConfig(BaseModel):
     lambda_velocity: float = Field(0.0, description="Velocity prediction auxiliary loss.")
     lambda_motion_prior: float = Field(0.0, description="Motion prior regularization.")
 
+
 class AugmentConfig(BaseModel):
     enabled: bool = True
     rotate_deg: float = 0.0
@@ -65,6 +69,7 @@ class AugmentConfig(BaseModel):
     mixup: float = 0.0
     copy_paste: float = 0.0
 
+
 class DataConfig(BaseModel):
     root_dir: str = "data"
     image_size: int = 320
@@ -73,6 +78,7 @@ class DataConfig(BaseModel):
     train_split: float = 0.85
     dataset_yaml: Optional[str] = None
     augment: AugmentConfig = Field(default_factory=AugmentConfig)
+
 
 class TrainerConfig(BaseModel):
     max_epochs: int = 300
@@ -98,12 +104,14 @@ class TrainerConfig(BaseModel):
     cmd_dropout_prob: float = 0.4
     gradient_accumulation_steps: int = 1  # For video training with limited VRAM
 
+
 class TemporalConfig(BaseModel):
     """Configuration for video/temporal-sequence training.
 
     When ``enabled`` is False (default), the entire pipeline behaves exactly
     like the original single-image mode with zero overhead.
     """
+
     enabled: bool = False
     clip_length: int = 4
     frame_stride: int = 1
@@ -118,7 +126,6 @@ class TemporalConfig(BaseModel):
 
 
 class AppConfig(BaseModel):
-
     project_name: str = "neuro_pilot_e2e"
     backbone: BackboneConfig = Field(default_factory=BackboneConfig)
     head: HeadConfig = Field(default_factory=HeadConfig)
@@ -128,8 +135,10 @@ class AppConfig(BaseModel):
     temporal: TemporalConfig = Field(default_factory=TemporalConfig)
     model_config_path: Optional[str] = None
 
+
 def deep_update(mapping, *updating_mappings):
     import collections.abc
+
     updated_mapping = mapping.copy()
     for updating_mapping in updating_mappings:
         for k, v in updating_mapping.items():
@@ -138,6 +147,7 @@ def deep_update(mapping, *updating_mappings):
             else:
                 updated_mapping[k] = v
     return updated_mapping
+
 
 def _apply_aliases(cfg: dict) -> dict:
     """Applies alias mappings to a config dictionary."""
@@ -156,6 +166,7 @@ def _apply_aliases(cfg: dict) -> dict:
             mapped_cfg[k] = v
     return mapped_cfg
 
+
 def load_config(config_path: str = None) -> AppConfig:
     import yaml
     from pathlib import Path
@@ -164,12 +175,12 @@ def load_config(config_path: str = None) -> AppConfig:
 
     default_cfg_path = Path(__file__).parent / "default.yaml"
     if default_cfg_path.exists():
-        with open(default_cfg_path, 'r') as f:
+        with open(default_cfg_path, "r") as f:
             yaml_cfg = yaml.safe_load(f) or {}
             config_dict = deep_update(config_dict, yaml_cfg)
 
     if config_path:
-        with open(config_path, 'r') as f:
+        with open(config_path, "r") as f:
             user_cfg = yaml.safe_load(f) or {}
             config_dict = deep_update(config_dict, user_cfg)
 

@@ -1,4 +1,3 @@
-
 import cv2
 import numpy as np
 import argparse
@@ -12,6 +11,7 @@ try:
 except ImportError:
     print("onnxruntime not found. Please install output: pip install onnxruntime-gpu", flush=True)
     sys.exit(1)
+
 
 def letterbox(im, new_shape=(640, 640), color=(114, 114, 114), auto=True, scaleFill=False, scaleup=True, stride=32):
     # Resize and pad image while meeting stride-multiple constraints
@@ -45,9 +45,10 @@ def letterbox(im, new_shape=(640, 640), color=(114, 114, 114), auto=True, scaleF
     im = cv2.copyMakeBorder(im, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)  # add border
     return im, ratio, (dw, dh)
 
+
 def run_inference(args):
     # Load ONNX Model
-    providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
+    providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
     print(f"Loading {args.model}...", flush=True)
     session = ort.InferenceSession(args.model, providers=providers)
 
@@ -61,9 +62,9 @@ def run_inference(args):
 
     # Metadata (Available in newer opsets/runtime)
     meta = session.get_modelmeta().custom_metadata_map
-    names = eval(meta.get('names', '{}'))
-    stride = int(meta.get('stride', 32))
-    imgsz = eval(meta.get('imgsz', '(320, 320)'))
+    names = eval(meta.get("names", "{}"))
+    stride = int(meta.get("stride", 32))
+    imgsz = eval(meta.get("imgsz", "(320, 320)"))
 
     print(f"Metadata - Names: {names}, Stride: {stride}, ImgSz: {imgsz}", flush=True)
 
@@ -79,7 +80,7 @@ def run_inference(args):
     fps = v_cap.get(cv2.CAP_PROP_FPS)
 
     save_path = Path(args.source).stem + f"_cmd_{args.command}_jetson_out.avi"
-    writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'MJPG'), fps, (w, h))
+    writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*"MJPG"), fps, (w, h))
 
     # Warmup
     dummy = np.zeros((1, 3, *imgsz), dtype=np.float32)
@@ -92,7 +93,8 @@ def run_inference(args):
 
     while True:
         ret, frame = v_cap.read()
-        if not ret: break
+        if not ret:
+            break
 
         t0 = time.time()
 
@@ -100,8 +102,8 @@ def run_inference(args):
         img, ratio, (dw, dh) = letterbox(frame, new_shape=imgsz, stride=stride, auto=False)
         img = img.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
         img = np.ascontiguousarray(img)
-        img = img.astype(np.float32) / 255.0 # 0-1 Normalization (NeuroPilot limit)
-        img = img[None] # Batch dim
+        img = img.astype(np.float32) / 255.0  # 0-1 Normalization (NeuroPilot limit)
+        img = img[None]  # Batch dim
 
         # Command
         # 0: Follow, 1: Left, 2: Right, 3: Straight
@@ -125,8 +127,8 @@ def run_inference(args):
         else:
             print(f"ERROR: Expected 5 outputs, got {len(outputs)}.")
             # Fallback
-            bboxes = outputs[0] if len(outputs) > 0 else np.zeros((1,0,4))
-            traj = outputs[3] if len(outputs) > 3 else np.zeros((1,0,2))
+            bboxes = outputs[0] if len(outputs) > 0 else np.zeros((1, 0, 4))
+            traj = outputs[3] if len(outputs) > 3 else np.zeros((1, 0, 2))
 
         # Post-Process
         # Check if bboxes is [B, 4+NC, N] (YOLO format)
@@ -154,7 +156,7 @@ def run_inference(args):
 
         # Draw Trajectory
         if traj.shape[1] > 0:
-            tp = traj[0] # [T, 2] normalized or pixels?
+            tp = traj[0]  # [T, 2] normalized or pixels?
             # Model output usually normalized [-1, 1] or [0, 1]?
             # NeuroPilot `TrajectoryHead` output is usually normalized [-1, 1] relative to center?
             # Or [0, 1] relative to image?
@@ -174,7 +176,7 @@ def run_inference(args):
 
             tp_img = tp_img.astype(np.int32)
             for i in range(len(tp_img) - 1):
-                cv2.line(annotated, tuple(tp_img[i]), tuple(tp_img[i+1]), (0, 255, 0), 3)
+                cv2.line(annotated, tuple(tp_img[i]), tuple(tp_img[i + 1]), (0, 255, 0), 3)
             for p in tp_img:
                 cv2.circle(annotated, tuple(p), 3, (0, 200, 0), -1)
 
@@ -186,7 +188,8 @@ def run_inference(args):
                 cls_id = np.argmax(cls_scores)
                 prob = float(cls_scores[cls_id])
 
-                if prob < 0.25: continue
+                if prob < 0.25:
+                    continue
 
                 box = pred_boxes[0, i]
                 # DEBUG
@@ -196,7 +199,7 @@ def run_inference(args):
                 if box.shape[0] == 4:
                     cx, cy, w, h = box
                 elif box.shape[0] > 4:
-                    cx, cy, w, h = box[:4] # Take first 4
+                    cx, cy, w, h = box[:4]  # Take first 4
                 else:
                     print(f"Skipping invalid box shape: {box.shape}", flush=True)
                     continue
@@ -207,10 +210,10 @@ def run_inference(args):
                 w *= imgsz[1]
                 h *= imgsz[0]
 
-                x1 = cx - w/2
-                y1 = cy - h/2
-                x2 = cx + w/2
-                y2 = cy + h/2
+                x1 = cx - w / 2
+                y1 = cy - h / 2
+                x2 = cx + w / 2
+                y2 = cy + h / 2
 
                 # Scale to original
                 x1 = (x1 - dw) / ratio[0]
@@ -223,8 +226,15 @@ def run_inference(args):
 
                 # Draw
                 cv2.rectangle(annotated, (int(x1), int(y1)), (int(x2), int(y2)), (255, 0, 0), 2)
-                cv2.putText(annotated, f"{label} {prob:.2f}", (int(x1), int(max(y1-5, 0))),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+                cv2.putText(
+                    annotated,
+                    f"{label} {prob:.2f}",
+                    (int(x1), int(max(y1 - 5, 0))),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5,
+                    (255, 255, 255),
+                    2,
+                )
 
         t1 = time.time()
         dt = (t1 - t0) * 1000
@@ -241,11 +251,14 @@ def run_inference(args):
     v_cap.release()
     print(f"Done! Saved to {save_path}", flush=True)
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', type=str, required=True, help='Path to .onnx model')
-    parser.add_argument('--source', type=str, required=True, help='Path to video file')
-    parser.add_argument('--command', type=int, default=0, help='Command index (0: Follow, 1: Left, 2: Right, 3: Straight)')
+    parser.add_argument("--model", type=str, required=True, help="Path to .onnx model")
+    parser.add_argument("--source", type=str, required=True, help="Path to video file")
+    parser.add_argument(
+        "--command", type=int, default=0, help="Command index (0: Follow, 1: Left, 2: Right, 3: Straight)"
+    )
     args = parser.parse_args()
 
     run_inference(args)

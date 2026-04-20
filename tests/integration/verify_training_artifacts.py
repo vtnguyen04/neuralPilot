@@ -4,6 +4,7 @@ from pathlib import Path
 from neuro_pilot.engine.trainer import Trainer
 from neuro_pilot.cfg.schema import load_config
 
+
 def verify_training_artifacts():
     print("Starting Training Artifact Verification with REAL DATA...")
 
@@ -11,7 +12,7 @@ def verify_training_artifacts():
     cfg = load_config()
     cfg.trainer.experiment_name = "verify_artifacts"
     cfg.trainer.max_epochs = 2
-    cfg.data.batch_size = 64 # Reduced from 128 to fit in 6GB card
+    cfg.data.batch_size = 64  # Reduced from 128 to fit in 6GB card
     cfg.data.image_size = 640
     cfg.data.root_dir = "neuro_pilot/data"
     cfg.trainer.device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -40,7 +41,7 @@ def verify_training_artifacts():
         "weights/best.pt",
         "viz/train_batch0.jpg",
         "viz/train_batch1.jpg",
-        "viz/train_batch2.jpg"
+        "viz/train_batch2.jpg",
     ]
 
     all_passed = True
@@ -58,6 +59,7 @@ def verify_training_artifacts():
     else:
         print("\nFAILURE: Some training artifacts are missing.")
         exit(1)
+
 
 if __name__ == "__main__":
     verify_training_artifacts()

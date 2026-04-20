@@ -1,5 +1,5 @@
-
 import torch.nn as nn
+
 
 class BaseHead(nn.Module):
     """
@@ -7,6 +7,7 @@ class BaseHead(nn.Module):
     Provides a unified structural interface for multi-task heads,
     ensuring consistent input signatures and standardized dictionary outputs.
     """
+
     def __init__(self, *args, **kwargs):
         super().__init__()
 

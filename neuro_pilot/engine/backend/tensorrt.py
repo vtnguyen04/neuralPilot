@@ -3,11 +3,13 @@ import torch
 from typing import Dict, OrderedDict
 from neuro_pilot.utils.logger import logger
 
+
 class TensorRTBackend:
     """
     TensorRT 10 Backend for NeuroPilot inference with zero-copy execution.
     Requires tensorrt>=10.0.0
     """
+
     def __init__(self, weights: str, device: torch.device, fp16: bool = True):
         self.device = device
         self.fp16 = fp16
@@ -16,7 +18,7 @@ class TensorRTBackend:
         trt.init_libnvinfer_plugins(self.trt_logger, "")
 
         logger.info(f"Loading TensorRT Engine from {weights}")
-        with open(weights, 'rb') as f, trt.Runtime(self.trt_logger) as runtime:
+        with open(weights, "rb") as f, trt.Runtime(self.trt_logger) as runtime:
             self.engine = runtime.deserialize_cuda_engine(f.read())
 
         if not self.engine:

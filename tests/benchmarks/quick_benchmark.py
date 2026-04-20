@@ -1,4 +1,3 @@
-
 import time
 import torch
 import torch.nn as nn
@@ -7,6 +6,7 @@ from rich.console import Console
 from rich.table import Table
 
 console = Console()
+
 
 class SimpleModel(nn.Module):
     def __init__(self):
@@ -17,8 +17,9 @@ class SimpleModel(nn.Module):
     def forward(self, x):
         return self.fc(self.conv(x).flatten(1))
 
+
 def benchmark():
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = SimpleModel().to(device)
     model.eval()
 
@@ -33,7 +34,8 @@ def benchmark():
     for _ in range(100):
         t0 = time.time()
         _ = model(input_tensor)
-        if torch.cuda.is_available(): torch.cuda.synchronize()
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
         latencies.append((time.time() - t0) * 1000)
 
     avg = np.mean(latencies)
@@ -48,7 +50,10 @@ def benchmark():
     table.add_row("FPS", f"{fps:.1f}")
 
     console.print(table)
-    console.print("\n[yellow]Note:[/yellow] Full TensorRT/ONNX benchmark is currently initializing (downloading huge libraries).")
+    console.print(
+        "\n[yellow]Note:[/yellow] Full TensorRT/ONNX benchmark is currently initializing (downloading huge libraries)."
+    )
+
 
 if __name__ == "__main__":
     benchmark()

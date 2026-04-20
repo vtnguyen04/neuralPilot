@@ -1,13 +1,15 @@
-
 import unittest
 import torch
 from neuro_pilot.utils.metrics import DetectionMetric, ConfusionMatrix, box_iou, bbox_ioa
 
+
 class MockConfig:
     def __init__(self):
         class HeadConfig:
-            num_classes = 2 # Simplified
+            num_classes = 2  # Simplified
+
         self.head = HeadConfig()
+
 
 class MockHead:
     def __init__(self):
@@ -16,20 +18,21 @@ class MockHead:
         self.stride = torch.tensor([8.0, 16.0, 32.0])
         self.dummy_param = torch.nn.Parameter(torch.tensor(0.0))
         self.det_head = self
-        self.heads = {'detect': self}
+        self.heads = {"detect": self}
 
     def parameters(self):
         return iter([self.dummy_param])
 
+
 class TestMetrics(unittest.TestCase):
     def test_iou_functions(self):
         # Known Boxes
-        box1 = torch.tensor([[0, 0, 10, 10]]) # xyxy
+        box1 = torch.tensor([[0, 0, 10, 10]])  # xyxy
         box2 = torch.tensor([[5, 0, 15, 10]])
 
         # Inter: 5x10 = 50. Union: 100 + 100 - 50 = 150. IOU = 1/3
         iou = box_iou(box1, box2)
-        self.assertAlmostEqual(iou.item(), 1.0/3.0, places=4)
+        self.assertAlmostEqual(iou.item(), 1.0 / 3.0, places=4)
 
         # IOA (Intersection Over Area of box2)
         # Inter = 50. Area2 = 100. IOA = 0.5
@@ -38,7 +41,7 @@ class TestMetrics(unittest.TestCase):
         self.assertAlmostEqual(ioa.item(), 0.5, places=4)
 
     def test_confusion_matrix(self):
-        names = {0: 'a', 1: 'b'}
+        names = {0: "a", 1: "b"}
         cm = ConfusionMatrix(names=names)
 
         # Batch 1
@@ -47,15 +50,12 @@ class TestMetrics(unittest.TestCase):
         # GT: Box 1 (Class 0)
 
         detections = {
-            'bboxes': torch.tensor([[0,0,10,10], [20,20,30,30]]),
-            'cls': torch.tensor([0, 1]),
-            'conf': torch.tensor([0.9, 0.8])
+            "bboxes": torch.tensor([[0, 0, 10, 10], [20, 20, 30, 30]]),
+            "cls": torch.tensor([0, 1]),
+            "conf": torch.tensor([0.9, 0.8]),
         }
 
-        batch = {
-            'bboxes': torch.tensor([[0,0,10,10]]),
-            'cls': torch.tensor([0])
-        }
+        batch = {"bboxes": torch.tensor([[0, 0, 10, 10]]), "cls": torch.tensor([0])}
 
         cm.process_batch(detections, batch)
 
@@ -70,7 +70,7 @@ class TestMetrics(unittest.TestCase):
     def test_detection_metric_instantiation(self):
         cfg = MockConfig()
         head = MockHead()
-        metric = DetectionMetric(cfg, 'cpu', head)
+        metric = DetectionMetric(cfg, "cpu", head)
         self.assertIsNotNone(metric)
 
         # Test update (mocking formatted inputs is complex due to internal decoder logic)
@@ -80,7 +80,8 @@ class TestMetrics(unittest.TestCase):
         metric.reset()
         res = metric.compute()
         # Should be empty/zeros
-        self.assertEqual(res['mAP_50'], 0.0)
+        self.assertEqual(res["mAP_50"], 0.0)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

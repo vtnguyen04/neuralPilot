@@ -6,20 +6,29 @@ from neuro_pilot.engine.model import NeuroPilot
 from neuro_pilot.engine.task import BaseTask
 from neuro_pilot.core.registry import Registry
 
+
 # Mock Task for Testing
 @Registry.register_task("model_test_task_v2")
 class ModelTestTask(BaseTask):
     def build_model(self):
         return nn.Linear(10, 2)
+
     def build_criterion(self):
         return nn.MSELoss()
+
     def get_trainer(self):
         class MockTrainer:
-            def __init__(self, cfg): self.best = Path('best_model.pt')
-            def train(self): return {'map': 0.5}
+            def __init__(self, cfg):
+                self.best = Path("best_model.pt")
+
+            def train(self):
+                return {"map": 0.5}
+
         return MockTrainer(self.cfg)
+
     def get_validator(self):
         return lambda x: 0.5
+
 
 class TestNeuroPilot(unittest.TestCase):
     def setUp(self):
@@ -31,8 +40,9 @@ class TestNeuroPilot(unittest.TestCase):
         self.assertIsInstance(self.model.model, nn.Linear)
 
     def test_device_property(self):
-        expected_device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+        expected_device = "cuda:0" if torch.cuda.is_available() else "cpu"
         self.assertEqual(str(self.model.device), expected_device)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

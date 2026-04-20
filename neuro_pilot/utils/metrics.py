@@ -16,37 +16,52 @@ from neuro_pilot import __version__
 PROJECT = "NeuroPilot AI"
 VERSION = __version__
 
+
 class SimpleClass:
     """Mock for legacy SimpleClass compatibility."""
+
     def __str__(self):
         return f"{self.__class__.__name__}"
+
     def __repr__(self):
         return self.__str__()
 
+
 class DataExportMixin:
     """Mock for legacy DataExportMixin compatibility."""
+
     pass
+
 
 def safe_call(msg=""):
     """Decorator to safely execute a function and suppress errors with an optional log message."""
+
     def decorator(func):
         def wrapper(*args, **kwargs):
             try:
                 return func(*args, **kwargs)
             except Exception as e:
                 from neuro_pilot.utils.logger import logger
+
                 logger.error(f"{msg}: {e}" if msg else str(e))
                 return None
+
         return wrapper
+
     return decorator
+
 
 def plt_settings():
     """Plotting settings."""
+
     def decorator(func):
         def wrapper(*args, **kwargs):
             return func(*args, **kwargs)
+
         return wrapper
+
     return decorator
+
 
 OKS_SIGMA = (
     np.array(
@@ -56,6 +71,7 @@ OKS_SIGMA = (
     / 10.0
 )
 RLE_WEIGHT = np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.2, 1.2, 1.5, 1.5, 1.0, 1.0, 1.2, 1.2, 1.5, 1.5])
+
 
 def bbox_ioa(box1: np.ndarray, box2: np.ndarray, iou: bool = False, eps: float = 1e-7) -> np.ndarray:
     b1_x1, b1_y1, b1_x2, b1_y2 = box1.T
@@ -72,15 +88,19 @@ def bbox_ioa(box1: np.ndarray, box2: np.ndarray, iou: bool = False, eps: float =
 
     return inter_area / (area + eps)
 
+
 def box_iou(box1: torch.Tensor, box2: torch.Tensor, eps: float = 1e-7) -> torch.Tensor:
     if box1.numel() == 0 or box2.numel() == 0:
         return torch.zeros((len(box1), len(box2)), device=box1.device)
-    if box1.ndim == 1: box1 = box1.unsqueeze(0)
-    if box2.ndim == 1: box2 = box2.unsqueeze(0)
+    if box1.ndim == 1:
+        box1 = box1.unsqueeze(0)
+    if box2.ndim == 1:
+        box2 = box2.unsqueeze(0)
     a1, a2 = box1[:, None, :2], box1[:, None, 2:]
     b1, b2 = box2[None, :, :2], box2[None, :, 2:]
     inter = (torch.min(a2, b2) - torch.max(a1, b1)).clamp_(0).prod(2)
     return inter / ((a2 - a1).prod(2) + (b2 - b1).prod(2) - inter + eps)
+
 
 def bbox_iou(
     box1: torch.Tensor,
@@ -113,9 +133,7 @@ def bbox_iou(
         ch = b1_y2.maximum(b2_y2) - b1_y1.minimum(b2_y1)
         if CIoU or DIoU:
             c2 = cw.pow(2) + ch.pow(2) + eps
-            rho2 = (
-                (b2_x1 + b2_x2 - b1_x1 - b1_x2).pow(2) + (b2_y1 + b2_y2 - b1_y1 - b1_y2).pow(2)
-            ) / 4
+            rho2 = ((b2_x1 + b2_x2 - b1_x1 - b1_x2).pow(2) + (b2_y1 + b2_y2 - b1_y1 - b1_y2).pow(2)) / 4
             if CIoU:
                 v = (4 / math.pi**2) * ((w2 / h2).atan() - (w1 / h1).atan()).pow(2)
                 with torch.no_grad():
@@ -126,10 +144,12 @@ def bbox_iou(
         return iou - (c_area - union) / c_area
     return iou
 
+
 def mask_iou(mask1: torch.Tensor, mask2: torch.Tensor, eps: float = 1e-7) -> torch.Tensor:
     intersection = torch.matmul(mask1, mask2.T).clamp_(0)
     union = (mask1.sum(1)[:, None] + mask2.sum(1)[None]) - intersection
     return intersection / (union + eps)
+
 
 def kpt_iou(
     kpt1: torch.Tensor, kpt2: torch.Tensor, area: torch.Tensor, sigma: list[float], eps: float = 1e-7
@@ -140,6 +160,7 @@ def kpt_iou(
     e = d / ((2 * sigma).pow(2) * (area[:, None, None] + eps) * 2)
     return ((-e).exp() * kpt_mask[:, None]).sum(-1) / (kpt_mask.sum(-1)[:, None] + eps)
 
+
 def _get_covariance_matrix(boxes: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     gbbs = torch.cat((boxes[:, 2:4].pow(2) / 12, boxes[:, 4:]), dim=-1)
     a, b, c = gbbs.split(1, dim=-1)
@@ -148,6 +169,7 @@ def _get_covariance_matrix(boxes: torch.Tensor) -> tuple[torch.Tensor, torch.Ten
     cos2 = cos.pow(2)
     sin2 = sin.pow(2)
     return a * cos2 + b * sin2, a * sin2 + b * cos2, (a - b) * cos * sin
+
 
 def probiou(obb1: torch.Tensor, obb2: torch.Tensor, CIoU: bool = False, eps: float = 1e-7) -> torch.Tensor:
     x1, y1 = obb1[..., :2].split(1, dim=-1)
@@ -176,6 +198,7 @@ def probiou(obb1: torch.Tensor, obb2: torch.Tensor, CIoU: bool = False, eps: flo
         return iou - v * alpha
     return iou
 
+
 def batch_probiou(obb1: torch.Tensor | np.ndarray, obb2: torch.Tensor | np.ndarray, eps: float = 1e-7) -> torch.Tensor:
     obb1 = torch.from_numpy(obb1) if isinstance(obb1, np.ndarray) else obb1
     obb2 = torch.from_numpy(obb2) if isinstance(obb2, np.ndarray) else obb2
@@ -198,8 +221,10 @@ def batch_probiou(obb1: torch.Tensor | np.ndarray, obb2: torch.Tensor | np.ndarr
     hd = (1.0 - (-bd).exp() + eps).sqrt()
     return 1 - hd
 
+
 def smooth_bce(eps: float = 0.1) -> tuple[float, float]:
     return 1.0 - 0.5 * eps, 0.5 * eps
+
 
 class ConfusionMatrix(DataExportMixin):
     def __init__(self, names: dict[int, str] = {}, task: str = "detect", save_matches: bool = False):
@@ -332,10 +357,17 @@ class ConfusionMatrix(DataExportMixin):
                 for i, row in enumerate(array[:nc]):
                     for j, val in enumerate(row[:nc]):
                         val = array[i, j]
-                        if np.isnan(val): continue
-                        ax.text(j, i, f"{val:.2f}" if normalize else f"{int(val)}",
-                                ha="center", va="center", fontsize=10,
-                                color="white" if val > color_threshold else "black")
+                        if np.isnan(val):
+                            continue
+                        ax.text(
+                            j,
+                            i,
+                            f"{val:.2f}" if normalize else f"{int(val)}",
+                            ha="center",
+                            va="center",
+                            fontsize=10,
+                            color="white" if val > color_threshold else "black",
+                        )
             fig.colorbar(im, ax=ax, fraction=0.046, pad=0.05)
 
         title = "Confusion Matrix" + " Normalized" * normalize
@@ -357,14 +389,23 @@ class ConfusionMatrix(DataExportMixin):
         for i in range(self.matrix.shape[0]):
             LOGGER.info(" ".join(map(str, self.matrix[i])))
 
+
 def smooth(y: np.ndarray, f: float = 0.05) -> np.ndarray:
     nf = round(len(y) * f * 2) // 2 + 1
     p = np.ones(nf // 2)
     yp = np.concatenate((p * y[0], y, p * y[-1]), 0)
     return np.convolve(yp, np.ones(nf) / nf, mode="valid")
 
+
 @plt_settings()
-def plot_pr_curve(px: np.ndarray, py: np.ndarray, ap: np.ndarray, save_dir: Path = Path("pr_curve.png"), names: dict[int, str] = {}, on_plot=None):
+def plot_pr_curve(
+    px: np.ndarray,
+    py: np.ndarray,
+    ap: np.ndarray,
+    save_dir: Path = Path("pr_curve.png"),
+    names: dict[int, str] = {},
+    on_plot=None,
+):
     fig, ax = plt.subplots(1, 1, figsize=(9, 6), tight_layout=True)
     py = np.stack(py, axis=1)
 
@@ -384,8 +425,17 @@ def plot_pr_curve(px: np.ndarray, py: np.ndarray, ap: np.ndarray, save_dir: Path
     fig.savefig(save_dir, dpi=250)
     plt.close(fig)
 
+
 @plt_settings()
-def plot_mc_curve(px: np.ndarray, py: np.ndarray, save_dir: Path = Path("mc_curve.png"), names: dict[int, str] = {}, xlabel: str = "Confidence", ylabel: str = "Metric", on_plot=None):
+def plot_mc_curve(
+    px: np.ndarray,
+    py: np.ndarray,
+    save_dir: Path = Path("mc_curve.png"),
+    names: dict[int, str] = {},
+    xlabel: str = "Confidence",
+    ylabel: str = "Metric",
+    on_plot=None,
+):
     fig, ax = plt.subplots(1, 1, figsize=(9, 6), tight_layout=True)
 
     if 0 < len(names) < 21:
@@ -405,6 +455,7 @@ def plot_mc_curve(px: np.ndarray, py: np.ndarray, save_dir: Path = Path("mc_curv
     fig.savefig(save_dir, dpi=250)
     plt.close(fig)
 
+
 def compute_ap(recall: list[float], precision: list[float]) -> tuple[float, np.ndarray, np.ndarray]:
     mrec = np.concatenate(([0.0], recall, [1.0]))
     mpre = np.concatenate(([1.0], precision, [0.0]))
@@ -414,7 +465,10 @@ def compute_ap(recall: list[float], precision: list[float]) -> tuple[float, np.n
     ap = np.trapezoid(np.interp(x, mrec, mpre), x)
     return ap, mpre, mrec
 
-def ap_per_class(tp, conf, pred_cls, target_cls, plot=False, on_plot=None, save_dir=Path(), names={}, eps=1e-16, prefix=""):
+
+def ap_per_class(
+    tp, conf, pred_cls, target_cls, plot=False, on_plot=None, save_dir=Path(), names={}, eps=1e-16, prefix=""
+):
     i = np.argsort(-conf)
     tp, conf, pred_cls = tp[i], conf[i], pred_cls[i]
     unique_classes, nt = np.unique(target_cls, return_counts=True)
@@ -426,7 +480,8 @@ def ap_per_class(tp, conf, pred_cls, target_cls, plot=False, on_plot=None, save_
         i = pred_cls == c
         n_l = nt[ci]
         n_p = i.sum()
-        if n_p == 0 or n_l == 0: continue
+        if n_p == 0 or n_l == 0:
+            continue
         fpc = (1 - tp[i]).cumsum(0)
         tpc = tp[i].cumsum(0)
         recall = tpc / (n_l + eps)
@@ -438,7 +493,8 @@ def ap_per_class(tp, conf, pred_cls, target_cls, plot=False, on_plot=None, save_
             p_curve[ci] = np.interp(-x, -conf[i], precision[:, 0], left=1)
         for j in range(tp.shape[1]):
             ap[ci, j], mpre, mrec = compute_ap(recall[:, j], precision[:, j])
-            if j == 0: prec_values.append(np.interp(x, mrec, mpre))
+            if j == 0:
+                prec_values.append(np.interp(x, mrec, mpre))
 
     prec_values = np.array(prec_values) if prec_values else np.zeros((1, 1000))
     f1_curve = 2 * p_curve * r_curve / (p_curve + r_curve + eps)
@@ -456,6 +512,7 @@ def ap_per_class(tp, conf, pred_cls, target_cls, plot=False, on_plot=None, save_
     fp = (tp / (p + eps) - tp).round()
     return tp, fp, p, r, f1, ap, unique_classes.astype(int), p_curve, r_curve, f1_curve, x, prec_values
 
+
 class Metric(SimpleClass):
     def __init__(self) -> None:
         self.p = []
@@ -466,27 +523,44 @@ class Metric(SimpleClass):
         self.nc = 0
 
     @property
-    def ap50(self): return self.all_ap[:, 0] if len(self.all_ap) else []
-    @property
-    def ap(self): return self.all_ap.mean(1) if len(self.all_ap) else []
-    @property
-    def mp(self): return self.p.mean() if len(self.p) else 0.0
-    @property
-    def mr(self): return self.r.mean() if len(self.r) else 0.0
-    @property
-    def map50(self): return self.all_ap[:, 0].mean() if len(self.all_ap) else 0.0
-    @property
-    def map75(self): return self.all_ap[:, 5].mean() if len(self.all_ap) else 0.0
-    @property
-    def map(self): return self.all_ap.mean() if len(self.all_ap) else 0.0
+    def ap50(self):
+        return self.all_ap[:, 0] if len(self.all_ap) else []
 
-    def mean_results(self): return [self.mp, self.mr, self.map50, self.map]
-    def class_result(self, i): return self.p[i], self.r[i], self.ap50[i], self.ap[i]
+    @property
+    def ap(self):
+        return self.all_ap.mean(1) if len(self.all_ap) else []
+
+    @property
+    def mp(self):
+        return self.p.mean() if len(self.p) else 0.0
+
+    @property
+    def mr(self):
+        return self.r.mean() if len(self.r) else 0.0
+
+    @property
+    def map50(self):
+        return self.all_ap[:, 0].mean() if len(self.all_ap) else 0.0
+
+    @property
+    def map75(self):
+        return self.all_ap[:, 5].mean() if len(self.all_ap) else 0.0
+
+    @property
+    def map(self):
+        return self.all_ap.mean() if len(self.all_ap) else 0.0
+
+    def mean_results(self):
+        return [self.mp, self.mr, self.map50, self.map]
+
+    def class_result(self, i):
+        return self.p[i], self.r[i], self.ap50[i], self.ap[i]
 
     @property
     def maps(self):
         maps = np.zeros(self.nc) + self.map
-        for i, c in enumerate(self.ap_class_index): maps[c] = self.ap[i]
+        for i, c in enumerate(self.ap_class_index):
+            maps[c] = self.ap[i]
         return maps
 
     def fitness(self):
@@ -494,7 +568,19 @@ class Metric(SimpleClass):
         return (np.nan_to_num(np.array(self.mean_results())) * w).sum()
 
     def update(self, results):
-        self.p, self.r, self.f1, self.all_ap, self.ap_class_index, self.p_curve, self.r_curve, self.f1_curve, self.px, self.prec_values = results
+        (
+            self.p,
+            self.r,
+            self.f1,
+            self.all_ap,
+            self.ap_class_index,
+            self.p_curve,
+            self.r_curve,
+            self.f1_curve,
+            self.px,
+            self.prec_values,
+        ) = results
+
 
 class DetMetrics(SimpleClass, DataExportMixin):
     def __init__(self, names={}):
@@ -506,33 +592,60 @@ class DetMetrics(SimpleClass, DataExportMixin):
 
     def process(self, save_dir=Path("."), plot=False, on_plot=None):
         stats = {k: np.concatenate(v, 0) for k, v in self.stats.items()}
-        if not stats: return stats
-        results = ap_per_class(stats["tp"], stats["conf"], stats["pred_cls"], stats["target_cls"], plot=plot, save_dir=save_dir, names=self.names, on_plot=on_plot, prefix="Box")[2:]
+        if not stats:
+            return stats
+        results = ap_per_class(
+            stats["tp"],
+            stats["conf"],
+            stats["pred_cls"],
+            stats["target_cls"],
+            plot=plot,
+            save_dir=save_dir,
+            names=self.names,
+            on_plot=on_plot,
+            prefix="Box",
+        )[2:]
         self.box.nc = len(self.names)
         self.box.update(results)
         return stats
 
-    def mean_results(self): return self.box.mean_results()
-    def class_result(self, i): return self.box.class_result(i)
+    def mean_results(self):
+        return self.box.mean_results()
+
+    def class_result(self, i):
+        return self.box.class_result(i)
+
     @property
-    def maps(self): return self.box.maps
+    def maps(self):
+        return self.box.maps
+
     @property
-    def fitness(self): return self.box.fitness()
+    def fitness(self):
+        return self.box.fitness()
+
     @property
-    def ap_class_index(self): return self.box.ap_class_index
+    def ap_class_index(self):
+        return self.box.ap_class_index
+
     @property
-    def keys(self): return ["metrics/precision(B)", "metrics/recall(B)", "metrics/mAP50(B)", "metrics/mAP50-95(B)"]
+    def keys(self):
+        return ["metrics/precision(B)", "metrics/recall(B)", "metrics/mAP50(B)", "metrics/mAP50-95(B)"]
 
     def summary(self, normalize=True, decimals=5):
         per_class = {"Box-P": self.box.p, "Box-R": self.box.r, "Box-F1": self.box.f1}
-        return [{
-            "Class": self.names[self.ap_class_index[i]],
-            **{k: round(v[i], decimals) for k, v in per_class.items()},
-            "mAP50": round(self.class_result(i)[2], decimals),
-            "mAP50-95": round(self.class_result(i)[3], decimals)
-        } for i in range(len(per_class["Box-P"]))]
+        return [
+            {
+                "Class": self.names[self.ap_class_index[i]],
+                **{k: round(v[i], decimals) for k, v in per_class.items()},
+                "mAP50": round(self.class_result(i)[2], decimals),
+                "mAP50-95": round(self.class_result(i)[3], decimals),
+            }
+            for i in range(len(per_class["Box-P"]))
+        ]
+
 
 from abc import ABC, abstractmethod
+
 
 def calculate_fitness(metrics: dict, weights: dict = None, active_tasks: set = None) -> float:
     """
@@ -540,24 +653,24 @@ def calculate_fitness(metrics: dict, weights: dict = None, active_tasks: set = N
     Higher is better. Task-aware: only includes metrics for active tasks.
     When only trajectory is active, fitness = 1/(1+L1) purely.
     """
-    weights = weights or {'map50': 0.1, 'map95': 0.2, 'l1': 0.7}
+    weights = weights or {"map50": 0.1, "map95": 0.2, "l1": 0.7}
 
-    w_map50 = weights.get('map50', 0.1)
-    w_map95 = weights.get('map95', 0.2)
-    w_l1 = weights.get('l1', 0.7)
+    w_map50 = weights.get("map50", 0.1)
+    w_map95 = weights.get("map95", 0.2)
+    w_l1 = weights.get("l1", 0.7)
 
     score = 0.0
     total_weight = 0.0
 
     # Detection component — only when detection is active
-    if active_tasks is None or 'detection' in active_tasks:
-        map_50 = metrics.get('mAP_50', 0.0)
-        map_95 = metrics.get('mAP_50-95', 0.0)
+    if active_tasks is None or "detection" in active_tasks:
+        map_50 = metrics.get("mAP_50", 0.0)
+        map_95 = metrics.get("mAP_50-95", 0.0)
         score += map_50 * w_map50 + map_95 * w_map95
         total_weight += w_map50 + w_map95
 
     # Trajectory component — always active
-    l1 = metrics.get('L1', 1.0)
+    l1 = metrics.get("L1", 1.0)
     l1_score = 1.0 / (1.0 + l1)
     score += l1_score * w_l1
     total_weight += w_l1
@@ -568,13 +681,20 @@ def calculate_fitness(metrics: dict, weights: dict = None, active_tasks: set = N
 
     return score
 
+
 class BaseMetric(ABC):
     @abstractmethod
-    def update(self, preds, batch): pass
+    def update(self, preds, batch):
+        pass
+
     @abstractmethod
-    def compute(self): pass
+    def compute(self):
+        pass
+
     @abstractmethod
-    def reset(self): pass
+    def reset(self):
+        pass
+
 
 class TrajectoryMetric(BaseMetric):
     """Comprehensive trajectory evaluation metrics.
@@ -587,6 +707,7 @@ class TrajectoryMetric(BaseMetric):
     - Lateral Error: Mean error perpendicular to GT heading direction
     - Longitudinal Error: Mean error along GT heading direction
     """
+
     def __init__(self, tau_start: float = 2.0, tau_end: float = 2.0):
         self.tau_start = tau_start
         self.tau_end = tau_end
@@ -602,20 +723,21 @@ class TrajectoryMetric(BaseMetric):
         self.count = 0
 
     def update(self, preds, batch):
-        if 'waypoints' not in preds: return
-        pred_wp = preds['waypoints'].float()
-        gt_wp = batch['waypoints'].to(pred_wp.device).float()
+        if "waypoints" not in preds:
+            return
+        pred_wp = preds["waypoints"].float()
+        gt_wp = batch["waypoints"].to(pred_wp.device).float()
 
         if gt_wp.shape[1] == 0:
-             return # Skip metrics for empty ground truths
+            return  # Skip metrics for empty ground truths
 
         if gt_wp.shape[1] != pred_wp.shape[1]:
-             if gt_wp.shape[1] > 1:
-                 gt_wp = torch.nn.functional.interpolate(
-                     gt_wp.permute(0,2,1), size=pred_wp.shape[1], mode='linear', align_corners=True
-                 ).permute(0,2,1)
-             else:
-                 gt_wp = gt_wp.repeat(1, pred_wp.shape[1], 1)
+            if gt_wp.shape[1] > 1:
+                gt_wp = torch.nn.functional.interpolate(
+                    gt_wp.permute(0, 2, 1), size=pred_wp.shape[1], mode="linear", align_corners=True
+                ).permute(0, 2, 1)
+            else:
+                gt_wp = gt_wp.repeat(1, pred_wp.shape[1], 1)
 
         # L1 Error
         err_abs = (pred_wp - gt_wp).abs()
@@ -636,16 +758,17 @@ class TrajectoryMetric(BaseMetric):
         # Lateral / Longitudinal decomposition
         # Compute GT heading vectors between consecutive waypoints
         gt_diff = gt_wp[:, 1:] - gt_wp[:, :-1]  # (B, T-1, 2)
-        heading_norm = torch.sqrt((gt_diff ** 2).sum(dim=-1, keepdim=True)).clamp(min=1e-6)
+        heading_norm = torch.sqrt((gt_diff**2).sum(dim=-1, keepdim=True)).clamp(min=1e-6)
         heading_unit = gt_diff / heading_norm  # unit heading vector
 
         # Error at interior points (excluding last)
-        err_interior = (pred_wp[:, :-1] - gt_wp[:, :-1])  # (B, T-1, 2)
+        err_interior = pred_wp[:, :-1] - gt_wp[:, :-1]  # (B, T-1, 2)
 
         # Longitudinal = dot(err, heading), Lateral = cross magnitude
         longitudinal = (err_interior * heading_unit).sum(dim=-1).abs()  # (B, T-1)
-        lateral = (err_interior[..., 0] * heading_unit[..., 1] -
-                   err_interior[..., 1] * heading_unit[..., 0]).abs()     # (B, T-1)
+        lateral = (
+            err_interior[..., 0] * heading_unit[..., 1] - err_interior[..., 1] * heading_unit[..., 0]
+        ).abs()  # (B, T-1)
 
         self.total_l1 += l1
         self.total_weighted_l1 += weighted_l1
@@ -658,13 +781,14 @@ class TrajectoryMetric(BaseMetric):
     def compute(self):
         n = max(1, self.count)
         return {
-            'L1': self.total_l1 / n,
-            'Weighted_L1': self.total_weighted_l1 / n,
-            'ADE': self.total_ade / n,
-            'FDE': self.total_fde / n,
-            'Lateral_Error': self.total_lateral / n,
-            'Longitudinal_Error': self.total_longitudinal / n,
+            "L1": self.total_l1 / n,
+            "Weighted_L1": self.total_weighted_l1 / n,
+            "ADE": self.total_ade / n,
+            "FDE": self.total_fde / n,
+            "Lateral_Error": self.total_lateral / n,
+            "Longitudinal_Error": self.total_longitudinal / n,
         }
+
 
 class HeatmapMetric(BaseMetric):
     def __init__(self):
@@ -676,27 +800,35 @@ class HeatmapMetric(BaseMetric):
         self.count = 0
 
     def update(self, preds, batch):
-        if 'heatmap' not in preds: return
-        pred_hm = preds['heatmap']
-        gt_wp = batch['waypoints'].to(pred_hm.device)
+        if "heatmap" not in preds:
+            return
+        pred_hm = preds["heatmap"]
+        gt_wp = batch["waypoints"].to(pred_hm.device)
         B, _, H, W = pred_hm.shape
 
         from neuro_pilot.utils.losses import HeatmapWaypointLoss
-        if not hasattr(self, 'generator'):
-             self.generator = HeatmapWaypointLoss(device=pred_hm.device)
+
+        if not hasattr(self, "generator"):
+            self.generator = HeatmapWaypointLoss(device=pred_hm.device)
 
         gt_hm = self.generator.generate_heatmap(gt_wp, H, W)
-        mse = torch.nn.functional.mse_score(torch.sigmoid(pred_hm), gt_hm) if hasattr(torch.nn.functional, 'mse_score') else torch.nn.functional.mse_loss(torch.sigmoid(pred_hm), gt_hm)
+        mse = (
+            torch.nn.functional.mse_score(torch.sigmoid(pred_hm), gt_hm)
+            if hasattr(torch.nn.functional, "mse_score")
+            else torch.nn.functional.mse_loss(torch.sigmoid(pred_hm), gt_hm)
+        )
         self.total_mse += mse.item()
         self.count += 1
 
     def compute(self):
-        return {'Heatmap_MSE': self.total_mse / max(1, self.count)}
+        return {"Heatmap_MSE": self.total_mse / max(1, self.count)}
+
 
 class DetectionEvaluator:
     """
     Adapter class for existing Validator to use new robust metrics.
     """
+
     def __init__(self, num_classes, device, log_dir, names=None):
         self.nc = num_classes
         self.device = device
@@ -715,16 +847,15 @@ class DetectionEvaluator:
         for i, pred in enumerate(formatted_preds):
             target = formatted_targets[i]
 
-            p_boxes = pred['boxes'].to(self.device)
-            p_scores = pred['scores'].to(self.device)
-            p_cls = pred['labels'].to(self.device).view(-1)
+            p_boxes = pred["boxes"].to(self.device)
+            p_scores = pred["scores"].to(self.device)
+            p_cls = pred["labels"].to(self.device).view(-1)
 
-            t_boxes = target['boxes'].to(self.device).float()
-            t_cls = target['labels'].to(self.device).float().view(-1)
+            t_boxes = target["boxes"].to(self.device).float()
+            t_cls = target["labels"].to(self.device).float().view(-1)
 
             self.confusion_matrix.process_batch(
-                {'bboxes': p_boxes, 'cls': p_cls, 'conf': p_scores},
-                {'bboxes': t_boxes, 'cls': t_cls}
+                {"bboxes": p_boxes, "cls": p_cls, "conf": p_scores}, {"bboxes": t_boxes, "cls": t_cls}
             )
 
             correct = torch.zeros(p_boxes.shape[0], self.niou, dtype=torch.bool, device=self.device)
@@ -733,65 +864,65 @@ class DetectionEvaluator:
                     iou = box_iou(t_boxes, p_boxes)
                     correct_class = t_cls[:, None] == p_cls
                     for i_iou in range(self.niou):
-                         iou_thresh = self.iouv[i_iou]
-                         x = torch.where((iou >= iou_thresh) & correct_class)
-                         if x[0].shape[0]:
-                             matches = torch.cat((torch.stack(x, 1), iou[x[0], x[1]][:, None]), 1).cpu().numpy()
-                             if x[0].shape[0] > 1:
+                        iou_thresh = self.iouv[i_iou]
+                        x = torch.where((iou >= iou_thresh) & correct_class)
+                        if x[0].shape[0]:
+                            matches = torch.cat((torch.stack(x, 1), iou[x[0], x[1]][:, None]), 1).cpu().numpy()
+                            if x[0].shape[0] > 1:
                                 matches = matches[matches[:, 2].argsort()[::-1]]
                                 matches = matches[np.unique(matches[:, 1], return_index=True)[1]]
                                 matches = matches[matches[:, 2].argsort()[::-1]]
                                 matches = matches[np.unique(matches[:, 0], return_index=True)[1]]
-                             correct[matches[:, 1].astype(int), i_iou] = True
+                            correct[matches[:, 1].astype(int), i_iou] = True
 
             self.stats.append((correct.cpu(), p_scores.cpu(), p_cls.cpu(), t_cls.cpu()))
 
     def compute(self):
         stats = [torch.cat(x, 0).cpu().numpy() for x in zip(*self.stats)]
         if len(stats) and stats[0].any():
-             tp, fp, p, r, f1, ap, ap_class, p_curve, r_curve, f1_curve, x, prec_values = ap_per_class(*stats, names=self.names, plot=True, save_dir=self.log_dir or Path('.'))
-             ap50, ap = ap[:, 0], ap.mean(1)
-             mp, mr, map50, map = p.mean(), r.mean(), ap50.mean(), ap.mean()
+            tp, fp, p, r, f1, ap, ap_class, p_curve, r_curve, f1_curve, x, prec_values = ap_per_class(
+                *stats, names=self.names, plot=True, save_dir=self.log_dir or Path(".")
+            )
+            ap50, ap = ap[:, 0], ap.mean(1)
+            mp, mr, map50, map = p.mean(), r.mean(), ap50.mean(), ap.mean()
 
-             t_cls = stats[3]
-             total_instances = len(t_cls)
+            t_cls = stats[3]
+            total_instances = len(t_cls)
 
-             per_class = []
-             for i, c in enumerate(ap_class):
-                 c_idx = int(c)
-                 inst = int((t_cls == c_idx).sum())
-                 per_class.append({
-                     'Class': self.names.get(c_idx, f"class_{c_idx}"),
-                     'Instances': inst,
-                     'Precision': p[i],
-                     'Recall': r[i],
-                     'mAP_50': ap50[i],
-                     'mAP_50-95': ap[i]
-                 })
+            per_class = []
+            for i, c in enumerate(ap_class):
+                c_idx = int(c)
+                inst = int((t_cls == c_idx).sum())
+                per_class.append(
+                    {
+                        "Class": self.names.get(c_idx, f"class_{c_idx}"),
+                        "Instances": inst,
+                        "Precision": p[i],
+                        "Recall": r[i],
+                        "mAP_50": ap50[i],
+                        "mAP_50-95": ap[i],
+                    }
+                )
 
-             return {
-                 'mAP_50': map50,
-                 'mAP_50-95': map,
-                 'Precision': mp,
-                 'Recall': mr,
-                 'Total_Instances': total_instances,
-                 'per_class': per_class
-             }
-        return {
-            'mAP_50': 0.0,
-            'mAP_50-95': 0.0,
-            'Precision': 0.0,
-            'Recall': 0.0,
-            'per_class': []
-        }
+            return {
+                "mAP_50": map50,
+                "mAP_50-95": map,
+                "Precision": mp,
+                "Recall": mr,
+                "Total_Instances": total_instances,
+                "per_class": per_class,
+            }
+        return {"mAP_50": 0.0, "mAP_50-95": 0.0, "Precision": 0.0, "Recall": 0.0, "per_class": []}
 
     def plot_confusion_matrix(self):
         if self.log_dir:
             self.confusion_matrix.plot(save_dir=self.log_dir)
 
+
 class DetectionMetric(BaseMetric):
     def __init__(self, cfg, device, model_head):
         from neuro_pilot.utils.losses import DetectionLoss
+
         self.evaluator = DetectionEvaluator(cfg.head.num_classes, device, None)
         self.cfg = cfg
         self.device = device
@@ -801,18 +932,15 @@ class DetectionMetric(BaseMetric):
         self.evaluator = DetectionEvaluator(self.cfg.head.num_classes, self.device, None)
 
     def update(self, preds, batch):
-        if 'bboxes' not in preds: return
-        img = batch['image']
-        gt_boxes = batch['bboxes']
-        gt_classes = batch['categories']
+        if "bboxes" not in preds:
+            return
+        img = batch["image"]
+        gt_boxes = batch["bboxes"]
+        gt_classes = batch["categories"]
 
         from neuro_pilot.utils.nms import non_max_suppression
-        detections = non_max_suppression(
-            preds['bboxes'],
-            conf_thres=0.001,
-            iou_thres=0.6,
-            nc=self.cfg.head.num_classes
-        )
+
+        detections = non_max_suppression(preds["bboxes"], conf_thres=0.001, iou_thres=0.6, nc=self.cfg.head.num_classes)
 
         formatted_preds = []
         formatted_targets = []
@@ -821,38 +949,32 @@ class DetectionMetric(BaseMetric):
             det = detections[i]
 
             if det is not None and len(det):
-                 formatted_preds.append({
-                     'boxes': det[:, :4],
-                     'scores': det[:, 4],
-                     'labels': det[:, 5].long()
-                 })
+                formatted_preds.append({"boxes": det[:, :4], "scores": det[:, 4], "labels": det[:, 5].long()})
             else:
-                 formatted_preds.append({
-                     'boxes': torch.empty((0,4), device=self.device),
-                     'scores': torch.empty((0,), device=self.device),
-                     'labels': torch.empty((0,), device=self.device, dtype=torch.long)
-                 })
+                formatted_preds.append(
+                    {
+                        "boxes": torch.empty((0, 4), device=self.device),
+                        "scores": torch.empty((0,), device=self.device),
+                        "labels": torch.empty((0,), device=self.device, dtype=torch.long),
+                    }
+                )
 
             if gt_boxes[i].numel() > 0:
                 h, w = img.shape[2], img.shape[3]
                 scale = torch.tensor([w, h, w, h], device=self.device)
                 t_boxes_raw = gt_boxes[i].to(self.device).float() * scale
                 t_boxes = t_boxes_raw.clone()
-                t_boxes[:, 0] -= t_boxes_raw[:, 2]/2
-                t_boxes[:, 1] -= t_boxes_raw[:, 3]/2
-                t_boxes[:, 2] += t_boxes_raw[:, 2]/2
-                t_boxes[:, 3] += t_boxes_raw[:, 3]/2
+                t_boxes[:, 0] -= t_boxes_raw[:, 2] / 2
+                t_boxes[:, 1] -= t_boxes_raw[:, 3] / 2
+                t_boxes[:, 2] += t_boxes_raw[:, 2] / 2
+                t_boxes[:, 3] += t_boxes_raw[:, 3] / 2
                 t_cls = gt_classes[i].to(self.device).long()
 
-                formatted_targets.append({
-                    'boxes': t_boxes,
-                    'labels': t_cls
-                })
+                formatted_targets.append({"boxes": t_boxes, "labels": t_cls})
             else:
-                formatted_targets.append({
-                    'boxes': torch.empty((0,4), device=self.device),
-                    'labels': torch.empty((0,), device=self.device)
-                })
+                formatted_targets.append(
+                    {"boxes": torch.empty((0, 4), device=self.device), "labels": torch.empty((0,), device=self.device)}
+                )
 
         self.evaluator.update(formatted_preds, formatted_targets)
 

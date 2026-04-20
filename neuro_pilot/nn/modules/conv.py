@@ -19,12 +19,14 @@ __all__ = (
     "autopad",
 )
 
+
 def autopad(k, p=None, d=1):
     if d > 1:
         k = d * (k - 1) + 1 if isinstance(k, int) else [d * (x - 1) + 1 for x in k]
     if p is None:
         p = k // 2 if isinstance(k, int) else [x // 2 for x in k]
     return p
+
 
 class Conv(nn.Module):
     default_act = nn.SiLU()
@@ -40,6 +42,7 @@ class Conv(nn.Module):
 
     def forward_fuse(self, x):
         return self.act(self.conv(x))
+
 
 class Conv2(Conv):
     def __init__(self, c1, c2, k=3, s=1, p=None, g=1, d=1, act=True):
@@ -60,6 +63,7 @@ class Conv2(Conv):
         self.__delattr__("cv2")
         self.forward = self.forward_fuse
 
+
 class LightConv(nn.Module):
     def __init__(self, c1, c2, k=1, act=nn.ReLU()):
         super().__init__()
@@ -69,16 +73,20 @@ class LightConv(nn.Module):
     def forward(self, x):
         return self.conv2(self.conv1(x))
 
+
 class DWConv(Conv):
     def __init__(self, c1, c2, k=1, s=1, d=1, act=True):
         super().__init__(c1, c2, k, s, g=math.gcd(c1, c2), d=d, act=act)
+
 
 class DWConvTranspose2d(nn.ConvTranspose2d):
     def __init__(self, c1, c2, k=1, s=1, p1=0, p2=0):
         super().__init__(c1, c2, k, s, p1, p2, groups=math.gcd(c1, c2))
 
+
 class ConvTranspose(nn.Module):
     default_act = nn.SiLU()
+
     def __init__(self, c1, c2, k=2, s=2, p=0, bn=True, act=True):
         super().__init__()
         self.conv_transpose = nn.ConvTranspose2d(c1, c2, k, s, p, bias=not bn)
@@ -88,6 +96,7 @@ class ConvTranspose(nn.Module):
     def forward(self, x):
         return self.act(self.bn(self.conv_transpose(x)))
 
+
 class Focus(nn.Module):
     def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True):
         super().__init__()
@@ -95,6 +104,7 @@ class Focus(nn.Module):
 
     def forward(self, x):
         return self.conv(torch.cat((x[..., ::2, ::2], x[..., 1::2, ::2], x[..., ::2, 1::2], x[..., 1::2, 1::2]), 1))
+
 
 class GhostConv(nn.Module):
     def __init__(self, c1, c2, k=1, s=1, g=1, act=True):
@@ -106,6 +116,7 @@ class GhostConv(nn.Module):
     def forward(self, x):
         y = self.cv1(x)
         return torch.cat((y, self.cv2(y)), 1)
+
 
 class RepConv(nn.Module):
     default_act = nn.SiLU()
@@ -136,11 +147,13 @@ class RepConv(nn.Module):
 
     @staticmethod
     def _pad_1x1_to_3x3_tensor(kernel1x1):
-        if kernel1x1 is None: return 0
+        if kernel1x1 is None:
+            return 0
         return torch.nn.functional.pad(kernel1x1, [1, 1, 1, 1])
 
     def _fuse_bn_tensor(self, branch):
-        if branch is None: return 0, 0
+        if branch is None:
+            return 0, 0
         if isinstance(branch, Conv):
             kernel = branch.conv.weight
             running_mean = branch.bn.running_mean
@@ -166,7 +179,8 @@ class RepConv(nn.Module):
         return kernel * t, beta - running_mean * gamma / std
 
     def fuse_convs(self):
-        if hasattr(self, "conv"): return
+        if hasattr(self, "conv"):
+            return
         kernel, bias = self.get_equivalent_kernel_bias()
         self.conv = nn.Conv2d(
             in_channels=self.conv1.conv.in_channels,
@@ -184,8 +198,11 @@ class RepConv(nn.Module):
             para.detach_()
         self.__delattr__("conv1")
         self.__delattr__("conv2")
-        if hasattr(self, "bn"): self.__delattr__("bn")
-        if hasattr(self, "id_tensor"): self.__delattr__("id_tensor")
+        if hasattr(self, "bn"):
+            self.__delattr__("bn")
+        if hasattr(self, "id_tensor"):
+            self.__delattr__("id_tensor")
+
 
 class Concat(nn.Module):
     def __init__(self, dimension=1):

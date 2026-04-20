@@ -9,16 +9,20 @@ import albumentations as A
 
 warnings.filterwarnings("ignore", message=".*no transform to process it.*")
 
+
 class BaseTransform:
     """Base class for all NeuroPilot transformations."""
+
     def __init__(self):
         pass
 
     def __call__(self, labels):
         return labels
 
+
 class Compose:
     """Compose multiple transforms into a single pipeline."""
+
     def __init__(self, transforms: List[BaseTransform]):
         self.transforms = transforms
 
@@ -27,12 +31,14 @@ class Compose:
             labels = t(labels)
         return labels
 
+
 class Mosaic:
     """
     NeuroPilot Mosaic Augmentation (4-image).
     Combines 4 training images into one, expanding spatial diversity.
     Specifically adapted to handle Trajectories/Waypoints and BBoxes.
     """
+
     def __init__(self, dataset, imgsz=640, p=1.0):
         self.dataset = dataset
         self.imgsz = imgsz
@@ -104,8 +110,10 @@ class Mosaic:
 
         return labels
 
+
 class RandomHSV(BaseTransform):
     """Adjust image Hue, Saturation, Value."""
+
     def __init__(self, hgain=0.5, sgain=0.5, vgain=0.5):
         self.hgain = hgain
         self.sgain = sgain
@@ -125,9 +133,13 @@ class RandomHSV(BaseTransform):
         labels["img"] = cv2.cvtColor(im_hsv, cv2.COLOR_HSV2BGR)
         return labels
 
+
 class LetterBox(BaseTransform):
     """Resizing and padding to maintain aspect ratio."""
-    def __init__(self, new_shape=(640, 640), color=(114, 114, 114), auto=True, scaleFill=False, scaleup=True, stride=32):
+
+    def __init__(
+        self, new_shape=(640, 640), color=(114, 114, 114), auto=True, scaleFill=False, scaleup=True, stride=32
+    ):
         self.new_shape = new_shape
         self.color = color
         self.auto = auto
@@ -180,17 +192,20 @@ class LetterBox(BaseTransform):
 
         return labels
 
+
 class StandardAugmentor(BaseTransform):
     """
     Augmentation Suite using Albumentations.
     Unified from core NeuroPilot data drivers.
     """
+
     def __init__(self, training: bool = True, imgsz: int = 640, config=None):
         super().__init__()
         self.training = training
         self.imgsz = imgsz
 
         if config is None:
+
             class DummyConfig:
                 enabled = True
                 rotate_deg = 5.0
@@ -208,60 +223,74 @@ class StandardAugmentor(BaseTransform):
                 mosaic = 1.0
                 mixup = 1.0
                 copy_paste = 0.0
+
             cfg = DummyConfig()
         else:
             cfg = config
 
-        self.mosaic_prob = getattr(cfg, 'mosaic', 1.0) if training else 0.0
+        self.mosaic_prob = getattr(cfg, "mosaic", 1.0) if training else 0.0
 
         if training:
-            deg = getattr(cfg, 'rotate_deg', 5.0)
-            trans = getattr(cfg, 'translate', 0.1)
-            scale = getattr(cfg, 'scale', 0.5)
-            persp = getattr(cfg, 'perspective', 0.0)
+            deg = getattr(cfg, "rotate_deg", 5.0)
+            trans = getattr(cfg, "translate", 0.1)
+            scale = getattr(cfg, "scale", 0.5)
+            persp = getattr(cfg, "perspective", 0.0)
 
-            cj_intensity = getattr(cfg, 'color_jitter', 0.3)
-            hsv_s_val = getattr(cfg, 'hsv_s', 0.7)
-            hsv_v_val = getattr(cfg, 'hsv_v', 0.4)
-            hsv_h_val = getattr(cfg, 'hsv_h', 0.015)
+            cj_intensity = getattr(cfg, "color_jitter", 0.3)
+            hsv_s_val = getattr(cfg, "hsv_s", 0.7)
+            hsv_v_val = getattr(cfg, "hsv_v", 0.4)
+            hsv_h_val = getattr(cfg, "hsv_h", 0.015)
 
             transforms = [
                 A.Affine(
-                    translate_percent={'x': (-trans, trans), 'y': (-trans, trans)},
+                    translate_percent={"x": (-trans, trans), "y": (-trans, trans)},
                     scale=(1.0 - scale, 1.0 + scale),
                     rotate=(-deg, deg),
-                    shear=(-getattr(cfg, 'shear', 0.0), getattr(cfg, 'shear', 0.0)),
-                    p=0.5 if (deg + trans + scale + getattr(cfg, 'shear', 0.0)) > 0 else 0.0
+                    shear=(-getattr(cfg, "shear", 0.0), getattr(cfg, "shear", 0.0)),
+                    p=0.5 if (deg + trans + scale + getattr(cfg, "shear", 0.0)) > 0 else 0.0,
                 )
             ]
             if persp > 0:
                 transforms.append(A.Perspective(scale=(0.0, persp), p=0.5))
             if (hsv_h_val + hsv_s_val + hsv_v_val) > 0:
-                transforms.append(A.HueSaturationValue(
-                    hue_shift_limit=int(hsv_h_val * 180),
-                    sat_shift_limit=int(hsv_s_val * 255),
-                    val_shift_limit=int(hsv_v_val * 255),
-                    p=0.5
-                ))
+                transforms.append(
+                    A.HueSaturationValue(
+                        hue_shift_limit=int(hsv_h_val * 180),
+                        sat_shift_limit=int(hsv_s_val * 255),
+                        val_shift_limit=int(hsv_v_val * 255),
+                        p=0.5,
+                    )
+                )
             if cj_intensity > 0:
-                transforms.append(A.RandomBrightnessContrast(
-                    brightness_limit=cj_intensity,
-                    contrast_limit=cj_intensity,
-                    p=0.5
-                ))
+                transforms.append(
+                    A.RandomBrightnessContrast(brightness_limit=cj_intensity, contrast_limit=cj_intensity, p=0.5)
+                )
 
-            transforms.extend([
-                A.OneOf([A.GaussNoise(p=1.0), A.ISONoise(p=1.0)], p=getattr(cfg, 'noise_prob', 0.4)),
-                A.OneOf([A.MotionBlur(blur_limit=5, p=1.0), A.GaussianBlur(blur_limit=(3, 5), p=1.0)], p=getattr(cfg, 'blur_prob', 0.1)),
-            ])
+            transforms.extend(
+                [
+                    A.OneOf([A.GaussNoise(p=1.0), A.ISONoise(p=1.0)], p=getattr(cfg, "noise_prob", 0.4)),
+                    A.OneOf(
+                        [A.MotionBlur(blur_limit=5, p=1.0), A.GaussianBlur(blur_limit=(3, 5), p=1.0)],
+                        p=getattr(cfg, "blur_prob", 0.1),
+                    ),
+                ]
+            )
 
             self.transform = A.Compose(
-                transforms, bbox_params=A.BboxParams(format='pascal_voc', label_fields=['category_ids'], min_visibility=0.1, min_area=1.0),
-               keypoint_params=A.KeypointParams(format='xy', remove_invisible=False))
+                transforms,
+                bbox_params=A.BboxParams(
+                    format="pascal_voc", label_fields=["category_ids"], min_visibility=0.1, min_area=1.0
+                ),
+                keypoint_params=A.KeypointParams(format="xy", remove_invisible=False),
+            )
         else:
-            self.transform = A.Compose([
-            ], bbox_params=A.BboxParams(format='pascal_voc', label_fields=['category_ids'], min_visibility=0.1, min_area=1.0),
-               keypoint_params=A.KeypointParams(format='xy', remove_invisible=False))
+            self.transform = A.Compose(
+                [],
+                bbox_params=A.BboxParams(
+                    format="pascal_voc", label_fields=["category_ids"], min_visibility=0.1, min_area=1.0
+                ),
+                keypoint_params=A.KeypointParams(format="xy", remove_invisible=False),
+            )
 
     def apply_refinement_policy(self):
         """Disable mosaic augmentation."""
@@ -292,7 +321,11 @@ class StandardAugmentor(BaseTransform):
 
         labels["img"] = augmented["image"]
         labels["bboxes"] = np.array(augmented["bboxes"]) if len(augmented.get("bboxes", [])) > 0 else np.zeros((0, 4))
-        labels["cls"] = np.array(augmented["category_ids"]) if len(augmented.get("category_ids", [])) > 0 else np.zeros(0)
-        labels["waypoints"] = np.array(augmented["keypoints"]) if len(augmented.get("keypoints", [])) > 0 else np.zeros((0, 2))
+        labels["cls"] = (
+            np.array(augmented["category_ids"]) if len(augmented.get("category_ids", [])) > 0 else np.zeros(0)
+        )
+        labels["waypoints"] = (
+            np.array(augmented["keypoints"]) if len(augmented.get("keypoints", [])) > 0 else np.zeros((0, 2))
+        )
 
         return labels

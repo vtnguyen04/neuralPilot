@@ -1,6 +1,7 @@
 import torch.nn as nn
 from neuro_pilot.core.registry import Registry, register_backbone, register_head
 
+
 def test_registry_decorators():
     # 1. Test Backbone Registration
     @register_backbone("TestBackbone")
@@ -20,16 +21,20 @@ def test_registry_decorators():
     assert Registry.get_head("TestHead") == TestHead
     assert Registry.get("TestHead") == TestHead
 
+
 def test_registry_lookup():
     # Test fallback
     assert Registry.get("NonExistent") is None
 
+
 def test_duplicate_registration_warning(caplog):
     @register_backbone("DuplicateBackbone")
-    class B1(nn.Module): pass
+    class B1(nn.Module):
+        pass
 
     @register_backbone("DuplicateBackbone")
-    class B2(nn.Module): pass
+    class B2(nn.Module):
+        pass
 
     assert "already registered" in caplog.text
     # Should overwrite

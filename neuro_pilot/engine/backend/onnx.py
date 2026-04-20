@@ -1,33 +1,35 @@
-
 import onnxruntime
 import torch
 from typing import Union, List
 from .base import BaseBackend
 
+
 class ONNXBackend(BaseBackend):
     """
     ONNX Runtime Backend.
     """
+
     def __init__(self, weights: str, device: torch.device, fp16: bool = False):
         super().__init__(weights, device, fp16)
 
-        providers = ['CPUExecutionProvider']
-        if device.type == 'cuda':
-            providers.insert(0, 'CUDAExecutionProvider')
+        providers = ["CPUExecutionProvider"]
+        if device.type == "cuda":
+            providers.insert(0, "CUDAExecutionProvider")
 
         self.session = onnxruntime.InferenceSession(weights, providers=providers)
         self.input_names = [x.name for x in self.session.get_inputs()]
         self.output_names = [x.name for x in self.session.get_outputs()]
 
         meta = self.session.get_modelmeta().custom_metadata_map
-        if 'names' in meta:
+        if "names" in meta:
             import ast
+
             try:
-                self.names = ast.literal_eval(meta['names'])
+                self.names = ast.literal_eval(meta["names"])
             except:
                 pass
-        if 'stride' in meta:
-            self.stride = [int(meta['stride'])]
+        if "stride" in meta:
+            self.stride = [int(meta["stride"])]
 
     def forward(self, im: torch.Tensor, **kwargs) -> Union[torch.Tensor, List[torch.Tensor]]:
         im_np = im.cpu().numpy()
@@ -35,16 +37,19 @@ class ONNXBackend(BaseBackend):
         inputs = {self.input_names[0]: im_np}
 
         if len(self.input_names) > 1:
-            cmd = kwargs.get('cmd')
+            cmd = kwargs.get("cmd")
             if cmd is None:
-                cmd = kwargs.get('command')
+                cmd = kwargs.get("command")
             if cmd is None:
                 from neuro_pilot.cfg.schema import HeadConfig
+
                 _nc = HeadConfig().num_commands
                 cmd = torch.zeros(1, _nc, dtype=torch.float32, device=im.device)
                 cmd[0, 0] = 1.0
-            if cmd.ndim == 1: cmd = cmd.unsqueeze(0)
-            if cmd.ndim == 0: cmd = cmd.unsqueeze(0).unsqueeze(0)
+            if cmd.ndim == 1:
+                cmd = cmd.unsqueeze(0)
+            if cmd.ndim == 0:
+                cmd = cmd.unsqueeze(0).unsqueeze(0)
             if cmd.shape[0] != im_np.shape[0]:
                 cmd = cmd.repeat(im_np.shape[0], 1)
             inputs[self.input_names[1]] = cmd.cpu().numpy()
@@ -59,7 +64,8 @@ class ONNXBackend(BaseBackend):
         return outs_torch[0] if len(outs_torch) == 1 else outs_torch
 
     def warmup(self, imgsz=(1, 3, 640, 640)):
-        if self.warmup_done: return
+        if self.warmup_done:
+            return
         im = torch.zeros(imgsz, dtype=torch.float32, device=self.device)
         self.forward(im)
         self.warmup_done = True

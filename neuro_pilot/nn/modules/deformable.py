@@ -40,9 +40,7 @@ def ms_deform_attn_core(
     _, num_queries, _, _, num_points, _ = sampling_locations.shape
 
     # Split values by spatial level
-    value_list = value.split(
-        [h * w for h, w in spatial_shapes_list], dim=1
-    )
+    value_list = value.split([h * w for h, w in spatial_shapes_list], dim=1)
 
     # Convert sampling locations from [0, 1] to grid_sample range [-1, 1]
     sampling_grids = 2 * sampling_locations - 1
@@ -51,18 +49,11 @@ def ms_deform_attn_core(
     for level_id, (height, width) in enumerate(spatial_shapes_list):
         # [B, H*W, num_heads, head_dim] → [B*num_heads, head_dim, H, W]
         value_l = (
-            value_list[level_id]
-            .flatten(2)
-            .transpose(1, 2)
-            .reshape(batch_size * num_heads, head_dim, height, width)
+            value_list[level_id].flatten(2).transpose(1, 2).reshape(batch_size * num_heads, head_dim, height, width)
         )
 
         # [B, Q, num_heads, n_points, 2] → [B*num_heads, Q, n_points, 2]
-        sampling_grid_l = (
-            sampling_grids[:, :, :, level_id]
-            .transpose(1, 2)
-            .flatten(0, 1)
-        )
+        sampling_grid_l = sampling_grids[:, :, :, level_id].transpose(1, 2).flatten(0, 1)
 
         # Bilinear interpolation at sampling points
         # Output: [B*num_heads, head_dim, Q, n_points]
@@ -76,18 +67,11 @@ def ms_deform_attn_core(
         sampling_value_list.append(sampling_value_l)
 
     # Reshape attention weights: [B, Q, M, L, P] → [B*M, 1, Q, L*P]
-    attention_weights = (
-        attention_weights
-        .transpose(1, 2)
-        .reshape(batch_size * num_heads, 1, num_queries, -1)
-    )
+    attention_weights = attention_weights.transpose(1, 2).reshape(batch_size * num_heads, 1, num_queries, -1)
 
     # Stack sampled values across levels and weight them
     # [B*M, head_dim, Q, L*P] * [B*M, 1, Q, L*P] → sum → [B*M, head_dim, Q]
-    output = (
-        torch.stack(sampling_value_list, dim=-2).flatten(-2)
-        * attention_weights
-    ).sum(-1)
+    output = (torch.stack(sampling_value_list, dim=-2).flatten(-2) * attention_weights).sum(-1)
 
     # [B*M, head_dim, Q] → [B, Q, M*head_dim] = [B, Q, embed_dim]
     output = output.view(batch_size, num_heads * head_dim, num_queries)
@@ -116,9 +100,7 @@ class MultiScaleDeformableAttention(nn.Module):
     ):
         super().__init__()
         if embed_dim % num_heads != 0:
-            raise ValueError(
-                f"embed_dim ({embed_dim}) must be divisible by num_heads ({num_heads})"
-            )
+            raise ValueError(f"embed_dim ({embed_dim}) must be divisible by num_heads ({num_heads})")
 
         self.embed_dim = embed_dim
         self.num_heads = num_heads
@@ -126,12 +108,8 @@ class MultiScaleDeformableAttention(nn.Module):
         self.n_levels = n_levels
         self.n_points = n_points
 
-        self.sampling_offsets = nn.Linear(
-            embed_dim, num_heads * n_levels * n_points * 2
-        )
-        self.attention_weights = nn.Linear(
-            embed_dim, num_heads * n_levels * n_points
-        )
+        self.sampling_offsets = nn.Linear(embed_dim, num_heads * n_levels * n_points * 2)
+        self.attention_weights = nn.Linear(embed_dim, num_heads * n_levels * n_points)
         self.value_proj = nn.Linear(embed_dim, embed_dim)
         self.output_proj = nn.Linear(embed_dim, embed_dim)
 
@@ -142,9 +120,7 @@ class MultiScaleDeformableAttention(nn.Module):
         nn.init.constant_(self.sampling_offsets.weight, 0.0)
 
         # Initialize sampling offsets bias as a radial grid pattern
-        thetas = torch.arange(self.num_heads, dtype=torch.float32) * (
-            2.0 * math.pi / self.num_heads
-        )
+        thetas = torch.arange(self.num_heads, dtype=torch.float32) * (2.0 * math.pi / self.num_heads)
         grid_init = torch.stack([thetas.cos(), thetas.sin()], -1)
         grid_init = (
             (grid_init / grid_init.abs().max(-1, keepdim=True)[0])
@@ -195,9 +171,7 @@ class MultiScaleDeformableAttention(nn.Module):
         batch_size, seq_len, _ = value.shape
 
         # Project values: [B, S, D] → [B, S, num_heads, head_dim]
-        value = self.value_proj(value).view(
-            batch_size, seq_len, self.num_heads, self.head_dim
-        )
+        value = self.value_proj(value).view(batch_size, seq_len, self.num_heads, self.head_dim)
 
         # Predict sampling offsets: [B, Q, num_heads * n_levels * n_points * 2]
         sampling_offsets = self.sampling_offsets(query).view(
@@ -213,18 +187,14 @@ class MultiScaleDeformableAttention(nn.Module):
         )
 
         # Compute sampling locations = reference_points + normalized offsets
-        offset_normalizer = torch.stack(
-            [spatial_shapes[..., 1], spatial_shapes[..., 0]], -1
-        )
+        offset_normalizer = torch.stack([spatial_shapes[..., 1], spatial_shapes[..., 0]], -1)
         sampling_locations = (
             reference_points[:, :, None, :, None, :]
             + sampling_offsets / offset_normalizer[None, None, None, :, None, :]
         )
 
         # Core deformable attention
-        output = ms_deform_attn_core(
-            value, spatial_shapes_list, sampling_locations, attention_weights
-        )
+        output = ms_deform_attn_core(value, spatial_shapes_list, sampling_locations, attention_weights)
 
         return self.output_proj(output)
 
@@ -258,16 +228,12 @@ class DeformableDecoderLayer(nn.Module):
         super().__init__()
 
         # Self-Attention (standard MHA for inter-query reasoning)
-        self.self_attn = nn.MultiheadAttention(
-            embed_dim, num_heads, dropout=dropout, batch_first=True
-        )
+        self.self_attn = nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout, batch_first=True)
         self.norm1 = nn.LayerNorm(embed_dim)
         self.dropout1 = nn.Dropout(dropout)
 
         # Cross-Attention (deformable for spatial feature sampling)
-        self.cross_attn = MultiScaleDeformableAttention(
-            embed_dim, num_heads, n_levels, n_points
-        )
+        self.cross_attn = MultiScaleDeformableAttention(embed_dim, num_heads, n_levels, n_points)
         self.norm2 = nn.LayerNorm(embed_dim)
         self.dropout2 = nn.Dropout(dropout)
 
@@ -358,12 +324,12 @@ class WaypointQueryDecoder(nn.Module):
         dropout: float = 0.1,
     ):
         super().__init__()
-        self.layers = nn.ModuleList([
-            DeformableDecoderLayer(
-                embed_dim, num_heads, n_levels, n_points, ffn_dim, dropout
-            )
-            for _ in range(num_layers)
-        ])
+        self.layers = nn.ModuleList(
+            [
+                DeformableDecoderLayer(embed_dim, num_heads, n_levels, n_points, ffn_dim, dropout)
+                for _ in range(num_layers)
+            ]
+        )
         self.norm = nn.LayerNorm(embed_dim)
 
     def forward(
@@ -404,9 +370,7 @@ class WaypointQueryDecoder(nn.Module):
         return self.norm(output)
 
 
-def sinusoidal_positional_encoding(
-    num_positions: int, embed_dim: int
-) -> torch.Tensor:
+def sinusoidal_positional_encoding(num_positions: int, embed_dim: int) -> torch.Tensor:
     """Generate sinusoidal positional encoding (Vaswani et al., 2017).
 
     Args:
@@ -418,10 +382,7 @@ def sinusoidal_positional_encoding(
     """
     pe = torch.zeros(num_positions, embed_dim)
     position = torch.arange(0, num_positions, dtype=torch.float32).unsqueeze(1)
-    div_term = torch.exp(
-        torch.arange(0, embed_dim, 2, dtype=torch.float32)
-        * -(math.log(10000.0) / embed_dim)
-    )
+    div_term = torch.exp(torch.arange(0, embed_dim, 2, dtype=torch.float32) * -(math.log(10000.0) / embed_dim))
     pe[:, 0::2] = torch.sin(position * div_term)
     pe[:, 1::2] = torch.cos(position * div_term)
     return pe

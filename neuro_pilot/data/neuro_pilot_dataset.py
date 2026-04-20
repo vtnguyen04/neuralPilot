@@ -6,23 +6,36 @@ from pathlib import Path
 from typing import List
 from pydantic import BaseModel
 
+
 class Sample(BaseModel):
     """
     Unified data format for internal pipeline.
     Coordinates (waypoints, bboxes) are normalized [0, 1].
     bboxes format: [x_topleft, y_topleft, w, h].
     """
+
     image_path: str
     command: int
     waypoints: list[list[float]]
     bboxes: list[list[float]] = []
     categories: list[int] = []
 
+
 from neuro_pilot.data.augment import StandardAugmentor
 from neuro_pilot.data.utils import check_dataset, get_image_files, img2label_paths, parse_yolo_label
 
+
 class NeuroPilotDataset(Dataset):
-    def __init__(self, root_dir=None, split='train', transform=None, sequence_mode=False, samples=None, dataset_yaml=None, imgsz=640):
+    def __init__(
+        self,
+        root_dir=None,
+        split="train",
+        transform=None,
+        sequence_mode=False,
+        samples=None,
+        dataset_yaml=None,
+        imgsz=640,
+    ):
         self.root_dir = Path(root_dir) if root_dir else None
         self.split = split
         self.transform = transform
@@ -35,7 +48,7 @@ class NeuroPilotDataset(Dataset):
             self.names = []
         elif self.dataset_yaml:
             data = check_dataset(self.dataset_yaml)
-            names = data.get('names', [])
+            names = data.get("names", [])
             if isinstance(names, list):
                 self.names = {i: name for i, name in enumerate(names)}
             else:
@@ -46,7 +59,8 @@ class NeuroPilotDataset(Dataset):
             self.names = []
 
         from neuro_pilot.data.augment import Mosaic
-        p = getattr(self.transform, 'mosaic_prob', 1.0) if self.split == 'train' else 0.0
+
+        p = getattr(self.transform, "mosaic_prob", 1.0) if self.split == "train" else 0.0
         m_imgsz = self.imgsz[0] if isinstance(self.imgsz, tuple) else self.imgsz
         self.mosaic = Mosaic(self, imgsz=m_imgsz, p=p)
 
@@ -57,15 +71,14 @@ class NeuroPilotDataset(Dataset):
         if hasattr(self, "mosaic"):
             self.mosaic.p = 0.0
 
-
-        if self.split == 'train':
+        if self.split == "train":
             self._inject_synthetic_refinement_samples()
 
     def _load_yolo_samples(self) -> List[Sample]:
         """Load and normalize YOLO samples (Ultralytics + MultiTask)."""
         data = check_dataset(self.dataset_yaml)
 
-        path_str = data.get('path')
+        path_str = data.get("path")
         yaml_dir = Path(self.dataset_yaml).parent
 
         if path_str:
@@ -75,12 +88,12 @@ class NeuroPilotDataset(Dataset):
         else:
             base_path = yaml_dir
 
-        if self.split == 'train':
-            img_dir_rel = data.get('train')
-        elif self.split == 'val':
-            img_dir_rel = data.get('val')
-        elif self.split == 'test':
-            img_dir_rel = data.get('test')
+        if self.split == "train":
+            img_dir_rel = data.get("train")
+        elif self.split == "val":
+            img_dir_rel = data.get("val")
+        elif self.split == "test":
+            img_dir_rel = data.get("test")
         else:
             img_dir_rel = None
 
@@ -99,7 +112,8 @@ class NeuroPilotDataset(Dataset):
                 p = (base_path / x).resolve()
                 if not p.exists():
                     alt_p = (yaml_dir / x).resolve()
-                    if alt_p.exists(): p = alt_p
+                    if alt_p.exists():
+                        p = alt_p
                 img_dir.append(p)
 
         img_files = get_image_files(img_dir)
@@ -122,7 +136,7 @@ class NeuroPilotDataset(Dataset):
                         step = 3 if len(k) % 3 == 0 and len(k) > 0 else 2
                         for i in range(0, len(k), step):
                             if i + 1 < len(k):
-                                final_wp_norm.append([k[i], k[i+1]])
+                                final_wp_norm.append([k[i], k[i + 1]])
                 elif c == 99:
                     continue
                 else:
@@ -132,57 +146,76 @@ class NeuroPilotDataset(Dataset):
                         step = 3 if len(k) % 3 == 0 and len(k) > 0 else 2
                         for i in range(0, len(k), step):
                             if i + 1 < len(k):
-                                final_wp_norm.append([k[i], k[i+1]])
+                                final_wp_norm.append([k[i], k[i + 1]])
 
             final_cmd = cmd if cmd is not None else 0
 
-            loaded_samples.append(Sample(
-                image_path=str(img_p), command=final_cmd,
-                waypoints=final_wp_norm, bboxes=final_bboxes_norm, categories=final_cls
-            ))
+            loaded_samples.append(
+                Sample(
+                    image_path=str(img_p),
+                    command=final_cmd,
+                    waypoints=final_wp_norm,
+                    bboxes=final_bboxes_norm,
+                    categories=final_cls,
+                )
+            )
         return loaded_samples
 
     def _load_samples(self) -> List[Sample]:
         """Load and normalize samples from DB (canonical 224 space)."""
         import json
         import sqlite3
+
         if self.root_dir:
-            db_path = self.root_dir / 'dataset.db'
+            db_path = self.root_dir / "dataset.db"
         else:
             db_path = Path(__file__).resolve().parent.parent.parent / "data" / "dataset.db"
 
         if not db_path.exists():
             old_db_path = Path(__file__).resolve().parent / "dataset.db"
-            if old_db_path.exists(): db_path = old_db_path
-            else: return []
+            if old_db_path.exists():
+                db_path = old_db_path
+            else:
+                return []
 
-        conn = sqlite3.connect(db_path); conn.row_factory = sqlite3.Row; c = conn.cursor()
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
         c.execute("SELECT image_path, data FROM samples WHERE is_labeled=1")
-        rows = c.fetchall(); conn.close()
+        rows = c.fetchall()
+        conn.close()
 
         m_imgsz = float(self.imgsz[0] if isinstance(self.imgsz, tuple) else self.imgsz)
 
         loaded_samples = []
         for r in rows:
-            if not r['data']: continue
-            d = json.loads(r['data'])
-            wp = d.get('waypoints', [])
-            if not wp or len(wp) < 2: continue
+            if not r["data"]:
+                continue
+            d = json.loads(r["data"])
+            wp = d.get("waypoints", [])
+            if not wp or len(wp) < 2:
+                continue
 
-            wp_norm = [[p[0]/m_imgsz, p[1]/m_imgsz] for p in wp]
-            bx_norm = [[b[0]/m_imgsz, b[1]/m_imgsz, b[2]/m_imgsz, b[3]/m_imgsz] for b in d.get('bboxes', [])]
+            wp_norm = [[p[0] / m_imgsz, p[1] / m_imgsz] for p in wp]
+            bx_norm = [[b[0] / m_imgsz, b[1] / m_imgsz, b[2] / m_imgsz, b[3] / m_imgsz] for b in d.get("bboxes", [])]
 
-            loaded_samples.append(Sample(
-                image_path=r['image_path'], command=d.get('command', 0),
-                waypoints=wp_norm, bboxes=bx_norm, categories=d.get('categories', [])
-            ))
+            loaded_samples.append(
+                Sample(
+                    image_path=r["image_path"],
+                    command=d.get("command", 0),
+                    waypoints=wp_norm,
+                    bboxes=bx_norm,
+                    categories=d.get("categories", []),
+                )
+            )
         return loaded_samples
 
     def _inject_synthetic_refinement_samples(self):
-        if getattr(self, '_refinement_applied', False):
+        if getattr(self, "_refinement_applied", False):
             return
         import copy
         import random
+
         aug = []
         for s in self.samples:
             if s.command in [0, 3] and len(s.waypoints) >= 2 and random.random() < 0.5:
@@ -204,7 +237,7 @@ class NeuroPilotDataset(Dataset):
             if alt_path.exists():
                 img_path = alt_path
             else:
-                new_path_str = str(img_path).replace('/e2e/data/', '/e2e/neuro_pilot/data/')
+                new_path_str = str(img_path).replace("/e2e/data/", "/e2e/neuro_pilot/data/")
                 if Path(new_path_str).exists():
                     img_path = Path(new_path_str)
 
@@ -221,17 +254,21 @@ class NeuroPilotDataset(Dataset):
             x2, y2 = (cx + bw / 2) * w0, (cy + bh / 2) * h0
             x1, x2 = sorted([np.maximum(0, x1), np.maximum(0, x2)])
             y1, y2 = sorted([np.maximum(0, y1), np.maximum(0, y2)])
-            if (x2 - x1) < 1.0 or (y2 - y1) < 1.0: continue
+            if (x2 - x1) < 1.0 or (y2 - y1) < 1.0:
+                continue
             pixel_bboxes.append([x1, y1, min(w0, x2), min(h0, y2)])
             categories.append(c)
 
-        pixel_wp = [[np.maximum(0, np.minimum(w0, p[0] * w0)), np.maximum(0, np.minimum(h0, p[1] * h0))] for p in sample.waypoints]
+        pixel_wp = [
+            [np.maximum(0, np.minimum(w0, p[0] * w0)), np.maximum(0, np.minimum(h0, p[1] * h0))]
+            for p in sample.waypoints
+        ]
 
         return {
             "img": img,
             "bboxes": np.array(pixel_bboxes),
             "waypoints": np.array(pixel_wp),
-            "cls": np.array(categories)
+            "cls": np.array(categories),
         }
 
     def __getitem__(self, idx):
@@ -243,21 +280,23 @@ class NeuroPilotDataset(Dataset):
             data = self.get_image_and_label(idx)
 
         from neuro_pilot.data.augment import LetterBox
+
         lb = LetterBox(new_shape=self.imgsz, auto=False, scaleup=True)
         data = lb(data)
 
         if self.transform:
             data = self.transform(data)
-            wp_aug = data['waypoints']
-            bx_aug = data['bboxes']
-            cls_t = data['cls']
+            wp_aug = data["waypoints"]
+            bx_aug = data["bboxes"]
+            cls_t = data["cls"]
         else:
-            wp_aug, bx_aug, cls_t = data['waypoints'], data['bboxes'], data['cls']
+            wp_aug, bx_aug, cls_t = data["waypoints"], data["bboxes"], data["cls"]
 
-        img_rgb = cv2.cvtColor(data['img'], cv2.COLOR_BGR2RGB)
+        img_rgb = cv2.cvtColor(data["img"], cv2.COLOR_BGR2RGB)
         img_t = torch.from_numpy(img_rgb).permute(2, 0, 1).float() / 255.0
 
         from neuro_pilot.utils.torch_utils import IMAGENET_MEAN, IMAGENET_STD
+
         mean = torch.tensor(IMAGENET_MEAN).view(3, 1, 1)
         std = torch.tensor(IMAGENET_STD).view(3, 1, 1)
         img_t = (img_t - mean) / std
@@ -267,7 +306,8 @@ class NeuroPilotDataset(Dataset):
         wp_mask_val = 1.0
         if len(wp_aug) > 0:
             wp_t = torch.tensor(wp_aug, dtype=torch.float32)
-            if wp_t.ndim == 1: wp_t = wp_t.unsqueeze(0)
+            if wp_t.ndim == 1:
+                wp_t = wp_t.unsqueeze(0)
             wp_t[..., 0] = (wp_t[..., 0] / (w_final / 2.0)) - 1.0
             wp_t[..., 1] = (wp_t[..., 1] / (h_final / 2.0)) - 1.0
             wp_t = torch.clamp(wp_t, -1.0, 1.0)
@@ -288,37 +328,47 @@ class NeuroPilotDataset(Dataset):
         cls_t = torch.tensor(cls_t, dtype=torch.long)
 
         from neuro_pilot.cfg.schema import HeadConfig
+
         _head = HeadConfig()
-        cmd_onehot = torch.zeros(_head.num_commands); cmd_onehot[sample.command] = 1.0
+        cmd_onehot = torch.zeros(_head.num_commands)
+        cmd_onehot[sample.command] = 1.0
 
         hm_h, hm_w = h_final // 4, w_final // 4
         heatmap = torch.zeros((hm_h, hm_w))
         if wp_mask_val > 0.5:
             for wp in wp_aug:
-                 hx, hy = int(wp[0] / 4), int(wp[1] / 4)
-                 if 0 <= hx < hm_w and 0 <= hy < hm_h:
-                      heatmap[hy, hx] = 1.0
+                hx, hy = int(wp[0] / 4), int(wp[1] / 4)
+                if 0 <= hx < hm_w and 0 <= hy < hm_h:
+                    heatmap[hy, hx] = 1.0
 
         return {
-            'image': img_t, 'command': cmd_onehot, 'command_idx': sample.command,
-            'waypoints': wp_t, 'waypoints_mask': torch.tensor(wp_mask_val), 'bboxes': bboxes_t, 'categories': cls_t,
-            'heatmap': heatmap, 'image_path': str(sample.image_path),
-            'curvature': torch.tensor(0.0)
+            "image": img_t,
+            "command": cmd_onehot,
+            "command_idx": sample.command,
+            "waypoints": wp_t,
+            "waypoints_mask": torch.tensor(wp_mask_val),
+            "bboxes": bboxes_t,
+            "categories": cls_t,
+            "heatmap": heatmap,
+            "image_path": str(sample.image_path),
+            "curvature": torch.tensor(0.0),
         }
 
     @property
-    def collate_fn(self): return custom_collate_fn
+    def collate_fn(self):
+        return custom_collate_fn
+
 
 def custom_collate_fn(batch):
-    num_wp = batch[0]['waypoints'].shape[0]
+    num_wp = batch[0]["waypoints"].shape[0]
     collated = {}
-    collated['image'] = torch.stack([b['image'] for b in batch])
-    collated['image_path'] = [b['image_path'] for b in batch]
-    collated['command'] = torch.stack([b['command'] for b in batch])
-    collated['command_idx'] = torch.tensor([b['command_idx'] for b in batch])
+    collated["image"] = torch.stack([b["image"] for b in batch])
+    collated["image_path"] = [b["image_path"] for b in batch]
+    collated["command"] = torch.stack([b["command"] for b in batch])
+    collated["command_idx"] = torch.tensor([b["command_idx"] for b in batch])
     collated_wp = []
     for b in batch:
-        wp = b['waypoints']
+        wp = b["waypoints"]
         if wp.shape[0] != num_wp:
             padded_wp = torch.zeros((num_wp, 2), dtype=wp.dtype, device=wp.device)
             if wp.shape[0] > 0:
@@ -327,46 +377,51 @@ def custom_collate_fn(batch):
             collated_wp.append(padded_wp)
         else:
             collated_wp.append(wp)
-    collated['waypoints'] = torch.stack(collated_wp)
+    collated["waypoints"] = torch.stack(collated_wp)
 
-    if 'waypoints_mask' in batch[0]:
-        collated['waypoints_mask'] = torch.stack([b['waypoints_mask'] for b in batch])
+    if "waypoints_mask" in batch[0]:
+        collated["waypoints_mask"] = torch.stack([b["waypoints_mask"] for b in batch])
 
-    collated['heatmap'] = torch.stack([b['heatmap'] for b in batch])
-    collated['curvature'] = torch.stack([b['curvature'] for b in batch])
+    collated["heatmap"] = torch.stack([b["heatmap"] for b in batch])
+    collated["curvature"] = torch.stack([b["curvature"] for b in batch])
 
     batch_bboxes, batch_cls = [], []
     batch_idx_bboxes, batch_idx_waypoints = [], []
     for i, b in enumerate(batch):
-        if b['bboxes'].shape[0] > 0:
-            batch_bboxes.append(b['bboxes'])
-            batch_cls.append(b['categories'].view(-1, 1) if 'categories' in b else b['cls'].view(-1, 1))
-            batch_idx_bboxes.append(torch.full((b['bboxes'].shape[0], 1), i, dtype=torch.float32))
+        if b["bboxes"].shape[0] > 0:
+            batch_bboxes.append(b["bboxes"])
+            batch_cls.append(b["categories"].view(-1, 1) if "categories" in b else b["cls"].view(-1, 1))
+            batch_idx_bboxes.append(torch.full((b["bboxes"].shape[0], 1), i, dtype=torch.float32))
 
-        if b['waypoints'].shape[0] > 0:
-            batch_idx_waypoints.append(torch.full((b['waypoints'].shape[0], 1), i, dtype=torch.float32))
+        if b["waypoints"].shape[0] > 0:
+            batch_idx_waypoints.append(torch.full((b["waypoints"].shape[0], 1), i, dtype=torch.float32))
 
     if batch_bboxes:
-        collated['bboxes'] = torch.cat(batch_bboxes, 0)
-        collated['cls'] = torch.cat(batch_cls, 0).squeeze(-1)
-        collated['batch_idx'] = torch.cat(batch_idx_bboxes, 0).squeeze(-1)
+        collated["bboxes"] = torch.cat(batch_bboxes, 0)
+        collated["cls"] = torch.cat(batch_cls, 0).squeeze(-1)
+        collated["batch_idx"] = torch.cat(batch_idx_bboxes, 0).squeeze(-1)
     else:
-        collated['bboxes'] = torch.zeros((0, 4))
-        collated['cls'] = torch.zeros(0)
-        collated['batch_idx'] = torch.zeros(0)
+        collated["bboxes"] = torch.zeros((0, 4))
+        collated["cls"] = torch.zeros(0)
+        collated["batch_idx"] = torch.zeros(0)
 
     if batch_idx_waypoints:
-        collated['batch_idx_waypoints'] = torch.cat(batch_idx_waypoints, 0).squeeze(-1)
+        collated["batch_idx_waypoints"] = torch.cat(batch_idx_waypoints, 0).squeeze(-1)
     else:
-        collated['batch_idx_waypoints'] = torch.zeros(0)
+        collated["batch_idx_waypoints"] = torch.zeros(0)
 
     return collated
 
+
 def create_dummy_dataloader(config):
     pipeline = StandardAugmentor(training=True, imgsz=config.data.image_size)
-    samples = [Sample(image_path="", command=0, waypoints=[[0.5, 0.5]]*10, bboxes=[[0.1, 0.1, 0.2, 0.2]], categories=[1]) for _ in range(10)]
-    ds = NeuroPilotDataset(samples=samples, transform=pipeline, imgsz=config.data.image_size, split='val')
+    samples = [
+        Sample(image_path="", command=0, waypoints=[[0.5, 0.5]] * 10, bboxes=[[0.1, 0.1, 0.2, 0.2]], categories=[1])
+        for _ in range(10)
+    ]
+    ds = NeuroPilotDataset(samples=samples, transform=pipeline, imgsz=config.data.image_size, split="val")
     return DataLoader(ds, batch_size=config.data.batch_size, collate_fn=custom_collate_fn)
+
 
 def create_dataloaders(config, root_dir=None, use_weighted_sampling=True, use_aug=True):
     from neuro_pilot.data.build import build_dataloader
@@ -375,40 +430,72 @@ def create_dataloaders(config, root_dir=None, use_weighted_sampling=True, use_au
     val_pipe = StandardAugmentor(training=False, imgsz=config.data.image_size)
 
     from neuro_pilot.data.utils import check_dataset
+
     yaml_dict = check_dataset(config.data.dataset_yaml) if config.data.dataset_yaml else {}
 
     from neuro_pilot.data.datasets import DATASET_REGISTRY
 
-    ds_type = yaml_dict.get('type', 'yolo')
+    ds_type = yaml_dict.get("type", "yolo")
 
     if ds_type in DATASET_REGISTRY:
         ds_cls = DATASET_REGISTRY[ds_type]
-        tr_ds = ds_cls.from_config(config, split='train', yaml_dict=yaml_dict)
-        val_ds = ds_cls.from_config(config, split='val', yaml_dict=yaml_dict)
-        collate = getattr(ds_cls, 'collate_fn', custom_collate_fn)
+        tr_ds = ds_cls.from_config(config, split="train", yaml_dict=yaml_dict)
+        val_ds = ds_cls.from_config(config, split="val", yaml_dict=yaml_dict)
+        collate = getattr(ds_cls, "collate_fn", custom_collate_fn)
 
         tr_loader = build_dataloader(tr_ds, batch=config.data.batch_size, shuffle=True, workers=0, collate_fn=collate)
-        val_loader = build_dataloader(val_ds, batch=config.data.batch_size, shuffle=False, workers=0, collate_fn=collate)
+        val_loader = build_dataloader(
+            val_ds, batch=config.data.batch_size, shuffle=False, workers=0, collate_fn=collate
+        )
         return tr_loader, val_loader
 
-    tr_ds = NeuroPilotDataset(root_dir=root_dir, transform=tr_pipe, dataset_yaml=config.data.dataset_yaml, split='train', imgsz=config.data.image_size)
+    tr_ds = NeuroPilotDataset(
+        root_dir=root_dir,
+        transform=tr_pipe,
+        dataset_yaml=config.data.dataset_yaml,
+        split="train",
+        imgsz=config.data.image_size,
+    )
 
     # Doubling data samples to improve convergence for small datasets (similar to debug script)
     if len(tr_ds.samples) < 5000:
         original_size = len(tr_ds.samples)
         tr_ds.samples = tr_ds.samples * 2
         from neuro_pilot.utils.logger import logger
+
         logger.info(f"Dataset doubling applied: {original_size} -> {len(tr_ds.samples)} samples")
 
-    val_ds = NeuroPilotDataset(root_dir=root_dir, transform=val_pipe, dataset_yaml=config.data.dataset_yaml, split='val', imgsz=config.data.image_size)
+    val_ds = NeuroPilotDataset(
+        root_dir=root_dir,
+        transform=val_pipe,
+        dataset_yaml=config.data.dataset_yaml,
+        split="val",
+        imgsz=config.data.image_size,
+    )
 
     if len(val_ds) == 0 and config.data.train_split < 1.0:
         from torch.utils.data import random_split
+
         tr_size = int(len(tr_ds) * config.data.train_split)
-        tr_ds, val_ds = random_split(tr_ds, [tr_size, len(tr_ds) - tr_size], generator=torch.Generator().manual_seed(42))
+        tr_ds, val_ds = random_split(
+            tr_ds, [tr_size, len(tr_ds) - tr_size], generator=torch.Generator().manual_seed(42)
+        )
         val_ds.dataset.transform = val_pipe
 
-    tr_loader = build_dataloader(tr_ds, batch=config.data.batch_size, shuffle=True, workers=config.data.num_workers, collate_fn=custom_collate_fn, drop_last=True)
-    val_loader = build_dataloader(val_ds, batch=config.data.batch_size, shuffle=False, workers=config.data.num_workers, collate_fn=custom_collate_fn)
+    tr_loader = build_dataloader(
+        tr_ds,
+        batch=config.data.batch_size,
+        shuffle=True,
+        workers=config.data.num_workers,
+        collate_fn=custom_collate_fn,
+        drop_last=True,
+    )
+    val_loader = build_dataloader(
+        val_ds,
+        batch=config.data.batch_size,
+        shuffle=False,
+        workers=config.data.num_workers,
+        collate_fn=custom_collate_fn,
+    )
 
     return tr_loader, val_loader

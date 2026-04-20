@@ -1,22 +1,25 @@
-
 import torch
 import torch.nn as nn
 import onnx
 from neuro_pilot.utils.logger import logger
+
 
 class Exporter:
     """
     Unified Exporter for Neuro Pilot.
     Supports ONNX (standard) and TensorRT engine (via trtexec).
     """
+
     def __init__(self, cfg, model, device):
         self.cfg = cfg
         self.model = model
         from neuro_pilot.engine.model import NeuroPilot
-        if isinstance(model, NeuroPilot) and hasattr(model, 'model'):
+
+        if isinstance(model, NeuroPilot) and hasattr(model, "model"):
             self.model = model.model
         self.device = device
         from .callbacks import CallbackList
+
         self.callbacks = CallbackList()
 
     def __call__(self, format="onnx", imgsz=None, **kwargs):
@@ -35,13 +38,15 @@ class Exporter:
 
     def export_onnx(self, imgsz=None, simplify=True, opset=17, end2end=False, **kwargs):
         """Export to ONNX with proper multi-head output handling."""
-        imgsz = imgsz or getattr(self.cfg.data, 'image_size', 320) if hasattr(self.cfg, 'data') else 320
-        if isinstance(imgsz, int): imgsz = (imgsz, imgsz)
+        imgsz = imgsz or getattr(self.cfg.data, "image_size", 320) if hasattr(self.cfg, "data") else 320
+        if isinstance(imgsz, int):
+            imgsz = (imgsz, imgsz)
 
-        output_path = kwargs.get('file', "neuro_pilot_model.onnx")
-        skip_heatmap = kwargs.get('skip_heatmap', False)
+        output_path = kwargs.get("file", "neuro_pilot_model.onnx")
+        skip_heatmap = kwargs.get("skip_heatmap", False)
 
         from neuro_pilot.cfg.schema import HeadConfig
+
         _head = HeadConfig()
         im = torch.zeros(1, 3, *imgsz).to(self.device).float()
         cmd = torch.zeros(1, _head.num_commands).to(self.device).float()
@@ -50,6 +55,7 @@ class Exporter:
 
         class ExportAdapter(nn.Module):
             """Flattens NeuroPilot dict outputs into ordered tuple for ONNX export."""
+
             def __init__(self, model, skip_heatmap=False):
                 super().__init__()
                 self.model = model
@@ -62,24 +68,24 @@ class Exporter:
                 device = x.device
 
                 if isinstance(out, dict):
-                    bboxes = out.get('bboxes')
+                    bboxes = out.get("bboxes")
                     if bboxes is None:
                         bboxes = torch.zeros(B, 18, 0, device=device)
 
-                    waypoints = out.get('waypoints')
+                    waypoints = out.get("waypoints")
                     if waypoints is None:
                         waypoints = torch.zeros(B, _head.num_waypoints, 2, device=device)
 
                     if not self.skip_heatmap:
-                        hm = out.get('heatmap')
+                        hm = out.get("heatmap")
                         if isinstance(hm, dict):
-                            hm = hm.get('heatmap')
+                            hm = hm.get("heatmap")
                         if hm is None:
                             hm = torch.zeros(B, 1, H_in, W_in, device=device)
                     else:
                         hm = torch.zeros(B, 1, 1, 1, device=device)
 
-                    classes = out.get('classes')
+                    classes = out.get("classes")
                     if classes is None:
                         classes = torch.zeros(B, _head.num_commands, device=device)
 
@@ -90,13 +96,16 @@ class Exporter:
         model_wrapper = ExportAdapter(self.model, skip_heatmap=skip_heatmap).to(self.device)
         model_wrapper.eval()
 
-        output_names = ['bboxes', 'trajectory', 'heatmap', 'classes']
+        output_names = ["bboxes", "trajectory", "heatmap", "classes"]
         dynamic_axes = None
-        if kwargs.get('dynamic', False):
+        if kwargs.get("dynamic", False):
             dynamic_axes = {
-                'image': {0: 'batch'}, 'command': {0: 'batch'},
-                'bboxes': {0: 'batch'}, 'trajectory': {0: 'batch'},
-                'heatmap': {0: 'batch'}, 'classes': {0: 'batch'},
+                "image": {0: "batch"},
+                "command": {0: "batch"},
+                "bboxes": {0: "batch"},
+                "trajectory": {0: "batch"},
+                "heatmap": {0: "batch"},
+                "classes": {0: "batch"},
             }
 
         logger.info(f"Exporting ONNX: imgsz={imgsz}, opset={opset}, skip_heatmap={skip_heatmap}")
@@ -107,7 +116,7 @@ class Exporter:
             export_params=True,
             opset_version=opset,
             do_constant_folding=True,
-            input_names=['image', 'command'],
+            input_names=["image", "command"],
             output_names=output_names,
             dynamic_axes=dynamic_axes,
         )
@@ -115,6 +124,7 @@ class Exporter:
         if simplify:
             try:
                 from onnxsim import simplify as onnx_simplify
+
                 model_onnx = onnx.load(output_path)
                 model_simp, check = onnx_simplify(model_onnx)
                 if check:
@@ -126,10 +136,10 @@ class Exporter:
         try:
             model_onnx = onnx.load(output_path)
             for key, value in {
-                'names': str(getattr(self.model, 'names', {})),
-                'stride': str(int(max(getattr(self.model, 'stride', [32])))),
-                'imgsz': str(imgsz),
-                'skip_heatmap': str(skip_heatmap),
+                "names": str(getattr(self.model, "names", {})),
+                "stride": str(int(max(getattr(self.model, "stride", [32])))),
+                "imgsz": str(imgsz),
+                "skip_heatmap": str(skip_heatmap),
             }.items():
                 meta = model_onnx.metadata_props.add()
                 meta.key = key
@@ -140,6 +150,7 @@ class Exporter:
             logger.warning(f"Metadata embedding failed: {e}")
 
         import os
+
         data_file = f"{output_path}.data"
         if os.path.exists(data_file):
             try:
@@ -155,7 +166,7 @@ class Exporter:
         Converts PyTorch → ONNX → TensorRT Engine via trtexec.
         """
         onnx_path = self.export_onnx(imgsz=imgsz, simplify=True, dynamic=dynamic, **kwargs)
-        engine_path = onnx_path.replace('.onnx', '.engine')
+        engine_path = onnx_path.replace(".onnx", ".engine")
 
         logger.info(f"Converting {onnx_path} to TensorRT engine...")
 
@@ -164,22 +175,24 @@ class Exporter:
             import subprocess
 
             trt_imgsz = imgsz or 320
-            if isinstance(trt_imgsz, tuple): trt_imgsz = trt_imgsz[0]
+            if isinstance(trt_imgsz, tuple):
+                trt_imgsz = trt_imgsz[0]
 
             cmd = [
-                'trtexec',
-                f'--onnx={onnx_path}',
-                f'--saveEngine={engine_path}',
-                f'--workspace={workspace * 1024}',
+                "trtexec",
+                f"--onnx={onnx_path}",
+                f"--saveEngine={engine_path}",
+                f"--workspace={workspace * 1024}",
             ]
             if half:
-                cmd.append('--fp16')
+                cmd.append("--fp16")
             if dynamic:
                 from neuro_pilot.cfg.schema import HeadConfig
+
                 num_cmd = HeadConfig().num_commands
-                cmd.append(f'--minShapes=image:1x3x{trt_imgsz}x{trt_imgsz},command:1x{num_cmd}')
-                cmd.append(f'--optShapes=image:4x3x{trt_imgsz}x{trt_imgsz},command:4x{num_cmd}')
-                cmd.append(f'--maxShapes=image:8x3x{trt_imgsz}x{trt_imgsz},command:8x{num_cmd}')
+                cmd.append(f"--minShapes=image:1x3x{trt_imgsz}x{trt_imgsz},command:1x{num_cmd}")
+                cmd.append(f"--optShapes=image:4x3x{trt_imgsz}x{trt_imgsz},command:4x{num_cmd}")
+                cmd.append(f"--maxShapes=image:8x3x{trt_imgsz}x{trt_imgsz},command:8x{num_cmd}")
 
             logger.info(f"Running: {' '.join(cmd)}")
             subprocess.run(cmd, check=True, capture_output=True)

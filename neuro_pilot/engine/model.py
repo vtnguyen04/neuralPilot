@@ -11,6 +11,7 @@ import neuro_pilot.engine.task  # triggers @Registry.register_task dynamically
 from neuro_pilot.engine.backend.factory import AutoBackend
 from neuro_pilot.utils.torch_utils import select_device, default_names
 
+
 class NeuroPilot(nn.Module):
     """
     Unified NeuroPilot Model Interface.
@@ -22,9 +23,7 @@ class NeuroPilot(nn.Module):
         overrides (dict): Configuration overrides.
     """
 
-    _system_logged = (
-        False
-    )
+    _system_logged = False
 
     def __init__(
         self,
@@ -39,8 +38,9 @@ class NeuroPilot(nn.Module):
             NeuroPilot._system_logged = True
 
         self.overrides = kwargs
-        self.overrides['scale'] = scale
-        if task: self.overrides['task'] = task
+        self.overrides["scale"] = scale
+        if task:
+            self.overrides["task"] = task
         self.task_wrapper = None
         self.model = None
         self.predictor = None
@@ -76,9 +76,7 @@ class NeuroPilot(nn.Module):
         from neuro_pilot.utils.monitor import SystemLogger
 
         self.system_logger = SystemLogger()
-        logger.info(
-            f"System Monitor Initialized. CPU: {self.system_logger.get_metrics()['cpu']}%"
-        )
+        logger.info(f"System Monitor Initialized. CPU: {self.system_logger.get_metrics()['cpu']}%")
 
         final_overrides = {**self.overrides, **(overrides or {})}
 
@@ -95,9 +93,7 @@ class NeuroPilot(nn.Module):
 
         self.task_wrapper = TaskClass(self.cfg_obj, overrides=final_overrides)
 
-        if not self.model and not (
-            overrides and isinstance(overrides.get("model"), nn.Module)
-        ):
+        if not self.model and not (overrides and isinstance(overrides.get("model"), nn.Module)):
             if (
                 self.task_name == "multitask"
                 and "model_cfg" in final_overrides
@@ -106,9 +102,7 @@ class NeuroPilot(nn.Module):
                 from neuro_pilot.nn.factory import build_model
 
                 scale = final_overrides.get("scale", "l")
-                skip_heatmap = final_overrides.get(
-                    "skip_heatmap_inference", self.cfg_obj.head.skip_heatmap_inference
-                )
+                skip_heatmap = final_overrides.get("skip_heatmap_inference", self.cfg_obj.head.skip_heatmap_inference)
                 self.model = build_model(
                     cfg_path=final_overrides["model_cfg"],
                     ch=3,
@@ -131,13 +125,10 @@ class NeuroPilot(nn.Module):
     def _new(self, cfg_path: Union[str, Path], scale: str = "n"):
         """Initialize new model from config."""
         from neuro_pilot.utils.checks import check_yaml
+
         cfg_path = check_yaml(cfg_path)
-        logger.info(
-            f"Initializing NeuroPilot ({self.task_name}) from {cfg_path} (scale={scale})"
-        )
-        self._init_task(
-            self.task_name, overrides={"model_cfg": str(cfg_path), "scale": scale}
-        )
+        logger.info(f"Initializing NeuroPilot ({self.task_name}) from {cfg_path} (scale={scale})")
+        self._init_task(self.task_name, overrides={"model_cfg": str(cfg_path), "scale": scale})
 
     def _load(self, weights_path: Union[str, Path], scale: str = "n"):
         """Load from checkpoint."""
@@ -157,6 +148,7 @@ class NeuroPilot(nn.Module):
         if model_cfg:
             import neuro_pilot
             import os
+
             basename = Path(model_cfg).name
             local_path = Path(neuro_pilot.__file__).parent / "cfg" / "models" / basename
             if local_path.exists():
@@ -164,7 +156,7 @@ class NeuroPilot(nn.Module):
 
         overrides = {"model_cfg": model_cfg, "scale": final_scale}
         if not model_cfg:
-             del overrides["model_cfg"]
+            del overrides["model_cfg"]
 
         final_overrides = {**overrides, **self.overrides}
 
@@ -203,9 +195,7 @@ class NeuroPilot(nn.Module):
         mapped_kwargs = self._map_kwargs_to_config(kwargs)
 
         self.overrides = deep_update(self.overrides, mapped_kwargs)
-        self.task_wrapper.overrides = deep_update(
-            self.task_wrapper.overrides, mapped_kwargs
-        )
+        self.task_wrapper.overrides = deep_update(self.task_wrapper.overrides, mapped_kwargs)
 
         cfg_dict = self.cfg_obj.model_dump()
         cfg_dict = deep_update(cfg_dict, mapped_kwargs)
@@ -282,9 +272,7 @@ class NeuroPilot(nn.Module):
                     if isinstance(target_dict, dict):
                         target_dict[k] = v
                     else:
-                        logger.warning(
-                            f"Conflict mapping '{k}' to section '{section}'."
-                        )
+                        logger.warning(f"Conflict mapping '{k}' to section '{section}'.")
             else:
                 mapped[k] = v
 
@@ -305,17 +293,11 @@ class NeuroPilot(nn.Module):
                     self.task_wrapper.overrides, {"trainer": {"resume": new_resume}}
                 )
             else:
-                logger.warning(
-                    f"Resume requested but {last_ckpt} not found. Starting from scratch."
-                )
+                logger.warning(f"Resume requested but {last_ckpt} not found. Starting from scratch.")
                 self.cfg_obj.trainer.resume = False
-                self.task_wrapper.overrides = deep_update(
-                    self.task_wrapper.overrides, {"trainer": {"resume": False}}
-                )
+                self.task_wrapper.overrides = deep_update(self.task_wrapper.overrides, {"trainer": {"resume": False}})
         elif self.cfg_obj.trainer.resume:
-            logger.info(
-                f"Resuming from specified checkpoint: {self.cfg_obj.trainer.resume}"
-            )
+            logger.info(f"Resuming from specified checkpoint: {self.cfg_obj.trainer.resume}")
 
     def predict(self, source, **kwargs):
         """
@@ -378,9 +360,7 @@ class NeuroPilot(nn.Module):
 
         dt = (t2 - t1) / n * 1000
         fps = 1000 / dt * batch
-        logger.info(
-            f"Benchmark: {imgsz}x{imgsz}, batch={batch}, device={device}, half={half}"
-        )
+        logger.info(f"Benchmark: {imgsz}x{imgsz}, batch={batch}, device={device}, half={half}")
         logger.info(f"  Latency: {dt:.2f} ms")
         logger.info(f"  Throughput: {fps:.2f} FPS")
         return {"latency_ms": dt, "fps": fps}
@@ -403,19 +383,19 @@ class NeuroPilot(nn.Module):
                 "state_dict": self.model.state_dict(),
                 "task": self.task_name,
                 "overrides": self.overrides,
-                "scale": self.overrides.get('scale', 'n'),
-                "cfg": self.cfg_obj
+                "scale": self.overrides.get("scale", "n"),
+                "cfg": self.cfg_obj,
             },
             filename,
         )
 
     def to(self, *args, **kwargs):
         """Override to move backend as well."""
-        device = select_device(args[0]) if args else select_device(kwargs.get('device', ""))
+        device = select_device(args[0]) if args else select_device(kwargs.get("device", ""))
         self.target_device = device
-        if hasattr(self, 'backend'):
+        if hasattr(self, "backend"):
             self.backend.device = device
-            if hasattr(self.backend, 'model'):
+            if hasattr(self.backend, "model"):
                 self.backend.model.to(device)
         return super().to(device)
 
@@ -423,9 +403,9 @@ class NeuroPilot(nn.Module):
         """Override to set backend to FP16."""
         if self.model:
             self.model.half()
-        if hasattr(self, 'backend'):
+        if hasattr(self, "backend"):
             self.backend.fp16 = True
-            if hasattr(self.backend, 'model'):
+            if hasattr(self.backend, "model"):
                 self.backend.model.half()
         return self
 
@@ -466,8 +446,6 @@ class NeuroPilot(nn.Module):
             pass
 
         if attr in {"model", "task_wrapper", "overrides"}:
-            raise AttributeError(
-                f"'{type(self).__name__}' object has no attribute '{attr}'"
-            )
+            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{attr}'")
 
         return getattr(self.model, attr)

@@ -1,4 +1,3 @@
-
 import unittest
 import torch
 import shutil
@@ -8,6 +7,7 @@ from unittest.mock import MagicMock, patch
 from neuro_pilot.engine.trainer import Trainer
 from neuro_pilot.cfg.schema import AppConfig
 from neuro_pilot.data.neuro_pilot_dataset import create_dummy_dataloader
+
 
 class TestE2ETrain(unittest.TestCase):
     def setUp(self):
@@ -37,7 +37,7 @@ class TestE2ETrain(unittest.TestCase):
         trainer = Trainer(self.cfg)
 
         # Patch prepare_dataloaders to avoid real DB access during setup
-        with patch('neuro_pilot.data.prepare_dataloaders', return_value=(loader, loader)):
+        with patch("neuro_pilot.data.prepare_dataloaders", return_value=(loader, loader)):
             trainer.setup()
 
         # Run 1 epoch
@@ -61,9 +61,10 @@ class TestE2ETrain(unittest.TestCase):
 
         # Check if loss was computed
         self.assertIsNotNone(trainer.batch_metrics)
-        self.assertIn('total', trainer.batch_metrics)
+        self.assertIn("total", trainer.batch_metrics)
         # Check if batch size was correct
-        self.assertEqual(trainer.current_batch['image'].shape[0], 2)
+        self.assertEqual(trainer.current_batch["image"].shape[0], 2)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

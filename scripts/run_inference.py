@@ -1,6 +1,6 @@
-
 from neuro_pilot.engine.model import NeuroPilot
 from pathlib import Path
+
 
 def main():
     # 1. Load trained model
@@ -32,6 +32,7 @@ def main():
         print(f"Success: Prediction saved to {save_path}")
     else:
         print("Error: No results returned from predictor.")
+
 
 if __name__ == "__main__":
     main()

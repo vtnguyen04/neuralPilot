@@ -4,6 +4,7 @@ import numpy as np
 from typing import Union, List, Tuple
 from neuro_pilot.utils.torch_utils import default_names
 
+
 class BaseBackend(ABC):
     """
     Abstract Base Class for Inference Backends.
@@ -16,6 +17,7 @@ class BaseBackend(ABC):
         self.fp16 = fp16
         self.warmup_done = False
         from neuro_pilot.cfg.schema import HeadConfig
+
         self.names = default_names(HeadConfig().num_classes)
 
     @abstractmethod

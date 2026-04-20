@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 
+
 class Embedder(nn.Module):
     def __init__(
         self,
@@ -27,6 +28,7 @@ class Embedder(nn.Module):
         x = x.permute(0, 2, 1)
         x = self.embed(x)
         return x
+
 
 class MLP(nn.Module):
     """Simple MLP with optional normalization and activation"""

@@ -3,6 +3,7 @@ from neuro_pilot.core.registry import Registry
 import torch.nn as nn
 from neuro_pilot.nn.modules import TrajectoryHead
 
+
 @Registry.register_task("trajectory")
 class TrajectoryTask(BaseTask):
     def build_model(self) -> nn.Module:
@@ -14,28 +15,37 @@ class TrajectoryTask(BaseTask):
 
     def build_criterion(self) -> nn.Module:
         from neuro_pilot.utils.losses import TrajectoryLossAtomic
+
         return TrajectoryLossAtomic(self.cfg)
 
-    def get_trainer(self): pass
+    def get_trainer(self):
+        pass
+
     def get_validator(self):
         from neuro_pilot.utils.metrics import TrajectoryMetric
+
         return TrajectoryMetric()
+
 
 @Registry.register_task("heatmap")
 class HeatmapTask(BaseTask):
     def build_model(self) -> nn.Module:
         if self.backbone:
-             c2 = getattr(self.backbone, 'c2_dim', 512)
-             self.model = HeatmapHead(c1=[128, c2], ch_out=1)
-             return self.model
+            c2 = getattr(self.backbone, "c2_dim", 512)
+            self.model = HeatmapHead(c1=[128, c2], ch_out=1)
+            return self.model
         raise NotImplementedError
 
     def build_criterion(self) -> nn.Module:
-         from neuro_pilot.utils.losses import HeatmapLossAtomic
-         return HeatmapLossAtomic(self.cfg)
+        from neuro_pilot.utils.losses import HeatmapLossAtomic
 
-    def get_trainer(self): pass
+        return HeatmapLossAtomic(self.cfg)
+
+    def get_trainer(self):
+        pass
+
     def get_validator(self):
         return None
+
 
 from neuro_pilot.nn.modules import HeatmapHead

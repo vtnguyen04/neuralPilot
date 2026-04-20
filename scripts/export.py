@@ -1,4 +1,3 @@
-
 import argparse
 import sys
 from pathlib import Path
@@ -12,11 +11,12 @@ from neuro_pilot.engine.model import NeuroPilot
 from neuro_pilot.engine.exporter import Exporter
 from neuro_pilot.utils.logger import logger
 
+
 def export(args):
     # Load model
     logger.info(f"Loading model from {args.model}...")
     model = NeuroPilot(args.model, scale=args.scale)
-    model.model.to('cpu') # Ensure CPU for export stability unless using TRT
+    model.model.to("cpu")  # Ensure CPU for export stability unless using TRT
 
     # Config
     cfg = model.cfg_obj
@@ -24,29 +24,25 @@ def export(args):
         cfg.data.image_size = args.imgsz
 
     # Exporter
-    exporter = Exporter(cfg, model, 'cpu')
+    exporter = Exporter(cfg, model, "cpu")
 
     # Export
-    kwargs = {
-        'format': args.format,
-        'imgsz': args.imgsz,
-        'dynamic': args.dynamic,
-        'end2end': args.end2end
-    }
+    kwargs = {"format": args.format, "imgsz": args.imgsz, "dynamic": args.dynamic, "end2end": args.end2end}
     if args.output:
-        kwargs['file'] = args.output
+        kwargs["file"] = args.output
 
     exporter(**kwargs)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', type=str, required=True, help='Path to .pt model')
-    parser.add_argument('--format', type=str, default='onnx', help='Export format (onnx, engine)')
-    parser.add_argument('--imgsz', type=int, default=320, help='Image size')
-    parser.add_argument('--dynamic', action='store_true', help='Dynamic axes')
-    parser.add_argument('--end2end', action='store_true', help='Export with NMS (End-to-End)')
-    parser.add_argument('--output', type=str, default=None, help='Output file path')
-    parser.add_argument('--scale', type=str, default='s', help='Model scale (n, s, m, l, x)')
+    parser.add_argument("--model", type=str, required=True, help="Path to .pt model")
+    parser.add_argument("--format", type=str, default="onnx", help="Export format (onnx, engine)")
+    parser.add_argument("--imgsz", type=int, default=320, help="Image size")
+    parser.add_argument("--dynamic", action="store_true", help="Dynamic axes")
+    parser.add_argument("--end2end", action="store_true", help="Export with NMS (End-to-End)")
+    parser.add_argument("--output", type=str, default=None, help="Output file path")
+    parser.add_argument("--scale", type=str, default="s", help="Model scale (n, s, m, l, x)")
     args = parser.parse_args()
 
     export(args)

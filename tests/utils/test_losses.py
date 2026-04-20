@@ -1,8 +1,8 @@
-
 import unittest
 import torch
 import torch.nn as nn
 from neuro_pilot.utils.losses import MultiTaskLossManager
+
 
 # Helper Classes to replace fragile MagicMocks
 class MockHead(nn.Module):
@@ -12,15 +12,17 @@ class MockHead(nn.Module):
         self.nc = 80
         self.stride = torch.tensor([8.0, 16.0, 32.0])
 
+
 class MockModel(nn.Module):
     def __init__(self):
         super().__init__()
         self.epoch = 0
         self.det_head = MockHead()
-        self.heads = {'detect': self.det_head}
+        self.heads = {"detect": self.det_head}
 
     def parameters(self):
         return iter([torch.tensor(0.0)])
+
 
 class TestLosses(unittest.TestCase):
     def setUp(self):
@@ -40,7 +42,7 @@ class TestLosses(unittest.TestCase):
         self.config = MockConfig()
 
         self.model = MockModel()
-        self.device = 'cpu'
+        self.device = "cpu"
 
         self.loss_fn = MultiTaskLossManager(self.config, self.model, device=self.device)
 
@@ -48,6 +50,7 @@ class TestLosses(unittest.TestCase):
         class MockHeatmapLoss(nn.Module):
             def generate_heatmap(self, coords, H, W):
                 return torch.zeros(2, 1, 32, 32)
+
             def forward(self, pred, tgt):
                 return torch.tensor(0.0)
 
@@ -83,19 +86,19 @@ class TestLosses(unittest.TestCase):
     def test_gate_sparsity_loss(self):
         # 1. Prediction with High Gate
         predictions = {
-            'waypoints': torch.zeros(2, 10, 2),
-            'heatmap': torch.zeros(2, 1, 32, 32),
-            'gate_score': torch.tensor([[[0.9]], [[0.8]]]),
-            'classes': torch.zeros(2, 4), # Need classes so gt_cls is populated
-            'detect': None
+            "waypoints": torch.zeros(2, 10, 2),
+            "heatmap": torch.zeros(2, 1, 32, 32),
+            "gate_score": torch.tensor([[[0.9]], [[0.8]]]),
+            "classes": torch.zeros(2, 4),  # Need classes so gt_cls is populated
+            "detect": None,
         }
 
         # gt_cls: [0, 1] means First is Straight (Gate 0), Second is Turn (Gate 1)
         # So gt_gate = [[[0.0]], [[1.0]]]
         targets = {
-            'image': torch.zeros(2, 3, 32, 32),
-            'waypoints': torch.zeros(2, 10, 2),
-            'command_idx': torch.tensor([0, 1])
+            "image": torch.zeros(2, 3, 32, 32),
+            "waypoints": torch.zeros(2, 10, 2),
+            "command_idx": torch.tensor([0, 1]),
         }
 
         loss_dict = self.loss_fn.forward(predictions, targets)
@@ -105,16 +108,18 @@ class TestLosses(unittest.TestCase):
         # Loss 2: BCE(0.8, 1) = -log(0.8) approx 0.2231
         # Mean approx 1.2628
         import torch.nn.functional as F
+
         expected_loss = F.binary_cross_entropy(torch.tensor([[[0.9]], [[0.8]]]), torch.tensor([[[0.0]], [[1.0]]]))
-        self.assertAlmostEqual(loss_dict['gate'].item(), expected_loss.item(), places=3)
+        self.assertAlmostEqual(loss_dict["gate"].item(), expected_loss.item(), places=3)
 
         # 2. Prediction with Perfect Gate
-        predictions['gate_score'] = torch.tensor([[[0.0]], [[1.0]]])
+        predictions["gate_score"] = torch.tensor([[[0.0]], [[1.0]]])
         loss_dict_low = self.loss_fn.forward(predictions, targets)
 
         # Expected Gate Loss: approx 0
         expected_low = F.binary_cross_entropy(torch.tensor([[[0.0]], [[1.0]]]), torch.tensor([[[0.0]], [[1.0]]]))
-        self.assertAlmostEqual(loss_dict_low['gate'].item(), expected_low.item(), places=3)
+        self.assertAlmostEqual(loss_dict_low["gate"].item(), expected_low.item(), places=3)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

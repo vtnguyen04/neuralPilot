@@ -8,15 +8,19 @@ from .pytorch import PyTorchBackend
 from .tensorrt import TensorRTBackend
 from .onnx import ONNXBackend
 
+
 class AutoBackend:
     """
     Factory for selecting and instantiating the correct inference backend.
     """
+
     @classmethod
-    def create(cls, weights: Union[str, Path, nn.Module], device: torch.device = None, fp16: bool = False, fuse: bool = False) -> BaseBackend:
+    def create(
+        cls, weights: Union[str, Path, nn.Module], device: torch.device = None, fp16: bool = False, fuse: bool = False
+    ) -> BaseBackend:
 
         if device is None:
-            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         if isinstance(weights, nn.Module):
             return PyTorchBackend(weights, device, fp16, fuse)
@@ -27,13 +31,13 @@ class AutoBackend:
 
         suffix = w.suffix.lower()
 
-        if suffix in ['.engine', '.plan']:
+        if suffix in [".engine", ".plan"]:
             logger.info(f"Detected TensorRT engine: {w}")
             return TensorRTBackend(str(w), device, fp16)
-        elif suffix == '.onnx':
+        elif suffix == ".onnx":
             logger.info(f"Detected ONNX model: {w}")
             return ONNXBackend(str(w), device, fp16)
-        elif suffix in ['.pt', '.pth']:
+        elif suffix in [".pt", ".pth"]:
             logger.info(f"Detected PyTorch checkpoint: {w}")
             return PyTorchBackend(str(w), device, fp16, fuse)
         else:

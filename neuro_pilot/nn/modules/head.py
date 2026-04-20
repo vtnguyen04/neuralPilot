@@ -16,12 +16,20 @@ from .base import BaseHead
 from .deformable import WaypointQueryDecoder, sinusoidal_positional_encoding
 
 __all__ = [
-    "Detect", "UnifiedDetectionHead", "HeatmapHead", "TrajectoryHead",
-    "DeformableTrajectoryHead", "BaseHead", "Segment", "ClassificationHead",
+    "Detect",
+    "UnifiedDetectionHead",
+    "HeatmapHead",
+    "TrajectoryHead",
+    "DeformableTrajectoryHead",
+    "BaseHead",
+    "Segment",
+    "ClassificationHead",
 ]
+
 
 class Detect(BaseHead):
     """YOLO Detect head for object detection models."""
+
     dynamic = False
     export = False
     format = None
@@ -78,7 +86,9 @@ class Detect(BaseHead):
     def end2end(self, value):
         self._end2end = value
 
-    def forward_head(self, x: list[torch.Tensor], box_head: torch.nn.Module = None, cls_head: torch.nn.Module = None) -> dict[str, torch.Tensor]:
+    def forward_head(
+        self, x: list[torch.Tensor], box_head: torch.nn.Module = None, cls_head: torch.nn.Module = None
+    ) -> dict[str, torch.Tensor]:
         if box_head is None or cls_head is None:
             return dict()
         bs = x[0].shape[0]
@@ -100,12 +110,12 @@ class Detect(BaseHead):
                 res["one2one"] = one2one_preds
                 res["detect"]["one2one"] = one2one_preds
 
-            res['detect']['feats'] = x
+            res["detect"]["feats"] = x
             return res
 
         x[0].shape[0]
-        box_preds = one2many_preds['boxes']
-        score_preds = one2many_preds['scores']
+        box_preds = one2many_preds["boxes"]
+        score_preds = one2many_preds["scores"]
 
         if self.dynamic or self.shape != x[0].shape:
             self.anchors, self.strides = (a.transpose(0, 1) for a in make_anchors(x, self.stride, 0.5))
@@ -117,8 +127,8 @@ class Detect(BaseHead):
 
         res = {
             "bboxes": y,
-            "boxes": one2many_preds['boxes'],
-            "scores": one2many_preds['scores'],
+            "boxes": one2many_preds["boxes"],
+            "scores": one2many_preds["scores"],
             "feats": x,
         }
         return res
@@ -137,6 +147,7 @@ class Detect(BaseHead):
                 a[-1].bias.data[:] = 2.0
                 b[-1].bias.data[: self.nc] = math.log(5 / self.nc / (640 / self.stride[i]) ** 2)
 
+
 class UnifiedDetectionHead(Detect):
     end2end = True
 
@@ -152,6 +163,7 @@ class UnifiedDetectionHead(Detect):
             for x in ch
         )
         self.one2one_cv3 = copy.deepcopy(self.cv3)
+
 
 class HeatmapHead(BaseHead):
     """Full-resolution heatmap decoder with progressive upsampling.
@@ -170,6 +182,7 @@ class HeatmapHead(BaseHead):
         hidden_dim: internal channel width
         num_upsample: number of ×2 upsample stages (1=stride 4, 2=stride 2, 3=stride 1)
     """
+
     head_name = "heatmap"
 
     def __init__(self, ch_in, ch_out=1, hidden_dim=64, num_upsample=3):
@@ -180,7 +193,7 @@ class HeatmapHead(BaseHead):
 
         self.gate_c2 = AttentionGate(F_g=c3_dim, F_l=c2_dim, F_int=hidden_dim)
         self.up_p3_to_p2 = nn.Sequential(
-            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),
+            nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False),
             Conv(c3_dim, hidden_dim, 3, 1),
         )
         self.fuse_s1 = C3k2(hidden_dim + c2_dim, hidden_dim, n=1)
@@ -225,12 +238,15 @@ class HeatmapHead(BaseHead):
 
         return {"heatmap": self.head(h)}
 
+
 class TrajectoryHead(BaseHead):
     """
     Trajectory Head using Bezier Curves (Bernstein Basis).
     Uses FiLM for command modulation and predicts 4 control points.
     """
+
     forward_with_kwargs = True
+
     def __init__(self, ch_in, num_commands=4, num_waypoints=10, *args, **kwargs):
         super().__init__()
         self.c5_dim = ch_in[0] if isinstance(ch_in, list) else ch_in
@@ -238,56 +254,48 @@ class TrajectoryHead(BaseHead):
         self.num_waypoints = num_waypoints
 
         self.cmd_embed = nn.Embedding(num_commands, 64)
-        self.film_gen = nn.Sequential(
-            nn.Linear(64, 256),
-            nn.ReLU(inplace=True),
-            nn.Linear(256, 1024)
-        )
+        self.film_gen = nn.Sequential(nn.Linear(64, 256), nn.ReLU(inplace=True), nn.Linear(256, 1024))
 
         flatten_dim = self.c5_dim * 4 * 4
 
         from neuro_pilot.cfg.schema import HeadConfig
-        self.use_vego = getattr(HeadConfig(), 'use_vego', True)
+
+        self.use_vego = getattr(HeadConfig(), "use_vego", True)
         vision_in_dim = flatten_dim + 64 + (1 if self.use_vego else 0)
 
-        self.vision_stem = nn.Sequential(
-            nn.Linear(vision_in_dim, 512),
-            nn.BatchNorm1d(512),
-            nn.ReLU(inplace=True)
-        )
+        self.vision_stem = nn.Sequential(nn.Linear(vision_in_dim, 512), nn.BatchNorm1d(512), nn.ReLU(inplace=True))
 
         self.traj_head = nn.Sequential(
-            nn.Linear(512, 512),
-            nn.BatchNorm1d(512),
-            nn.ReLU(inplace=True),
-            nn.Linear(512, 4 * 2)
+            nn.Linear(512, 512), nn.BatchNorm1d(512), nn.ReLU(inplace=True), nn.Linear(512, 4 * 2)
         )
 
-        self.exist_head = nn.Sequential(
-            nn.Linear(512, 1)
-        )
+        self.exist_head = nn.Sequential(nn.Linear(512, 1))
 
         t = torch.linspace(0, 1, num_waypoints)
-        self.register_buffer('bernstein_m', self._compute_bernstein_matrix(t))
+        self.register_buffer("bernstein_m", self._compute_bernstein_matrix(t))
 
     def _compute_bernstein_matrix(self, t):
         b0 = (1 - t) ** 3
         b1 = 3 * (1 - t) ** 2 * t
-        b2 = 3 * (1 - t) * t ** 2
-        b3 = t ** 3
+        b2 = 3 * (1 - t) * t**2
+        b3 = t**3
         return torch.stack([b0, b1, b2, b3], dim=1)
 
     def forward(self, x, **kwargs):
-        cmd_idx = kwargs.get('cmd', kwargs.get('cmd_idx'))
-        heatmap = kwargs.get('heatmap')
-        if isinstance(x, list): p5 = x[0]
-        else: p5 = x
+        cmd_idx = kwargs.get("cmd", kwargs.get("cmd_idx"))
+        heatmap = kwargs.get("heatmap")
+        if isinstance(x, list):
+            p5 = x[0]
+        else:
+            p5 = x
         B = p5.shape[0]
-        if cmd_idx is None: cmd_idx = torch.zeros(B, dtype=torch.long, device=p5.device)
+        if cmd_idx is None:
+            cmd_idx = torch.zeros(B, dtype=torch.long, device=p5.device)
 
         if heatmap is not None:
-            if isinstance(heatmap, dict): heatmap = heatmap.get('heatmap')
-            mask = F.interpolate(torch.sigmoid(heatmap), size=p5.shape[2:], mode='bilinear', align_corners=False)
+            if isinstance(heatmap, dict):
+                heatmap = heatmap.get("heatmap")
+            mask = F.interpolate(torch.sigmoid(heatmap), size=p5.shape[2:], mode="bilinear", align_corners=False)
             feat = p5 * (1.0 + mask)
         else:
             feat = p5
@@ -300,15 +308,15 @@ class TrajectoryHead(BaseHead):
 
         dtype = self.vision_stem[0].weight.dtype
         cmd_emb = self.cmd_embed(cmd_idx.long()).to(dtype)
-        pooled = F.interpolate(feat, size=(4, 4), mode='bilinear', align_corners=False).flatten(1).to(dtype)
+        pooled = F.interpolate(feat, size=(4, 4), mode="bilinear", align_corners=False).flatten(1).to(dtype)
 
-        vEgo = kwargs.get('vEgo')
+        vEgo = kwargs.get("vEgo")
         if vEgo is None:
             vEgo = torch.zeros(B, 1, dtype=dtype, device=p5.device)
         else:
             if vEgo.dim() == 1:
                 vEgo = vEgo.unsqueeze(-1)
-            vEgo = vEgo.to(dtype) / 30.0 # Normalize assuming max 30m/s (108km/h) for scaling stable gradient
+            vEgo = vEgo.to(dtype) / 30.0  # Normalize assuming max 30m/s (108km/h) for scaling stable gradient
 
         if self.use_vego:
             combined = torch.cat([pooled, cmd_emb, vEgo], dim=1)
@@ -337,18 +345,19 @@ class TrajectoryHead(BaseHead):
                 h_exist = h_exist.to(dtype)
         has_traj_logit = h_exist
 
-        waypoints = torch.einsum('nk,bkd->bnd', self.bernstein_m.to(cp.dtype), cp)
+        waypoints = torch.einsum("nk,bkd->bnd", self.bernstein_m.to(cp.dtype), cp)
 
         waypoints = torch.nan_to_num(waypoints, 0.0)
 
-        res = {'waypoints': waypoints, 'control_points': cp, 'has_traj_logit': has_traj_logit}
-        return {'trajectory': res, **res}
+        res = {"waypoints": waypoints, "control_points": cp, "has_traj_logit": has_traj_logit}
+        return {"trajectory": res, **res}
 
     def _apply_film(self, h, cmd_emb):
         """Apply FiLM modulation."""
         film_params = self.film_gen(cmd_emb)
         gamma, beta = film_params.chunk(2, dim=1)
         return h * (1 + gamma) + beta
+
 
 class Segment(Detect):
     """YOLO Segment head for segmentation models."""
@@ -374,7 +383,13 @@ class Segment(Detect):
         """Returns the one-to-one head components (if end2end)."""
         return dict(box_head=self.one2one_cv2, cls_head=self.one2one_cv3, mask_head=self.one2one_cv4)
 
-    def forward_head(self, x: list[torch.Tensor], box_head: torch.nn.Module = None, cls_head: torch.nn.Module = None, mask_head: torch.nn.Module = None) -> dict[str, torch.Tensor]:
+    def forward_head(
+        self,
+        x: list[torch.Tensor],
+        box_head: torch.nn.Module = None,
+        cls_head: torch.nn.Module = None,
+        mask_head: torch.nn.Module = None,
+    ) -> dict[str, torch.Tensor]:
         """Concatenates predictions including mask coefficients."""
         preds = super().forward_head(x, box_head, cls_head)
         if mask_head is not None:
@@ -397,6 +412,7 @@ class Segment(Detect):
             preds["detect"]["proto"] = proto
 
         return preds
+
 
 class DeformableTrajectoryHead(BaseHead):
     """DETR-style trajectory head with standard deformable attention.
@@ -517,13 +533,9 @@ class DeformableTrajectoryHead(BaseHead):
         memory = feat.flatten(2).permute(0, 2, 1)
 
         # Single-scale spatial info
-        spatial_shapes = torch.tensor(
-            [[H, W]], dtype=torch.long, device=feat.device
-        )
+        spatial_shapes = torch.tensor([[H, W]], dtype=torch.long, device=feat.device)
         spatial_shapes_list = [(H, W)]
-        level_start_index = torch.tensor(
-            [0], dtype=torch.long, device=feat.device
-        )
+        level_start_index = torch.tensor([0], dtype=torch.long, device=feat.device)
 
         # --- Build queries ---
         queries = self.waypoint_queries.weight.unsqueeze(0).expand(B, -1, -1)  # [B, T, D]
@@ -550,9 +562,7 @@ class DeformableTrajectoryHead(BaseHead):
         # --- Reference points ---
         # Predict initial reference points from queries, sigmoid → [0, 1]
         reference_points = self.reference_points_head(query_pos).sigmoid()  # [B, T, 2]
-        reference_points = reference_points.unsqueeze(2).expand(
-            -1, -1, self.n_levels, -1
-        )  # [B, T, n_levels, 2]
+        reference_points = reference_points.unsqueeze(2).expand(-1, -1, self.n_levels, -1)  # [B, T, n_levels, 2]
 
         # --- Decode ---
         decoded = self.decoder(
@@ -583,6 +593,7 @@ class ClassificationHead(nn.Module):
     """
     Classification Head for global attributes.
     """
+
     def __init__(self, ch, nc, hidden_dim=256, dropout=0.0):
         super().__init__()
         c_in = ch[-1] if isinstance(ch, (list, tuple)) else ch
@@ -592,11 +603,12 @@ class ClassificationHead(nn.Module):
             nn.BatchNorm1d(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Dropout(dropout) if dropout > 0 else nn.Identity(),
-            nn.Linear(hidden_dim, nc)
+            nn.Linear(hidden_dim, nc),
         )
 
     def forward(self, x):
-        if isinstance(x, (list, tuple)): x = x[-1]
+        if isinstance(x, (list, tuple)):
+            x = x[-1]
 
         dtype = self.conv[0].weight.dtype
         x = self.pool(x).flatten(1).to(dtype)

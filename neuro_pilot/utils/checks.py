@@ -14,9 +14,11 @@ PYTHON_VERSION = platform.python_version()
 TORCH_VERSION = str(torch.__version__)
 USER_CONFIG_DIR = Path(os.getenv("NEUROPILOT_CONFIG_DIR", Path.home() / ".config/neuropilot"))
 
+
 def is_ascii(s: str | list | tuple | dict) -> bool:
     """Check if a string is composed of only ASCII characters."""
     return all(ord(c) < 128 for c in str(s))
+
 
 def check_version(current: str, required: str, name: str = "version", hard: bool = False) -> bool:
     """Check current version against required version string (e.g., '>=8.0.0')."""
@@ -32,20 +34,28 @@ def check_version(current: str, required: str, name: str = "version", hard: bool
     rv = parse(rv_str)
 
     result = True
-    if op == "==": result = cv == rv
-    elif op == "!=": result = cv != rv
-    elif op == ">=": result = cv >= rv
-    elif op == "<=": result = cv <= rv
-    elif op == ">": result = cv > rv
-    elif op == "<": result = cv < rv
+    if op == "==":
+        result = cv == rv
+    elif op == "!=":
+        result = cv != rv
+    elif op == ">=":
+        result = cv >= rv
+    elif op == "<=":
+        result = cv <= rv
+    elif op == ">":
+        result = cv > rv
+    elif op == "<":
+        result = cv < rv
 
     if not result and hard:
         raise ModuleNotFoundError(f"{name}{required} is required, but {name}=={current} is installed.")
     return result
 
+
 def check_python(minimum: str = "3.8.0") -> bool:
     """Check minimum Python version."""
     return check_version(PYTHON_VERSION, minimum, name="Python", hard=True)
+
 
 def check_font(font: str = "Arial.ttf") -> Path:
     """
@@ -59,6 +69,7 @@ def check_font(font: str = "Arial.ttf") -> Path:
 
     return file
 
+
 def check_imgsz(imgsz: int | list[int], stride: int = 32, min_dim: int = 2) -> list[int]:
     """Verify image size is a multiple of stride."""
     if isinstance(imgsz, int):
@@ -67,6 +78,7 @@ def check_imgsz(imgsz: int | list[int], stride: int = 32, min_dim: int = 2) -> l
     if len(sz) == 1 and min_dim == 2:
         sz = [sz[0], sz[0]]
     return sz
+
 
 def check_requirements(requirements: list[str] | str):
     """Check if package requirements are met."""
@@ -82,6 +94,7 @@ def check_requirements(requirements: list[str] | str):
         except metadata.PackageNotFoundError:
             print(f"Warning: {name} not found. Some features may be disabled.")
 
+
 def collect_system_info():
     """Summary of software and hardware environment."""
     info = {
@@ -93,6 +106,7 @@ def collect_system_info():
     }
     return info
 
+
 def check_amp(model):
     """
     Checks if Automatic Mixed Precision (AMP) is available and functional.
@@ -101,18 +115,20 @@ def check_amp(model):
     from neuro_pilot.utils.logger import logger
 
     device = next(model.parameters()).device
-    if device.type == 'cpu':
+    if device.type == "cpu":
         return False
 
     try:
         from torch.cuda.amp import autocast
+
         with autocast():
-             x = torch.zeros(1, 3, 32, 32).to(device)
-             _ = model(x) if not hasattr(model, 'forward_with_kwargs') else model(x)
+            x = torch.zeros(1, 3, 32, 32).to(device)
+            _ = model(x) if not hasattr(model, "forward_with_kwargs") else model(x)
         return True
     except Exception as e:
         logger.warning(f"AMP check failed: {e}. Disabling AMP.")
         return False
+
 
 def find_file(file: str | Path) -> str:
     """Search for a file and return its path as a string."""
@@ -126,6 +142,7 @@ def find_file(file: str | Path) -> str:
 
     return str(file)
 
+
 def check_yaml(file: str | Path) -> str:
     """Finds YAML file and returns path. Searches locally and in package directory."""
     file = str(file)
@@ -136,6 +153,7 @@ def check_yaml(file: str | Path) -> str:
         return os.path.join("cfg", file)
 
     import neuro_pilot
+
     pkg_root = Path(neuro_pilot.__file__).parent
 
     search_paths = [
@@ -151,9 +169,11 @@ def check_yaml(file: str | Path) -> str:
 
     return file
 
+
 def print_args(args: dict):
     """Print training arguments in a professional Ultralytics format."""
     from neuro_pilot.utils.logger import logger
+
     logger.info("Training Arguments:")
     for k, v in args.items():
         logger.info(f"{k:>20}: {v}")

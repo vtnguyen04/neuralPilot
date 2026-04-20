@@ -1,7 +1,7 @@
-
 import unittest
 import torch
 from neuro_pilot.utils.tal import TaskAlignedAssigner
+
 
 class TestTAL(unittest.TestCase):
     def test_assigner_initialization(self):
@@ -18,16 +18,16 @@ class TestTAL(unittest.TestCase):
         assigner = TaskAlignedAssigner(topk=topk, num_classes=n_classes, alpha=0.5, beta=6.0)
 
         # Predictions
-        pd_scores = torch.rand(bs, n_anchors, n_classes) # sigmoid outputs
-        pd_bboxes = torch.rand(bs, n_anchors, 4) * 10 # xyxy format
+        pd_scores = torch.rand(bs, n_anchors, n_classes)  # sigmoid outputs
+        pd_bboxes = torch.rand(bs, n_anchors, 4) * 10  # xyxy format
         anc_points = torch.rand(n_anchors, 2) * 10
         torch.ones(n_anchors, 1)
 
         # Ground Truth
         # 2 GT per image, class 0, box [2,2,4,4] and [5,5,7,7]
-        gt_labels = torch.zeros(bs, 2, 1) # Class 0
-        gt_bboxes = torch.tensor([[[2., 2., 4., 4.], [5., 5., 7., 7.]]]).repeat(bs, 1, 1)
-        mask_gt = torch.ones(bs, 2, 1) # All valid
+        gt_labels = torch.zeros(bs, 2, 1)  # Class 0
+        gt_bboxes = torch.tensor([[[2.0, 2.0, 4.0, 4.0], [5.0, 5.0, 7.0, 7.0]]]).repeat(bs, 1, 1)
+        mask_gt = torch.ones(bs, 2, 1)  # All valid
 
         # Forward
         target_labels, target_bboxes, target_scores, fg_mask, target_gt_idx = assigner(
@@ -44,5 +44,6 @@ class TestTAL(unittest.TestCase):
         # Here 2 GTs, topk=2 => max 4 samples per image
         self.assertTrue(fg_mask.sum(1).max() <= 4)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

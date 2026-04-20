@@ -8,10 +8,12 @@ import time
 from functools import lru_cache
 from typing import IO, Any
 
+
 @lru_cache(maxsize=1)
 def is_noninteractive_console() -> bool:
     """Check for known non-interactive console environments."""
     return "GITHUB_ACTIONS" in os.environ or "RUNPOD_POD_ID" in os.environ
+
 
 class TQDM:
     """Lightweight zero-dependency progress bar for NeuroPilot (adapted from Ultralytics).
@@ -135,12 +137,13 @@ class TQDM:
             import fcntl
             import termios
             import struct
-            return struct.unpack('hh', fcntl.ioctl(sys.stderr.fileno(), termios.TIOCGWINSZ, '1234'))[1]
+
+            return struct.unpack("hh", fcntl.ioctl(sys.stderr.fileno(), termios.TIOCGWINSZ, "1234"))[1]
         except:
-             try:
-                 return os.get_terminal_size().columns
-             except:
-                 return 80
+            try:
+                return os.get_terminal_size().columns
+            except:
+                return 80
 
     def _display(self, final: bool = False) -> None:
         """Display progress bar."""
@@ -191,16 +194,23 @@ class TQDM:
 
         bar = self._generate_bar()
         l_bar = f"{self.desc}: {percent:.0f}%" if self.total else f"{self.desc}"
-        postfix = getattr(self, 'postfix_str', '')
+        postfix = getattr(self, "postfix_str", "")
         r_bar = f"{n_str}/{t_str} {rate_str:>7} {elapsed_str:>5}{remaining_str:<6} {postfix}"
 
         if self.bar_format:
             # Expand format keys to support granular layout
             progress_str = self.bar_format.format(
-                l_bar=l_bar, bar=bar, r_bar=r_bar,
-                desc=self.desc, postfix=postfix, percent=f"{percent:.0f}%",
-                n_str=n_str, t_str=t_str, rate_str=rate_str,
-                elapsed_str=elapsed_str, remaining_str=remaining_str
+                l_bar=l_bar,
+                bar=bar,
+                r_bar=r_bar,
+                desc=self.desc,
+                postfix=postfix,
+                percent=f"{percent:.0f}%",
+                n_str=n_str,
+                t_str=t_str,
+                rate_str=rate_str,
+                elapsed_str=elapsed_str,
+                remaining_str=remaining_str,
             )
         else:
             progress_str = f"{l_bar} {bar} {r_bar}"
@@ -209,7 +219,7 @@ class TQDM:
         ncols_to_use = min(self.ncols, ncols_term) if self.ncols else ncols_term
         if len(progress_str) > ncols_to_use - 1:
             if ncols_to_use > 20:
-                progress_str = progress_str[:ncols_to_use-4] + "..."
+                progress_str = progress_str[: ncols_to_use - 4] + "..."
 
         try:
             if self.noninteractive:
@@ -235,9 +245,12 @@ class TQDM:
     def set_postfix(self, **kwargs: Any) -> None:
         """Set postfix string."""
         if kwargs:
+
             def format_val(v):
-                if isinstance(v, float): return f"{v:.4g}"
+                if isinstance(v, float):
+                    return f"{v:.4g}"
                 return str(v)
+
             postfix = " ".join(f"{k}={format_val(v)}" for k, v in kwargs.items())
             self.set_postfix_str(postfix)
 

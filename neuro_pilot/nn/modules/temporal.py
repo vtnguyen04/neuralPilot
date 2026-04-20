@@ -39,11 +39,13 @@ AGGREGATOR_REGISTRY: dict[str, type["BaseAggregator"]] = {}
 
 def register_aggregator(name: str):
     """Class decorator that registers a temporal aggregation strategy."""
+
     def _decorator(cls: type[BaseAggregator]) -> type[BaseAggregator]:
         if name in AGGREGATOR_REGISTRY:
             logger.warning(f"Aggregator '{name}' already registered. Overwriting.")
         AGGREGATOR_REGISTRY[name] = cls
         return cls
+
     return _decorator
 
 
@@ -110,7 +112,7 @@ class ConcatAggregator(BaseAggregator):
         if T < self.clip_length:
             pad = [frame_features[-1]] * (self.clip_length - T)
             frame_features = list(frame_features) + pad
-        feats = torch.cat(frame_features[:self.clip_length], dim=-1)  # [B, D*T]
+        feats = torch.cat(frame_features[: self.clip_length], dim=-1)  # [B, D*T]
         context = self.reduce(feats)  # [B, D]
         return {"context": context}
 
@@ -128,8 +130,10 @@ class TemporalAttentionAggregator(BaseAggregator):
         self.temporal_pe = nn.Parameter(torch.randn(1, clip_length, feature_dim) * 0.02)
 
         self.cross_attn = nn.MultiheadAttention(
-            embed_dim=feature_dim, num_heads=num_heads,
-            dropout=dropout, batch_first=True,
+            embed_dim=feature_dim,
+            num_heads=num_heads,
+            dropout=dropout,
+            batch_first=True,
         )
         self.norm1 = nn.LayerNorm(feature_dim)
         self.ffn = nn.Sequential(
@@ -193,8 +197,10 @@ class GRUAggregator(BaseAggregator):
     def __init__(self, feature_dim: int, clip_length: int, **kwargs):
         super().__init__(feature_dim, clip_length)
         self.gru = nn.GRU(
-            input_size=feature_dim, hidden_size=feature_dim,
-            num_layers=1, batch_first=True,
+            input_size=feature_dim,
+            hidden_size=feature_dim,
+            num_layers=1,
+            batch_first=True,
         )
 
     def forward(self, frame_features, temporal_mask=None):

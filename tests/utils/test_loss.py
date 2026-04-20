@@ -1,8 +1,8 @@
-
 import unittest
 import torch
 from neuro_pilot.utils.losses import MultiTaskLossManager
 from omegaconf import OmegaConf
+
 
 class MockModel(torch.nn.Module):
     def __init__(self):
@@ -12,26 +12,24 @@ class MockModel(torch.nn.Module):
         # Looking at losses.py, it uses self.cfg.
         pass
 
+
 class TestMultiTaskLossManager(unittest.TestCase):
     def setUp(self):
-        self.cfg = OmegaConf.create({
-            'head': {
-                'num_classes': 14,
-                'num_control_points': 4,
-                'num_waypoints': 10,
-                'anchor_free': True
-            },
-            'loss': {
-                'lambda_traj': 1.0,
-                'lambda_bra': 1.0,
-                'lambda_obj': 1.0,
-                'lambda_cls': 1.0,
-                'lambda_box': 1.0,
-                'use_dfl': False
-            },
-            'trainer': {'device': 'cpu'},
-            'data': {'strides': [8, 16, 32]} # Example strides
-        })
+        self.cfg = OmegaConf.create(
+            {
+                "head": {"num_classes": 14, "num_control_points": 4, "num_waypoints": 10, "anchor_free": True},
+                "loss": {
+                    "lambda_traj": 1.0,
+                    "lambda_bra": 1.0,
+                    "lambda_obj": 1.0,
+                    "lambda_cls": 1.0,
+                    "lambda_box": 1.0,
+                    "use_dfl": False,
+                },
+                "trainer": {"device": "cpu"},
+                "data": {"strides": [8, 16, 32]},  # Example strides
+            }
+        )
         self.model = MockModel()
 
     def test_loss_initialization(self):
@@ -48,5 +46,6 @@ class TestMultiTaskLossManager(unittest.TestCase):
         # which is complex. For now, we verify import and basic init.
         pass
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

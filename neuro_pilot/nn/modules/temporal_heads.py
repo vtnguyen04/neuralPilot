@@ -64,7 +64,9 @@ class TemporalTrajectoryHead(BaseHead):
         # --- Command embedding + FiLM (same as TrajectoryHead) ---
         self.cmd_embed = nn.Embedding(num_commands, 64)
         self.film_gen = nn.Sequential(
-            nn.Linear(64, 256), nn.ReLU(inplace=True), nn.Linear(256, 1024),
+            nn.Linear(64, 256),
+            nn.ReLU(inplace=True),
+            nn.Linear(256, 1024),
         )
 
         # --- Spatial stem ---
@@ -89,7 +91,9 @@ class TemporalTrajectoryHead(BaseHead):
 
         # --- Trajectory head (Bézier) ---
         self.traj_head = nn.Sequential(
-            nn.Linear(512, 512), nn.LayerNorm(512), nn.ReLU(inplace=True),
+            nn.Linear(512, 512),
+            nn.LayerNorm(512),
+            nn.ReLU(inplace=True),
             nn.Linear(512, 4 * 2),
         )
         self.exist_head = nn.Linear(512, 1)
@@ -97,7 +101,8 @@ class TemporalTrajectoryHead(BaseHead):
         # --- Optional velocity prediction ---
         if predict_velocity:
             self.velocity_head = nn.Sequential(
-                nn.Linear(512, 128), nn.ReLU(inplace=True),
+                nn.Linear(512, 128),
+                nn.ReLU(inplace=True),
                 nn.Linear(128, num_waypoints),
             )
 
@@ -109,8 +114,8 @@ class TemporalTrajectoryHead(BaseHead):
     def _bernstein(t: torch.Tensor) -> torch.Tensor:
         b0 = (1 - t) ** 3
         b1 = 3 * (1 - t) ** 2 * t
-        b2 = 3 * (1 - t) * t ** 2
-        b3 = t ** 3
+        b2 = 3 * (1 - t) * t**2
+        b3 = t**3
         return torch.stack([b0, b1, b2, b3], dim=1)
 
     def _apply_film(self, h, cmd_emb):

@@ -29,6 +29,7 @@ from neuro_pilot.utils.logger import logger
 
 # ─── GPU Preprocessing ──────────────────────────────────────────────────────
 
+
 def preprocess_gpu(frame: np.ndarray, imgsz: int, device: torch.device) -> tuple:
     """
     Letterbox + normalize on GPU. Returns (tensor, ratio, (dw, dh)).
@@ -49,35 +50,37 @@ def preprocess_gpu(frame: np.ndarray, imgsz: int, device: torch.device) -> tuple
     # Pad
     top, bottom = int(round(dh - 0.1)), int(round(dh + 0.1))
     left, right = int(round(dw - 0.1)), int(round(dw + 0.1))
-    padded = cv2.copyMakeBorder(resized, top, bottom, left, right,
-                                cv2.BORDER_CONSTANT, value=(114, 114, 114))
+    padded = cv2.copyMakeBorder(resized, top, bottom, left, right, cv2.BORDER_CONSTANT, value=(114, 114, 114))
 
     # Transfer to GPU + normalize (all on GPU)
     img_t = torch.from_numpy(padded).to(device, non_blocking=True)  # [H, W, 3] uint8
-    img_t = img_t.permute(2, 0, 1).flip(0)     # HWC→CHW, BGR→RGB
-    img_t = img_t.float().div_(255.0)            # normalize [0,1]
-    img_t = img_t.unsqueeze(0).contiguous()      # add batch dim
+    img_t = img_t.permute(2, 0, 1).flip(0)  # HWC→CHW, BGR→RGB
+    img_t = img_t.float().div_(255.0)  # normalize [0,1]
+    img_t = img_t.unsqueeze(0).contiguous()  # add batch dim
 
     return img_t, r, (dw, dh)
 
 
 # ─── GPU NMS ─────────────────────────────────────────────────────────────────
 
-def nms_gpu(pred: torch.Tensor, conf_thres: float = 0.25, iou_thres: float = 0.45,
-            max_det: int = 300, nc: int = 14) -> list:
+
+def nms_gpu(
+    pred: torch.Tensor, conf_thres: float = 0.25, iou_thres: float = 0.45, max_det: int = 300, nc: int = 14
+) -> list:
     """
     GPU-native NMS for YOLO-style detection output.
     pred: [B, 4+nc, N] raw detection output (xywh + class scores).
     Returns: list of [N_det, 6] tensors (x1,y1,x2,y2,conf,cls) per batch.
     """
     from neuro_pilot.utils.nms import non_max_suppression
+
     # Check shape: NMS expects [B, 4+nc, N]
     # In ExportAdapter, we flatten it to [B, 18, N] which matches this format.
-    return non_max_suppression(pred, conf_thres=conf_thres, iou_thres=iou_thres,
-                               max_det=max_det, nc=nc)
+    return non_max_suppression(pred, conf_thres=conf_thres, iou_thres=iou_thres, max_det=max_det, nc=nc)
 
 
 # ─── Scale Coordinates Back ─────────────────────────────────────────────────
+
 
 def scale_boxes(boxes: torch.Tensor, ratio: float, dw: float, dh: float) -> torch.Tensor:
     """Scale xyxy boxes from letterboxed space back to original image coordinates."""
@@ -87,8 +90,7 @@ def scale_boxes(boxes: torch.Tensor, ratio: float, dw: float, dh: float) -> torc
     return boxes
 
 
-def scale_trajectory(traj: np.ndarray, imgsz: int, ratio: float,
-                     dw: float, dh: float) -> np.ndarray:
+def scale_trajectory(traj: np.ndarray, imgsz: int, ratio: float, dw: float, dh: float) -> np.ndarray:
     """Denormalize trajectory from [-1,1] to original image pixels."""
     # [-1, 1] → [0, imgsz]
     pts = (traj + 1) / 2 * imgsz
@@ -103,8 +105,16 @@ def scale_trajectory(traj: np.ndarray, imgsz: int, ratio: float,
 # ─── Drawing ─────────────────────────────────────────────────────────────────
 
 CMD_NAMES = {0: "Follow", 1: "Left", 2: "Right", 3: "Straight"}
-COLORS = [(255, 56, 56), (56, 56, 255), (56, 255, 56), (255, 157, 56),
-          (255, 56, 255), (56, 255, 255), (200, 200, 56), (56, 200, 200)]
+COLORS = [
+    (255, 56, 56),
+    (56, 56, 255),
+    (56, 255, 56),
+    (255, 157, 56),
+    (255, 56, 255),
+    (56, 255, 255),
+    (200, 200, 56),
+    (56, 200, 200),
+]
 
 
 def draw_results(frame, detections, traj_pts, cmd_idx, dt_ms, names=None):
@@ -115,11 +125,11 @@ def draw_results(frame, detections, traj_pts, cmd_idx, dt_ms, names=None):
     # Draw trajectory
     if traj_pts is not None and len(traj_pts) > 1:
         for i in range(len(traj_pts) - 1):
-            p1 = tuple(np.clip(traj_pts[i], 0, [w-1, h-1]))
-            p2 = tuple(np.clip(traj_pts[i+1], 0, [w-1, h-1]))
+            p1 = tuple(np.clip(traj_pts[i], 0, [w - 1, h - 1]))
+            p2 = tuple(np.clip(traj_pts[i + 1], 0, [w - 1, h - 1]))
             cv2.line(annotated, p1, p2, (0, 255, 0), 3, cv2.LINE_AA)
         for p in traj_pts:
-            p = tuple(np.clip(p, 0, [w-1, h-1]))
+            p = tuple(np.clip(p, 0, [w - 1, h - 1]))
             cv2.circle(annotated, p, 4, (0, 200, 0), -1)
 
     # Draw detections
@@ -130,29 +140,36 @@ def draw_results(frame, detections, traj_pts, cmd_idx, dt_ms, names=None):
             color = COLORS[cls_id % len(COLORS)]
             label = names.get(cls_id, str(cls_id)) if names else str(cls_id)
             cv2.rectangle(annotated, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
-            cv2.putText(annotated, f"{label} {conf:.2f}",
-                       (int(x1), max(int(y1) - 5, 0)),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+            cv2.putText(
+                annotated,
+                f"{label} {conf:.2f}",
+                (int(x1), max(int(y1) - 5, 0)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (255, 255, 255),
+                2,
+            )
 
     # HUD
     cmd_name = CMD_NAMES.get(cmd_idx, str(cmd_idx))
-    cv2.putText(annotated, f"{dt_ms:.1f}ms | CMD: {cmd_name}",
-               (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+    cv2.putText(annotated, f"{dt_ms:.1f}ms | CMD: {cmd_name}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
 
     return annotated
 
 
 # ─── Main Inference Loop ─────────────────────────────────────────────────────
 
+
 def run_inference(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     imgsz = args.imgsz
 
     # ── Load Backend ──
-    is_engine = args.engine.endswith(('.engine', '.plan'))
+    is_engine = args.engine.endswith((".engine", ".plan"))
 
     if is_engine:
         from neuro_pilot.engine.backend.tensorrt import TensorRTBackend
+
         backend = TensorRTBackend(args.engine, device, fp16=args.half)
         backend.warmup(imgsz=(1, 3, imgsz, imgsz))
         io_info = backend.get_io_info()
@@ -160,7 +177,8 @@ def run_inference(args):
     else:
         # ONNX with TensorRT Execution Provider
         import onnxruntime as ort
-        providers = ['TensorrtExecutionProvider', 'CUDAExecutionProvider', 'CPUExecutionProvider']
+
+        providers = ["TensorrtExecutionProvider", "CUDAExecutionProvider", "CPUExecutionProvider"]
         session = ort.InferenceSession(args.engine, providers=providers)
         input_names = [inp.name for inp in session.get_inputs()]
         logger.info(f"ONNX inputs: {input_names}")
@@ -175,7 +193,7 @@ def run_inference(args):
         logger.info("ONNX warmup done.")
 
     # ── Video Setup ──
-    use_mock = (args.source == 'mock')
+    use_mock = args.source == "mock"
     if use_mock:
         w, h, fps = 640, 480, 30.0
         logger.info("Using MOCK input.")
@@ -189,7 +207,7 @@ def run_inference(args):
         fps = v_cap.get(cv2.CAP_PROP_FPS) or 30.0
 
     save_path = str(Path(args.source).stem) + f"_trt_cmd{args.command}_out.avi"
-    writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'MJPG'), fps, (w, h))
+    writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*"MJPG"), fps, (w, h))
 
     # ── Command Vector ──
     cmd_vec = torch.zeros(1, 4, dtype=torch.float32, device=device)
@@ -219,8 +237,8 @@ def run_inference(args):
             outputs = backend.forward(img_t, command=cmd_vec)
 
             # Parse multi-head outputs by name form exporter
-            det_raw = outputs.get('bboxes')
-            traj_raw = outputs.get('trajectory')
+            det_raw = outputs.get("bboxes")
+            traj_raw = outputs.get("trajectory")
         else:
             # ONNX Runtime
             img_np = img_t.cpu().numpy() if img_t.is_cuda else img_t.numpy()
@@ -260,12 +278,12 @@ def run_inference(args):
 
         if args.show:
             cv2.imshow("NeuroPilot TRT", annotated)
-            if cv2.waitKey(1) & 0xFF == ord('q'):
+            if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
 
         if cnt % 10 == 0 or cnt <= 10:
             avg_ms = t_sum / cnt
-            logger.info(f"Frame {cnt}: {dt_ms:.1f}ms (avg {avg_ms:.1f}ms, {1000/avg_ms:.0f} FPS)")
+            logger.info(f"Frame {cnt}: {dt_ms:.1f}ms (avg {avg_ms:.1f}ms, {1000 / avg_ms:.0f} FPS)")
 
     # ── Cleanup ──
     if not use_mock:
@@ -276,22 +294,27 @@ def run_inference(args):
 
     if cnt > 0:
         avg_ms = t_sum / cnt
-        logger.info(f"Done! {cnt} frames, avg {avg_ms:.1f}ms ({1000/avg_ms:.0f} FPS). Saved: {save_path}")
+        logger.info(f"Done! {cnt} frames, avg {avg_ms:.1f}ms ({1000 / avg_ms:.0f} FPS). Saved: {save_path}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="NeuroPilot TensorRT Inference (GPU-optimized)")
-    parser.add_argument('--engine', type=str, required=True, help='Path to .engine or .onnx')
-    parser.add_argument('--source', type=str, required=True, help='Video path or "mock"')
-    parser.add_argument('--command', type=int, default=0, choices=[0, 1, 2, 3],
-                       help='Nav command: 0=Follow, 1=Left, 2=Right, 3=Straight')
-    parser.add_argument('--imgsz', type=int, default=320, help='Input resolution')
-    parser.add_argument('--conf', type=float, default=0.25, help='Confidence threshold')
-    parser.add_argument('--iou', type=float, default=0.45, help='NMS IoU threshold')
-    parser.add_argument('--nc', type=int, default=14, help='Number of classes')
-    parser.add_argument('--half', action='store_true', help='FP16 inference')
-    parser.add_argument('--show', action='store_true', help='Show live preview')
-    parser.add_argument('--max-frames', type=int, default=999999, help='Max frames to process')
+    parser.add_argument("--engine", type=str, required=True, help="Path to .engine or .onnx")
+    parser.add_argument("--source", type=str, required=True, help='Video path or "mock"')
+    parser.add_argument(
+        "--command",
+        type=int,
+        default=0,
+        choices=[0, 1, 2, 3],
+        help="Nav command: 0=Follow, 1=Left, 2=Right, 3=Straight",
+    )
+    parser.add_argument("--imgsz", type=int, default=320, help="Input resolution")
+    parser.add_argument("--conf", type=float, default=0.25, help="Confidence threshold")
+    parser.add_argument("--iou", type=float, default=0.45, help="NMS IoU threshold")
+    parser.add_argument("--nc", type=int, default=14, help="Number of classes")
+    parser.add_argument("--half", action="store_true", help="FP16 inference")
+    parser.add_argument("--show", action="store_true", help="Show live preview")
+    parser.add_argument("--max-frames", type=int, default=999999, help="Max frames to process")
     args = parser.parse_args()
 
     run_inference(args)

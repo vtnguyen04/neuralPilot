@@ -9,12 +9,15 @@ import argparse
 
 console = Console()
 
+
 def print_banner():
-    console.print(Panel.fit(
-        "[bold cyan]NeuroPilot 🚀[/bold cyan]\n"
-        "[dim]End-to-End Autonomous Driving Framework[/dim]",
-        border_style="cyan"
-    ))
+    console.print(
+        Panel.fit(
+            "[bold cyan]NeuroPilot 🚀[/bold cyan]\n[dim]End-to-End Autonomous Driving Framework[/dim]",
+            border_style="cyan",
+        )
+    )
+
 
 def main():
     print_banner()
@@ -66,18 +69,20 @@ def main():
             key = key.lstrip("-")
         elif arg.startswith("--"):
             key = arg[2:]
-            if i + 1 < len(unknown) and not unknown[i+1].startswith("--") and "=" not in unknown[i+1]:
-                val = unknown[i+1]
+            if i + 1 < len(unknown) and not unknown[i + 1].startswith("--") and "=" not in unknown[i + 1]:
+                val = unknown[i + 1]
                 i += 1
             else:
                 val = "True"
         if key and val is not None:
             # Type inference
-            if val.lower() == 'true': val = True
-            elif val.lower() == 'false': val = False
+            if val.lower() == "true":
+                val = True
+            elif val.lower() == "false":
+                val = False
             else:
                 try:
-                    val = float(val) if '.' in val else int(val)
+                    val = float(val) if "." in val else int(val)
                 except ValueError:
                     pass
             kwargs[key] = val
@@ -88,7 +93,7 @@ def main():
         return
 
     try:
-        model_scale = kwargs.pop('model_scale', 'n')
+        model_scale = kwargs.pop("model_scale", "n")
         model = NeuroPilot(args.model, scale=model_scale)
 
         if args.mode == "train":
@@ -98,15 +103,10 @@ def main():
                 batch_size=args.batch,
                 imgsz=args.imgsz,
                 device=args.device,
-                **kwargs
+                **kwargs,
             )
         elif args.mode == "predict":
-            results = model.predict(
-                args.source,
-                conf=args.conf,
-                imgsz=args.imgsz,
-                stream=args.stream
-            )
+            results = model.predict(args.source, conf=args.conf, imgsz=args.imgsz, stream=args.stream)
             if args.stream:
                 for r in results:
                     for res in r:
@@ -114,19 +114,20 @@ def main():
             else:
                 import cv2
                 from pathlib import Path
+
                 vid_writer = None
                 for res in results:
                     console.print(f"[green]✔[/green] Processed {res.path}")
                     if args.save:
                         p = Path(res.path)
-                        is_video = p.suffix.lower() in ['.mp4', '.avi', '.mkv', '.mov', '.ts']
+                        is_video = p.suffix.lower() in [".mp4", ".avi", ".mkv", ".mov", ".ts"]
                         if is_video:
                             if vid_writer is None:
                                 save_path = Path("runs/predict") / p.name
                                 save_path.parent.mkdir(parents=True, exist_ok=True)
                                 plot_img = res.plot(**kwargs)
                                 h, w = plot_img.shape[:2]
-                                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                                fourcc = cv2.VideoWriter_fourcc(*"mp4v")
                                 vid_writer = cv2.VideoWriter(str(save_path), fourcc, 30.0, (w, h))
 
                             plot_img = res.plot(**kwargs)
@@ -144,7 +145,7 @@ def main():
             table.add_column("Value", style="magenta")
             for k, v in metrics.items():
                 if isinstance(v, (float, int)):
-                     table.add_row(k, f"{v:.4f}")
+                    table.add_row(k, f"{v:.4f}")
             console.print(table)
         elif args.mode == "export":
             path = model.export(format=args.format, imgsz=args.imgsz, dynamic=args.dynamic)
@@ -162,6 +163,7 @@ def main():
         console.print(f"[bold red]Error:[/bold red] {e}")
         logger.exception(e)
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()
