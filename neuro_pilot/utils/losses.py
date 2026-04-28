@@ -280,6 +280,7 @@ class FDATLoss(nn.Module):
         lambda_smooth: float = 0.1,
         tau_start: float = 2.0,
         tau_end: float = 2.0,
+        base_loss_type: str = "smooth_l1",
     ):
         super().__init__()
         self.alpha_lane = alpha_lane
@@ -291,6 +292,13 @@ class FDATLoss(nn.Module):
         self.lambda_smooth = lambda_smooth
         self.tau_start = tau_start
         self.tau_end = tau_end
+
+        if base_loss_type == "wing":
+            self.base_loss = WingLoss(w=0.05, epsilon=0.01, reduction="none")
+        elif base_loss_type == "l2":
+            self.base_loss = nn.MSELoss(reduction="none")
+        else:
+            self.base_loss = nn.SmoothL1Loss(reduction="none", beta=0.1)
 
     def _frenet_decompose(self, pred, gt):
         """Project error vectors into the Frenet frame of the GT curve.
@@ -345,12 +353,13 @@ class FDATLoss(nn.Module):
         e_s, e_d = self._frenet_decompose(pred_wp, gt_wp)
         w = self._positional_weights(T, pred_wp.device)
 
-        sl1_d = F.smooth_l1_loss(e_d, torch.zeros_like(e_d), reduction="none", beta=0.1)
-        sl1_s = F.smooth_l1_loss(e_s, torch.zeros_like(e_s), reduction="none", beta=0.1)
+        l_d = self.base_loss(e_d, torch.zeros_like(e_d))
+        l_s = self.base_loss(e_s, torch.zeros_like(e_s))
 
-        l_lane = ((self.alpha_lane * sl1_d + self.beta_lane * sl1_s) * w).mean(dim=-1)
+        # Normalize lane/inter sums so they don't blow up the uncertainty weighting
+        l_lane = ((self.alpha_lane * l_d + self.beta_lane * l_s) / (self.alpha_lane + self.beta_lane) * w).mean(dim=-1)
 
-        l_inter = ((self.alpha_inter * sl1_d + self.beta_inter * sl1_s) * w).mean(dim=-1)
+        l_inter = ((self.alpha_inter * l_d + self.beta_inter * l_s) / (self.alpha_inter + self.beta_inter) * w).mean(dim=-1)
         l_endpoint = (pred_wp[:, -1] - gt_wp[:, -1]).pow(2).sum(dim=-1)
         l_inter = l_inter + self.lambda_endpoint * l_endpoint
 
@@ -537,16 +546,21 @@ class WingLoss(nn.Module):
     Reference: Wing Loss for Robust Facial Landmark Localisation with CNNs (CVPR 2018).
     """
 
-    def __init__(self, w: float = 10.0, epsilon: float = 2.0):
+    def __init__(self, w: float = 10.0, epsilon: float = 2.0, reduction: str = "mean"):
         super().__init__()
         self.w = w
         self.epsilon = epsilon
+        self.reduction = reduction
         self.C = w - w * torch.log(torch.tensor(1.0 + w / epsilon))
 
     def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         diff = torch.abs(pred - target)
         loss = torch.where(diff < self.w, self.w * torch.log(1.0 + diff / self.epsilon), diff - self.C.to(pred.device))
-        return loss.mean()
+        if self.reduction == "mean":
+            return loss.mean()
+        elif self.reduction == "none":
+            return loss
+        return loss.sum()
 
 
 class MultiTaskLossManager(nn.Module):
@@ -563,7 +577,7 @@ class MultiTaskLossManager(nn.Module):
         if self.traj_loss_type == "l2":
             self.traj_loss = nn.MSELoss(reduction="none")
         elif self.traj_loss_type == "wing":
-            self.traj_loss = WingLoss()
+            self.traj_loss = WingLoss(w=0.05, epsilon=0.01, reduction="none")
         else:  # Default smooth_l1
             self.traj_loss = nn.SmoothL1Loss(reduction="none", beta=0.1)
 
@@ -609,6 +623,7 @@ class MultiTaskLossManager(nn.Module):
                 tau_start=getattr(loss_cfg, "fdat_tau_start", 2.0),
                 tau_end=getattr(loss_cfg, "fdat_tau_end", 2.0),
                 lambda_smooth=self.lambda_smooth,
+                base_loss_type=self.traj_loss_type,
             )
             logger.info(f"MultiTaskLossManager: FDAT trajectory loss ENABLED (mode: {self.traj_loss_type})")
         else:
@@ -619,7 +634,7 @@ class MultiTaskLossManager(nn.Module):
             return torch.tensor(0.0, device=loss.device)
         if not self.use_uncertainty:
             return loss * lambda_val
-        clamped_log_var = torch.clamp(log_var, -2.0, 2.0)
+        clamped_log_var = torch.clamp(log_var, -5.0, 5.0)
         precision = torch.exp(-clamped_log_var)
         return precision * (loss * lambda_val) + clamped_log_var
 
