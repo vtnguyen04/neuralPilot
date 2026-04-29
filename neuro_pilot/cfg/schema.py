@@ -34,12 +34,12 @@ class LossConfig(BaseModel):
     dfl: float = 1.5             # Distribution Focal Loss multiplier
     use_uncertainty: bool = True
     use_fdat: bool = False
-    fdat_alpha_lane: float = 10.0
-    fdat_beta_lane: float = 1.0
+    fdat_alpha_lane: float = 5.0
+    fdat_beta_lane: float = 2.0
     fdat_alpha_inter: float = 5.0
     fdat_beta_inter: float = 3.0
-    fdat_lambda_heading: float = 0.5
-    fdat_lambda_endpoint: float = 2.0
+    fdat_lambda_heading: float = 0.2
+    fdat_lambda_endpoint: float = 1.0
     fdat_tau_start: float = 2.0
     fdat_tau_end: float = 2.0
     fitness_map50: float = 0.1
