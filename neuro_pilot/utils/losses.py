@@ -275,8 +275,8 @@ class FDATLoss(nn.Module):
         beta_lane: float = 1.0,
         alpha_inter: float = 5.0,
         beta_inter: float = 3.0,
-        lambda_heading: float = 2.0,
-        lambda_endpoint: float = 5.0,
+        lambda_heading: float = 0.5,
+        lambda_endpoint: float = 2.0,
         lambda_smooth: float = 0.1,
         tau_start: float = 2.0,
         tau_end: float = 2.0,
@@ -356,15 +356,19 @@ class FDATLoss(nn.Module):
         l_d = self.base_loss(e_d, torch.zeros_like(e_d))
         l_s = self.base_loss(e_s, torch.zeros_like(e_s))
 
-        # Normalize lane/inter sums so they don't blow up the uncertainty weighting
-        l_lane = ((self.alpha_lane * l_d + self.beta_lane * l_s) / (self.alpha_lane + self.beta_lane) * w).mean(dim=-1)
+        # Anisotropic weighting: normalize by max(α,β) to preserve the ratio
+        # (e.g. α=10,β=1 → weights become 1.0 and 0.1 → 10:1 ratio kept)
+        # while keeping the loss magnitude comparable to baseline losses.
+        norm_lane = max(self.alpha_lane, self.beta_lane)
+        l_lane = ((self.alpha_lane / norm_lane * l_d + self.beta_lane / norm_lane * l_s) * w).mean(dim=-1)
 
-        l_inter = ((self.alpha_inter * l_d + self.beta_inter * l_s) / (self.alpha_inter + self.beta_inter) * w).mean(dim=-1)
+        norm_inter = max(self.alpha_inter, self.beta_inter)
+        l_inter = ((self.alpha_inter / norm_inter * l_d + self.beta_inter / norm_inter * l_s) * w).mean(dim=-1)
         l_endpoint = (pred_wp[:, -1] - gt_wp[:, -1]).pow(2).sum(dim=-1)
         l_inter = l_inter + self.lambda_endpoint * l_endpoint
 
         if gate_score is not None:
-            g = gate_score.detach().view(B)
+            g = gate_score.view(B)  # Allow gradient flow through CommandGate
         else:
             g = torch.zeros(B, device=pred_wp.device)
 
@@ -618,8 +622,8 @@ class MultiTaskLossManager(nn.Module):
                 beta_lane=getattr(loss_cfg, "fdat_beta_lane", 1.0),
                 alpha_inter=getattr(loss_cfg, "fdat_alpha_inter", 5.0),
                 beta_inter=getattr(loss_cfg, "fdat_beta_inter", 3.0),
-                lambda_heading=getattr(loss_cfg, "fdat_lambda_heading", 2.0),
-                lambda_endpoint=getattr(loss_cfg, "fdat_lambda_endpoint", 5.0),
+                lambda_heading=getattr(loss_cfg, "fdat_lambda_heading", 0.5),
+                lambda_endpoint=getattr(loss_cfg, "fdat_lambda_endpoint", 2.0),
                 tau_start=getattr(loss_cfg, "fdat_tau_start", 2.0),
                 tau_end=getattr(loss_cfg, "fdat_tau_end", 2.0),
                 lambda_smooth=self.lambda_smooth,

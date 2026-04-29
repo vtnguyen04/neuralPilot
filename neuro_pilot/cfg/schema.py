@@ -22,20 +22,24 @@ class HeadConfig(BaseModel):
 
 
 class LossConfig(BaseModel):
+    traj_loss_type: str = "smooth_l1"  # "smooth_l1", "l2", "wing"
     lambda_traj: float = 2.0
     lambda_det: float = 1.0
     lambda_heatmap: float = 1.0
     lambda_gate: float = 0.5
     lambda_smooth: float = 0.01
     lambda_cls: float = 1.05
+    box: float = 7.5             # Box IoU loss multiplier
+    cls_det: float = 0.5         # Box Classification loss multiplier
+    dfl: float = 1.5             # Distribution Focal Loss multiplier
     use_uncertainty: bool = True
     use_fdat: bool = False
     fdat_alpha_lane: float = 10.0
     fdat_beta_lane: float = 1.0
     fdat_alpha_inter: float = 5.0
     fdat_beta_inter: float = 3.0
-    fdat_lambda_heading: float = 2.0
-    fdat_lambda_endpoint: float = 5.0
+    fdat_lambda_heading: float = 0.5
+    fdat_lambda_endpoint: float = 2.0
     fdat_tau_start: float = 2.0
     fdat_tau_end: float = 2.0
     fitness_map50: float = 0.1

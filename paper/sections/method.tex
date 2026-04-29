@@ -1,0 +1,334 @@
+% ==================================================================
+\section{Proposed Method}
+% ==================================================================
+
+\subsection{System Overview}
+
+The proposed network processes two inputs: a
+monocular RGB image ($320{\times}320$~pixels) and a discrete
+navigation command $c \in \{$left, right, straight, follow$\}$.
+A shared YOLO11 convolutional stem extracts low-level features up
+to stride~4.
+The stem output branches into two fully independent pathways.
+The \emph{Driving Branch} applies its own deep YOLO11 encoder,
+fuses the navigation command via cross-attention CSM, refines
+features through a PAN (Path Aggregation Network) neck, and outputs a semantic
+heatmap, $n_w{=}10$ Frenet waypoints, and a command prediction.
+The \emph{Perception Branch} applies its own separate YOLO11
+encoder and PAN neck to predict $n_c{=}14$-class bounding boxes.
+Predicted waypoints are consumed by a classical vehicle controller
+for real-time actuation.
+The full architecture is shown in Fig.~\ref{fig:architecture}.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{neuralpilot_dual_figure.pdf}
+  \caption{
+    Overview of the proposed dual-branch architecture. The model consists of
+    a \textbf{shared low-level backbone} that branches into two independent
+    streams: (1)~a \textbf{Driving branch} with Command State Modulation (CSM) for
+    trajectory planning, heatmap prediction, and command classification;
+    and (2)~a \textbf{Perception branch} dedicated to multi-scale object
+    detection. Dashed lines denote skip connections. Best viewed in color.
+  }
+  \label{fig:architecture}
+\end{figure}
+
+\subsection{Shared YOLO11 Stem}
+
+The shared stem uses the three lightest YOLO11 layers:
+a strided \texttt{Conv}($64$, $3{\times}3$, stride~2) that
+extracts low-level edge and texture features ($P_1$),
+a strided \texttt{Conv}($128$, $3{\times}3$, stride~2) that
+produces stride-4 features ($P_2$),
+and a lightweight \texttt{C3k2}($256$, \texttt{shortcut=False},
+$r{=}0.25$) block that enriches $P_2$ with short-range context.
+The $P_2$ output is the branching point, routed simultaneously to
+both branch encoders and retained as a high-resolution skip
+connection for the HeatmapHead.
+
+\subsection{Driving Branch}
+
+\textbf{Driving Encoder:}
+Starting from $P_2$, three YOLO11 Conv + C3k2 stage pairs
+progressively downsample the feature map:
+\texttt{Conv}($256$, stride~2) + \texttt{C3k2}($512$) at stride~8
+($P_3^D$),
+\texttt{Conv}($512$, stride~2) + \texttt{C3k2}($512$,
+\texttt{shortcut=True}) at stride~16 ($P_4^D$), and
+\texttt{Conv}($1024$, stride~2) + \texttt{C3k2}($1024$,
+\texttt{shortcut=True}) at stride~32 ($P_5^D$).
+$P_5^D$ is further processed by \texttt{SPPF}($1024$, $k{=}5$) and
+\texttt{C2PSA}($1024$) to aggregate multi-scale context.
+
+\textbf{Command State Modulation:}
+A \emph{CommandEncoder} embeds the discrete command $c$
+into a 256-dimensional vector $\mathbf{z}_c \in \mathbb{R}^{1\times 256}$.
+$P_5^D$ is compressed from 1024 to 256 channels via a $1{\times}1$
+convolution, flattened to spatial tokens
+$\mathbf{X} \in \mathbb{R}^{HW\times 256}$, and fused via a
+multi-head cross-attention \emph{CSM} module in which the
+visual tokens $\mathbf{X}$ act as queries and the command embedding
+$\mathbf{z}_c$ acts as key-value pairs:
+\begin{equation}
+  \mathbf{X}' = \mathrm{LayerNorm}\!\bigl(
+    \mathbf{X} + r \cdot g \cdot
+    \mathrm{MHA}(\mathbf{X},\,\mathbf{z}_c,\,\mathbf{z}_c)
+  \bigr),
+  \label{eq:ccfusion}
+\end{equation}
+where $r$ is a learned residual gain scalar and $g$ is the
+CommandGate output, which helps the model determine when to remain
+in lane-keeping mode and when to initiate an intersection maneuver,
+thereby reducing failures caused by commands being applied too early
+or too late.
+The result $\mathbf{X}'$ is reshaped back to spatial feature maps,
+encoding both scene content and directional intent.
+
+\textbf{Path Aggregation Network (PAN) Neck (Driving):}
+The fused feature enters a top-down and bottom-up PAN,
+producing three command-conditioned neck outputs
+$P_3^{D\prime}$ (stride~8), $P_4^{D\prime\prime}$ (stride~16),
+$P_5^{D\prime\prime}$ (stride~32).
+
+\textbf{Heatmap Head:}
+This module fuses command-conditioned features $P'_{D3}$
+  with the high-resolution shared $P_2$ via an Attention Gate to
+  produce a full-resolution trajectory heatmap $H$. Ground-truth
+  heatmaps are generated on-the-fly by rendering waypoint sequences
+  as Gaussian-smoothed polylines. The head is supervised using
+  MSE + Dice Loss to handle class imbalance between the thin
+  trajectory and background.
+  Figure~\ref{fig:heatmap_head_results} shows a representative
+  comparison.
+
+\begin{figure}[!t]
+    \centering
+    \includegraphics[width=\columnwidth]{Media/Heatmap.png}
+    \vspace{-0.8\baselineskip}
+    \caption{Visualization of Ground-truth heatmap (left) and predicted output (right) from the Heatmap Head.}
+    \label{fig:heatmap_head_results}
+    \vspace{-0.8\baselineskip}
+\end{figure}
+
+\textbf{Trajectory Head:}
+The head receives $P_5^{D\prime\prime}$ and the heatmap
+$\mathcal{H}$ as inputs.
+First, $\mathcal{H}$ is resized to match $P_5^{D\prime\prime}$ and
+applied as a multiplicative spatial attention mask:
+\begin{equation}
+  \mathbf{F} = P_5^{D\prime\prime} \odot
+    \bigl(1 + \sigma(\mathcal{H})\bigr),
+  \label{eq:heatmap_att}
+\end{equation}
+where $\sigma(\cdot)$ is the sigmoid function.
+$\mathbf{F}$ is then spatially downsampled to $4{\times}4$ via
+bilinear interpolation and flattened to a vector.
+The navigation command $c$ is encoded by a learned
+\texttt{Embedding}($n_m{=}4$, 64) layer into a 64-dimensional
+vector $\mathbf{z}_c$,
+$\mathbf{h}_0 = [\mathbf{F}_{\mathrm{flat}};\,\mathbf{z}_c\,]$.
+A two-layer MLP with BatchNorm and ReLU maps $\mathbf{h}_0$ to a
+512-dimensional state $\mathbf{h}$, which is then modulated by a
+\emph{Feature-wise Linear Modulation}~\cite{b_film} (FiLM) layer.
+A linear output layer regresses $4{\times}2{=}8$ values that are
+reshaped and passed through $\tanh$ to produce four B\'{e}zier
+control points $\{\mathbf{c}_j\}_{j=0}^{3} \subset [-1,1]^2$.
+The predicted trajectory is obtained by sampling $n_w{=}10$
+points from the cubic B\'{e}zier curve:
+\begin{equation}
+  \hat{\mathbf{p}}_i
+    = \sum_{j=0}^{3}
+      \underbrace{\binom{3}{j}t_i^j(1{-}t_i)^{3-j}}_{B_{j,3}(t_i)}
+      \mathbf{c}_j,
+  \quad t_i = \frac{i}{n_w{-}1},
+  \label{eq:bezier}
+\end{equation}
+where the Bernstein matrix $\mathbf{M}\in\mathbb{R}^{n_w\times 4}$
+is precomputed and fixed.
+The final waypoints are obtained as
+$\hat{\mathbf{P}} = \mathbf{M}\,\mathbf{C}$,
+where $\mathbf{C}\in\mathbb{R}^{4\times 2}$ is the control-point
+matrix.
+This parameterization guarantees $C^1$ path continuity and reduces
+the effective output space from $2n_w{=}20$ to $2{\times}4{=}8$
+values.
+
+\textbf{Classification Head:}
+A lightweight MLP operating on $P_5^{D\prime\prime}$ predicts the
+navigation command ($n_m{=}4$ classes) as an auxiliary signal,
+enforcing that the driving representation retains discriminative
+command-level information.
+
+\subsection{Perception Branch}
+
+The Perception Branch is fully independent from the Driving Branch,
+sharing only the stem output $P_2$.
+It applies its own three Conv + C3k2 encoder stages
+($P_3^P$, $P_4^P$, $P_5^P$ at strides 8, 16, 32), followed by
+\texttt{SPPF}($1024$, $k{=}5$) and \texttt{C2PSA}($1024$), and
+a dedicated PAN neck producing
+$P_3^{P\prime}$, $P_4^{P\prime\prime}$, $P_5^{P\prime\prime}$.
+An anchor-free YOLO11-style \emph{Detect} head~\cite{b_yolov11}
+operating on all three scales predicts bounding boxes, class probabilities ($n_c{=}14$), and confidence scores. Box regression uses Distribution Focal Loss~(DFL) and CIoU loss.
+Since no driving-related gradients flow through the Perception
+Branch, its encoder and neck can specialize fully for detection
+accuracy.
+
+% ==================================================================
+\subsection{FDAT Loss}
+% ==================================================================
+
+Standard waypoint regression losses (e.g., Smooth-$\ell_1$ in
+Cartesian space) penalize all prediction errors in the same way,
+even though their driving consequences are very different.
+In particular, cross-track error is substantially more dangerous
+than along-track error because lateral deviation directly affects
+lane keeping, while a comparable longitudinal offset is often less
+critical.
+This distinction is especially important across the waypoint
+sequence: for early waypoints, a small vertical offset at the first
+point may matter less than the curvature error that determines
+whether the predicted trajectory remains aligned with the lane.
+We therefore propose the \emph{Frenet Decomposition Anisotropic
+Temporal} (FDAT) loss, which explicitly separates along-track and
+cross-track penalties and emphasizes the trajectory geometry needed
+for stable lane keeping through the three components described
+below.
+
+\subsubsection{Frenet Decomposition}
+
+At each waypoint step $i$, the unit tangent vector $\mathbf{T}_i$
+of the ground-truth trajectory is estimated via central finite
+differences, with one-sided differences at the boundary steps:
+\begin{align}
+  \mathbf{T}_i &=
+    \frac{\mathbf{p}^*_{i+1} - \mathbf{p}^*_{i-1}}
+         {\|\mathbf{p}^*_{i+1} - \mathbf{p}^*_{i-1}\|_2 + \epsilon},
+  \label{eq:tangent}
+\end{align}
+and the unit normal is
+$\mathbf{N}_i = [-T_{i,y},\;T_{i,x}]^\top$.
+The prediction error
+$\mathbf{e}_i = \hat{\mathbf{p}}_i - \mathbf{p}^*_i$
+is projected onto the local Frenet frame:
+\begin{align}
+  e^s_i &= \mathbf{e}_i \cdot \mathbf{T}_i
+           \quad \text{(along-track)}, \label{eq:es}\\
+  e^d_i &= \mathbf{e}_i \cdot \mathbf{N}_i
+           \quad \text{(cross-track)}. \label{eq:ed}
+\end{align}
+The cross-track component $e^d_i$ measures lateral miss-distance
+from the intended lane; the along-track component $e^s_i$ measures
+longitudinal timing error.
+
+\subsubsection{Dual-Mode Anisotropic Penalty}
+
+A learned \emph{CommandGate} produces a scalar $g\in[0,1]$ that
+selects between lane-following ($g{\approx}0$) and intersection
+($g{\approx}1$) modes.
+For each mode, the per-step positional penalty uses a robust error function $\rho(\cdot)$ with different cross-track and along-track coefficients, normalized by $\max(\alpha,\beta)$ to match baseline loss scale while preserving the anisotropic ratio. We employ a scaled Wing Loss~\cite{b_wingloss} ($w{=}0.05, \epsilon{=}0.01$) whose non-vanishing gradients near zero eliminate cross-track jittering. Defining $\tilde{\alpha}{=}\alpha/\!\max(\alpha,\beta)$ and $\tilde{\beta}{=}\beta/\!\max(\alpha,\beta)$:
+\begin{align}
+  \mathcal{L}^{\mathrm{lane}}_i
+    &= \tilde\alpha_\ell\,\rho(e^d_i) + \tilde\beta_\ell\,\rho(e^s_i),
+  \label{eq:lane}\\
+  \mathcal{L}^{\mathrm{inter}}_i
+    &= \tilde\alpha_\iota\,\rho(e^d_i) + \tilde\beta_\iota\,\rho(e^s_i),
+  \label{eq:inter}
+\end{align}
+with $\alpha_\ell{=}10,\beta_\ell{=}1$ (10:1 cross-track bias) and
+$\alpha_\iota{=}5,\beta_\iota{=}3$ (balanced intersection mode).
+In intersection mode, an endpoint anchor term enforces goal-position
+accuracy:
+\begin{equation}
+  \mathcal{L}^{\mathrm{inter}}
+    \leftarrow \mathcal{L}^{\mathrm{inter}}
+    + \lambda_{\mathrm{ep}}
+      \|\hat{\mathbf{p}}_{n_w} - \mathbf{p}^*_{n_w}\|_2^2,
+  \label{eq:endpoint}
+\end{equation}
+where $\lambda_{\mathrm{ep}}{=}2$ by default.
+The CommandGate scalar $g$ blends the two modes:
+\begin{equation}
+  \mathcal{L}_{\mathrm{pos},i}
+    = (1{-}g)\,\mathcal{L}^{\mathrm{lane}}_i
+    + g\,\mathcal{L}^{\mathrm{inter}}_i.
+  \label{eq:pos}
+\end{equation}
+
+\subsubsection{Temporal Weighting and Auxiliary Terms}
+
+Temporal weights follow a double-exponential bathtub curve
+$\tilde{w}_i = e^{-i/\tau_s} + e^{-(n_w-1-i)/\tau_e} + 0.5$,
+normalized as $w_i = \tilde{w}_i / \bar{\tilde{w}}$ so that
+magnitude is invariant to $n_w$ ($\tau_s{=}\tau_e{=}2$).
+Two auxiliary terms complete the loss: a cosine-similarity
+\emph{heading loss}
+$\mathcal{L}_{\mathrm{head}} = \frac{1}{n_w-1}\sum_i(1 - \cos(\Delta\hat{\mathbf{p}}_i, \Delta\mathbf{p}^*_i))$
+where $\Delta\hat{\mathbf{p}}_i{=}\hat{\mathbf{p}}_{i+1}{-}\hat{\mathbf{p}}_i$,
+and a second-order finite-difference \emph{smoothness loss}
+$\mathcal{L}_{\mathrm{smooth}} = \frac{1}{(n_w{-}2){\cdot}2}\sum_{i=1}^{n_w-2}\|(\hat{\mathbf{p}}_{i+1}{-}\hat{\mathbf{p}}_i){-}(\hat{\mathbf{p}}_i{-}\hat{\mathbf{p}}_{i-1})\|^2$.
+The total FDAT loss per sample is:
+\begin{equation}
+  \mathcal{L}_{\mathrm{FDAT}}
+    = \frac{1}{n_w}\!\sum_{i} w_i\,\mathcal{L}_{\mathrm{pos},i}
+      + \lambda_h\,\mathcal{L}_{\mathrm{head}}
+      + \lambda_s\,\mathcal{L}_{\mathrm{smooth}},
+  \label{eq:fdat}
+\end{equation}
+with $\lambda_h{=}0.5$ and $\lambda_s{=}0.1$.
+
+% ==================================================================
+\subsection{Multi-Task Loss Balancing}
+% ==================================================================
+
+Although branch separation eliminates feature-level gradient
+conflicts after $P_2$, the shared YOLO11 stem still receives
+gradient signals from all four task heads.
+We stabilize this with two complementary mechanisms applied to the
+total training loss
+$\mathcal{L}_{\mathrm{total}} = \sum_k \mathcal{W}_k$.
+
+\subsubsection{Uncertainty-Based Task Weighting}
+
+Following Kendall et al.~\cite{b_kendall}, each task loss
+$\mathcal{L}_k$ is weighted by a learned scalar
+$s_k = \log\sigma_k^2$, interpreted as the homoscedastic
+log-variance of task $k$.
+The per-task contribution to the total loss is:
+\begin{equation}
+  \mathcal{W}_k = e^{-s_k}\,\lambda_k\,\mathcal{L}_k + s_k,
+  \label{eq:uncertainty}
+\end{equation}
+where $\lambda_k$ is a fixed task-specific scale and $s_k$ is
+clamped to $[-5,\,5]$ for numerical stability, ensuring that tasks with inherently small magnitudes (such as normalized trajectory errors) are not starved of gradients during shared representation learning.
+Tasks with inherently high variance (large $s_k$) are
+automatically down-weighted, allowing the network to
+self-calibrate task importance without manual retuning.
+Four $s_k$ parameters are learned: one each for the heatmap,
+trajectory, detection, and classification losses.
+
+\subsubsection{Perception-Gated Planning}
+
+To prevent the trajectory and heatmap heads from receiving
+corrupted gradient signals when the detection loss is high early
+in training, a stop-gradient soft gate $g_{\mathrm{pgp}}$ scales
+the driving-branch losses:
+\begin{equation}
+  g_{\mathrm{pgp}}
+    = \max\!\Bigl(0.7,\;
+        \exp\bigl(-0.5\cdot
+          \max(0,\,\mathcal{L}_{\mathrm{det}} - 8)\bigr)
+      \Bigr).
+  \label{eq:pgp}
+\end{equation}
+$g_{\mathrm{pgp}}$ is computed with \texttt{torch.no\_grad}
+so that it does not propagate additional gradients.
+The heatmap and trajectory losses are replaced by
+$g_{\mathrm{pgp}}\,\mathcal{L}_{\mathrm{heatmap}}$ and
+$g_{\mathrm{pgp}}\,\mathcal{L}_{\mathrm{FDAT}}$ respectively.
+When $\mathcal{L}_{\mathrm{det}}\!\gg\!8$, the gate suppresses
+driving-head gradients through the stem, allowing the backbone to
+stabilize perceptual features first.
+As detection converges, $g_{\mathrm{pgp}}\!\to\!1$ and full
+gradient flow resumes.
