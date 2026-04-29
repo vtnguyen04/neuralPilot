@@ -50,3 +50,11 @@ tools/labeler/labels.db
 /.ruff_cache
 neuro_pilot.egg-info/
 test_export.onnx.data
+
+# Paper source (private)
+paper/
+test_fdat.py
+scripts/debug_train.py
+docs/
+*.patch
+*.zip

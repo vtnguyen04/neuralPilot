@@ -24,8 +24,8 @@ loss:
   fdat_beta_lane: 1.0         # Along-track penalty weight (lane-following)
   fdat_alpha_inter: 5.0       # Cross-track penalty weight (intersection)
   fdat_beta_inter: 3.0        # Along-track penalty weight (intersection)
-  fdat_lambda_heading: 2.0    # Heading consistency weight
-  fdat_lambda_endpoint: 5.0   # Endpoint anchor weight (intersection only)
+  fdat_lambda_heading: 0.5    # Heading consistency weight
+  fdat_lambda_endpoint: 2.0   # Endpoint anchor weight (intersection only)
   fdat_tau_start: 2.0         # Bathtub start decay
   fdat_tau_end: 2.0           # Bathtub end decay
 
