@@ -3,7 +3,7 @@ from typing import Any, Optional, Union
 
 
 class BackboneConfig(BaseModel):
-    name: str = "mobilenetv4_conv_medium.e2400_r224_in1k"
+    name: str = "custom"
     pretrained: bool = True
 
 
