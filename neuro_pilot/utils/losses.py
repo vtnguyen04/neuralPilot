@@ -271,12 +271,12 @@ class FDATLoss(nn.Module):
 
     def __init__(
         self,
-        alpha_lane: float = 10.0,
-        beta_lane: float = 1.0,
+        alpha_lane: float = 5.0,
+        beta_lane: float = 2.0,
         alpha_inter: float = 5.0,
         beta_inter: float = 3.0,
-        lambda_heading: float = 0.5,
-        lambda_endpoint: float = 2.0,
+        lambda_heading: float = 0.2,
+        lambda_endpoint: float = 1.0,
         lambda_smooth: float = 0.1,
         tau_start: float = 2.0,
         tau_end: float = 2.0,
@@ -356,13 +356,14 @@ class FDATLoss(nn.Module):
         l_d = self.base_loss(e_d, torch.zeros_like(e_d))
         l_s = self.base_loss(e_s, torch.zeros_like(e_s))
 
-        # Anisotropic weighting: normalize by max(α,β) to preserve the ratio
-        # (e.g. α=10,β=1 → weights become 1.0 and 0.1 → 10:1 ratio kept)
-        # while keeping the loss magnitude comparable to baseline losses.
-        norm_lane = max(self.alpha_lane, self.beta_lane)
+        # Anisotropic weighting: normalize by (α+β)/2 to preserve the ratio
+        # while maintaining loss magnitude comparable to baseline 2D losses.
+        # The 2x factor compensates for Frenet decomposition splitting the
+        # error into two scalar components (each smaller than the 2D vector).
+        norm_lane = (self.alpha_lane + self.beta_lane) / 2.0
         l_lane = ((self.alpha_lane / norm_lane * l_d + self.beta_lane / norm_lane * l_s) * w).mean(dim=-1)
 
-        norm_inter = max(self.alpha_inter, self.beta_inter)
+        norm_inter = (self.alpha_inter + self.beta_inter) / 2.0
         l_inter = ((self.alpha_inter / norm_inter * l_d + self.beta_inter / norm_inter * l_s) * w).mean(dim=-1)
         l_endpoint = (pred_wp[:, -1] - gt_wp[:, -1]).pow(2).sum(dim=-1)
         l_inter = l_inter + self.lambda_endpoint * l_endpoint

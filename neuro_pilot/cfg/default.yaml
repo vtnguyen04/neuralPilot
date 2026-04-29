@@ -20,12 +20,12 @@ loss:
   use_uncertainty: True # Multi-task uncertainty weighting
   # FDAT Loss (Frenet-Decomposed Anisotropic Trajectory Loss)
   use_fdat: True             # Toggle: False = SmoothL1 (default), True = FDAT
-  fdat_alpha_lane: 10.0       # Cross-track penalty weight (lane-following)
-  fdat_beta_lane: 1.0         # Along-track penalty weight (lane-following)
+  fdat_alpha_lane: 5.0        # Cross-track penalty weight (lane-following)
+  fdat_beta_lane: 2.0          # Along-track penalty weight (lane-following)
   fdat_alpha_inter: 5.0       # Cross-track penalty weight (intersection)
   fdat_beta_inter: 3.0        # Along-track penalty weight (intersection)
-  fdat_lambda_heading: 0.5    # Heading consistency weight
-  fdat_lambda_endpoint: 2.0   # Endpoint anchor weight (intersection only)
+  fdat_lambda_heading: 0.2    # Heading consistency weight
+  fdat_lambda_endpoint: 1.0   # Endpoint anchor weight (intersection only)
   fdat_tau_start: 2.0         # Bathtub start decay
   fdat_tau_end: 2.0           # Bathtub end decay
 
