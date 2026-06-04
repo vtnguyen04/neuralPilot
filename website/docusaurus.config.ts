@@ -18,12 +18,12 @@ const config: Config = {
   url: 'https://vtnguyen04.github.io',
   // Set the /<baseUrl>/ pathname under which your site is served
   // For GitHub pages deployment, it is often '/<projectName>/'
-  baseUrl: '/self-driving-e2e-multitask/',
+  baseUrl: '/neuralPilot/',
 
   // GitHub pages deployment config.
   // If you aren't using GitHub pages, you don't need these.
   organizationName: 'vtnguyen04', // Usually your GitHub org/user name.
-  projectName: 'self-driving-e2e-multitask', // Usually your repo name.
+  projectName: 'neuralPilot', // Usually your repo name.
 
   markdown: {
     mermaid: true,
