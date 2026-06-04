@@ -26,6 +26,10 @@
 !/assets/
 !/assets/**
 
+# Un-ignore website static images
+!/website/static/img/
+!/website/static/img/**
+
 # Un-ignore the minio_data directory for .gitkeep tracking
 !/tools/labeler/data/
 /tools/labeler/data/*
@@ -55,6 +59,9 @@ test_export.onnx.data
 paper/
 test_fdat.py
 scripts/debug_train.py
-docs/
+docs/**/*.aux
+docs/**/*.log
+docs/**/*.pdf
+docs/**/*.xdv
 *.patch
 *.zip
