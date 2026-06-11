@@ -253,7 +253,7 @@ class BaseTrainer:
                 + f": {colorstr('bright_white', fitness)}\n"
             )
 
-        return self.fitness
+        return getattr(self, "val_metrics", {"fitness": self.fitness})
 
     def setup(self):
         """Setup model, data, optimizer, and callbacks."""

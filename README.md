@@ -76,57 +76,44 @@ NeuroPilot jointly learns **trajectory prediction**, **object detection**, **att
 
 ```mermaid
 graph TD
-    subgraph Input
-        IMG["🖼️ Image (320×320)"]
-        CMD["🎯 Command (L/R/S/F)"]
-        VEL["⚡ Ego Speed"]
+    subgraph Inputs[" "]
+        IMG["RGB Image 320x320"]
+        CMD["Navigation Command"]
     end
 
-    subgraph Backbone["🔬 Backbone (TimmBackbone)"]
-        BB["MobileNetV4-S / EfficientViT / FastViT"]
-        P2["P2 (stride 4)"]
-        P3["P3 (stride 8)"]
-        P4["P4 (stride 16)"]
-        P5["P5 (stride 32)"]
+    subgraph Backbone["Shared YOLO11 Stem"]
+        STEM["Conv → Conv → C3k2\nP1 / P2 / 256ch"]
     end
 
-    subgraph Fusion["🔗 Vision-Language Fusion"]
-        PE["LanguagePromptEncoder"]
-        VLF["VLFusion (Cross-Attention)"]
+    subgraph Driving["Driving Branch"]
+        D_ENC["YOLO11 Encoder\nP3 → P4 → P5\nSPPF + C2PSA"]
+        CSM["Command State Modulation\nCross-Attention + Gate"]
+        D_NECK["PAN Neck\nTop-down + Bottom-up"]
+        HM["Heatmap Head\nDice + MSE"]
+        TJ["Trajectory Head\nBezier + FiLM\n10 waypoints"]
+        CLS["Classification Head\n4 commands"]
     end
 
-    subgraph Neck["🏗️ FPN Neck"]
-        SPPF["SPPF"]
-        C3K2_P4["C3k2 → P4'"]
-        C3K2_P3["C3k2 → P3'"]
+    subgraph Perception["Perception Branch"]
+        P_ENC["YOLO11 Encoder\nP3 → P4 → P5\nSPPF + C2PSA"]
+        P_NECK["PAN Neck\nTop-down + Bottom-up"]
+        DET["Detect Head\nAnchor-free\n14 classes"]
     end
 
-    subgraph Heads["🎯 Multi-Task Heads"]
-        DET["Detect (YOLO11)\n• Anchor-free\n• DFL + IoU"]
-        HM["HeatmapHead\n• Attention Gate\n• Full resolution"]
-        TJ["TrajectoryHead\n• Bézier + FiLM\n• T waypoints"]
-        CLS["ClassificationHead\n• Command prediction"]
-    end
+    IMG --> STEM
+    STEM -->|P2| D_ENC
+    STEM -->|P2| P_ENC
+    CMD --> CSM
+    D_ENC --> CSM --> D_NECK
+    D_NECK --> HM & TJ & CLS
+    STEM -.->|P2 skip| HM
+    HM -.->|spatial mask| TJ
+    CMD -.-> TJ
+    P_ENC --> P_NECK --> DET
 
-    IMG --> BB
-    BB --> P2 & P3 & P4 & P5
-    CMD --> PE --> VLF
-    P5 --> VLF --> SPPF
-    SPPF --> C3K2_P4
-    P4 -.-> C3K2_P4
-    C3K2_P4 --> C3K2_P3
-    P3 -.-> C3K2_P3
-    C3K2_P3 --> DET & HM
-    P2 -.-> HM
-    SPPF --> TJ & CLS
-    HM --> TJ
-    VEL --> TJ
-    CMD --> TJ
-
-    style Backbone fill:#1a1a2e,stroke:#58a6ff,color:#fff
-    style Fusion fill:#16213e,stroke:#79c0ff,color:#fff
-    style Neck fill:#0f3460,stroke:#58a6ff,color:#fff
-    style Heads fill:#1a1a2e,stroke:#e2b714,color:#fff
+    style Backbone fill:#e8edf2,stroke:#5b7b9a,stroke-width:2px,color:#1a1a2e
+    style Driving fill:#ebf5fb,stroke:#2e86c1,stroke-width:2px,color:#1a1a2e
+    style Perception fill:#fdf2e9,stroke:#e67e22,stroke-width:2px,color:#1a1a2e
 ```
 
 **Model Size:** ~2.8M params (scale=s, no Detect) · ~9.7M (scale=s, full multi-task)

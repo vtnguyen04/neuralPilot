@@ -26,6 +26,10 @@
 !/assets/
 !/assets/**
 
+# Un-ignore website static images
+!/website/static/img/
+!/website/static/img/**
+
 # Un-ignore the minio_data directory for .gitkeep tracking
 !/tools/labeler/data/
 /tools/labeler/data/*
@@ -50,3 +54,14 @@ tools/labeler/labels.db
 /.ruff_cache
 neuro_pilot.egg-info/
 test_export.onnx.data
+
+# Paper source (private)
+paper/
+test_fdat.py
+scripts/debug_train.py
+docs/**/*.aux
+docs/**/*.log
+docs/**/*.pdf
+docs/**/*.xdv
+*.patch
+*.zip
