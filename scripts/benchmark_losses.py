@@ -170,7 +170,7 @@ def print_results_table(results):
         print(f"{r['loss_type']:<22} {fdat_str:^6} {ade:>8.4f} {fde:>8.4f} {l1:>8.4f} {wl1:>8.4f} {lat:>8.4f} {lon:>8.4f}{marker}")
 
     print("-" * 90)
-    print(f"  ★ = Best ADE")
+    print("  ★ = Best ADE")
     print("=" * 90 + "\n")
 
 
