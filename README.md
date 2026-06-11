@@ -74,47 +74,10 @@ NeuroPilot jointly learns **trajectory prediction**, **object detection**, **att
 
 ## Architecture
 
-```mermaid
-graph TD
-    subgraph Inputs[" "]
-        IMG["RGB Image 320x320"]
-        CMD["Navigation Command"]
-    end
+<p align="center">
+  <img src="assets/architecture.png" alt="NeuroPilot Architecture" width="700" />
+</p>
 
-    subgraph Backbone["Shared YOLO11 Stem"]
-        STEM["Conv → Conv → C3k2\nP1 / P2 / 256ch"]
-    end
-
-    subgraph Driving["Driving Branch"]
-        D_ENC["YOLO11 Encoder\nP3 → P4 → P5\nSPPF + C2PSA"]
-        CSM["Command State Modulation\nCross-Attention + Gate"]
-        D_NECK["PAN Neck\nTop-down + Bottom-up"]
-        HM["Heatmap Head\nDice + MSE"]
-        TJ["Trajectory Head\nBezier + FiLM\n10 waypoints"]
-        CLS["Classification Head\n4 commands"]
-    end
-
-    subgraph Perception["Perception Branch"]
-        P_ENC["YOLO11 Encoder\nP3 → P4 → P5\nSPPF + C2PSA"]
-        P_NECK["PAN Neck\nTop-down + Bottom-up"]
-        DET["Detect Head\nAnchor-free\n14 classes"]
-    end
-
-    IMG --> STEM
-    STEM -->|P2| D_ENC
-    STEM -->|P2| P_ENC
-    CMD --> CSM
-    D_ENC --> CSM --> D_NECK
-    D_NECK --> HM & TJ & CLS
-    STEM -.->|P2 skip| HM
-    HM -.->|spatial mask| TJ
-    CMD -.-> TJ
-    P_ENC --> P_NECK --> DET
-
-    style Backbone fill:#e8edf2,stroke:#5b7b9a,stroke-width:2px,color:#1a1a2e
-    style Driving fill:#ebf5fb,stroke:#2e86c1,stroke-width:2px,color:#1a1a2e
-    style Perception fill:#fdf2e9,stroke:#e67e22,stroke-width:2px,color:#1a1a2e
-```
 
 **Model Size:** ~2.8M params (scale=s, no Detect) · ~9.7M (scale=s, full multi-task)
 
