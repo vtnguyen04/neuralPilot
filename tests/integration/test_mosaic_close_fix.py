@@ -53,6 +53,7 @@ class TestMosaicCloseFix(unittest.TestCase):
             trainer.setup()
 
         trainer.scaler = MagicMock()
+        trainer.scaler.step.side_effect = lambda opt: opt.step()
 
         # Mock validator to save time
         trainer.validator = MagicMock(return_value={"avg_loss": 0.1, "fitness": 0.5})

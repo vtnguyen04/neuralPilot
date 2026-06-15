@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.2] - 2026-06-14
+
+### Added
+- **Registry Warnings**: Added overwrite warning logging in `register_head`, `register_loss`, and `register_neck` to prevent silent overrides of core components.
+- **Duplicate Warnings Tests**: Expanded unit tests in `tests/core/test_registry.py` to validate duplicate warning logs.
+
+### Fixed
+- **NameError in Command Prep**: Resolved a runtime `NameError` in `Predictor._prepare_command` where `_nc` was reference-checked but undefined outside the `cmd is None` block.
+- **TensorRT IO Duplication**: Resolved a bug in `TensorRTBackend._allocate_buffers` where input/output tensor name buffers were appended repeatedly on dynamic input shape re-allocations.
+- **Scheduler Step Warnings**: Cleaned up false-positive PyTorch `UserWarning` regarding learning rate scheduler step execution order during training resume flows.
+
+### Performance
+- **Vectorized Heatmap Generation**: Redesigned `HeatmapLoss.generate_heatmap` to compute the target coordinate grids using vectorized tensor math, removing the sequential Python loop.
+- **Grid Coordinate Caching**: Added meshgrid caching by `(H, W, device)` in `generate_heatmap` to avoid redundant memory allocations on every training step.
+
 ---
 
 ## [1.3.1] - 2026-04-20

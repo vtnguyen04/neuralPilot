@@ -40,29 +40,39 @@ class HeatmapLoss(nn.Module):
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
 
     def generate_heatmap(self, coords, H, W):
-        """Generate ground truth heatmap from waypoint coordinates."""
+        """Generate ground truth heatmap from waypoint coordinates (vectorized & cached)."""
         B, K, _ = coords.shape
         device = coords.device
         sigma = max(H, W) / 160.0 * 3.0
-        grid_y, grid_x = torch.meshgrid(
-            torch.arange(H, device=device, dtype=torch.float32),
-            torch.arange(W, device=device, dtype=torch.float32),
-            indexing="ij",
-        )
-        grid = torch.stack([grid_x, grid_y], dim=-1).view(1, H, W, 2)
+
+        # Cache meshgrid to avoid reallocation overhead
+        if not hasattr(self, "_grid_cache") or self._grid_cache[0] != (H, W, device):
+            grid_y, grid_x = torch.meshgrid(
+                torch.arange(H, device=device, dtype=torch.float32),
+                torch.arange(W, device=device, dtype=torch.float32),
+                indexing="ij",
+            )
+            grid = torch.stack([grid_x, grid_y], dim=-1).view(1, H, W, 2)
+            self._grid_cache = ((H, W, device), grid)
+        else:
+            grid = self._grid_cache[1]
+
         pts = (coords + 1) / 2 * torch.tensor([W, H], device=device).view(1, 1, 2)
 
-        final_heatmap = torch.zeros((B, 1, H, W), device=device)
-        for i in range(K - 1):
-            p1 = pts[:, i : i + 1, :].view(B, 1, 1, 2)
-            p2 = pts[:, i + 1 : i + 2, :].view(B, 1, 1, 2)
-            v = p2 - p1
-            w = grid - p1
-            t = torch.clamp(torch.sum(w * v, dim=-1) / (torch.sum(v * v, dim=-1) + 1e-6), 0.0, 1.0)
-            projection = p1 + t.unsqueeze(-1) * v
-            dist_sq = torch.sum((grid - projection) ** 2, dim=-1)
-            segment_heatmap = torch.exp(-dist_sq / (2 * sigma**2))
-            final_heatmap = torch.maximum(final_heatmap, segment_heatmap.unsqueeze(1))
+        p1 = pts[:, :-1, :].view(B, K - 1, 1, 1, 2)
+        p2 = pts[:, 1:, :].view(B, K - 1, 1, 1, 2)
+        v = p2 - p1
+        grid_expanded = grid.unsqueeze(1)
+        w = grid_expanded - p1
+
+        numerator = torch.sum(w * v, dim=-1)
+        denominator = torch.sum(v * v, dim=-1) + 1e-6
+        t = torch.clamp(numerator / denominator, 0.0, 1.0)
+
+        projection = p1 + t.unsqueeze(-1) * v
+        dist_sq = torch.sum((grid_expanded - projection) ** 2, dim=-1)
+        segment_heatmap = torch.exp(-dist_sq / (2 * sigma**2))
+        final_heatmap, _ = torch.max(segment_heatmap, dim=1, keepdim=True)
         return final_heatmap
 
     def forward(self, pred_logits, gt_heatmaps):

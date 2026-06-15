@@ -737,8 +737,7 @@ class Trainer(BaseTrainer):
         from neuro_pilot.utils.torch_utils import one_cycle
 
         lf = one_cycle(1, self.cfg.trainer.lr_final, self.cfg.trainer.max_epochs)
-        self.scheduler = optim.lr_scheduler.LambdaLR(self.optimizer, lr_lambda=lf)
-        self.scheduler.last_epoch = self.epoch - 1
+        self.scheduler = optim.lr_scheduler.LambdaLR(self.optimizer, lr_lambda=lf, last_epoch=self.epoch - 1)
 
         self.callbacks.on_train_start(self)
 
@@ -794,7 +793,10 @@ class Trainer(BaseTrainer):
             self.callbacks.on_val_end(self)
 
             if self.scheduler:
-                self.scheduler.step()
+                import warnings
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", category=UserWarning, message="Detected call of.*")
+                    self.scheduler.step()
 
             if self.fitness > best_fitness_global:
                 best_fitness_global = self.fitness
