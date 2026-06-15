@@ -133,10 +133,10 @@ class Predictor(BasePredictor):
 
     def _prepare_command(self, cmd, batch_size, half):
         """Prepare command tensor for model input."""
-        if cmd is None:
-            from neuro_pilot.cfg.schema import HeadConfig
+        from neuro_pilot.cfg.schema import HeadConfig
 
-            _nc = HeadConfig().num_commands
+        _nc = HeadConfig().num_commands
+        if cmd is None:
             _default = torch.zeros(1, _nc, device=self.device)
             _default[0, 0] = 1.0
             cmd = _default

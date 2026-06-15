@@ -36,6 +36,8 @@ class TensorRTBackend:
     def _allocate_buffers(self, dynamic_shapes: dict = None):
         """Allocate GPU memory for TRT IO based on engine names and max shapes."""
         self.bindings = OrderedDict()
+        self.input_names = []
+        self.output_names = []
 
         for i in range(self.engine.num_io_tensors):
             name = self.engine.get_tensor_name(i)

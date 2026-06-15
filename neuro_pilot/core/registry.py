@@ -32,6 +32,8 @@ class Registry:
     def register_head(cls, name: str = None):
         def decorator(obj):
             key = name or obj.__name__
+            if key in cls._HEADS:
+                logger.warning(f"Head {key} already registered. Overwriting.")
             cls._HEADS[key] = obj
             return obj
 
@@ -41,6 +43,8 @@ class Registry:
     def register_loss(cls, name: str = None):
         def decorator(obj):
             key = name or obj.__name__
+            if key in cls._LOSSES:
+                logger.warning(f"Loss {key} already registered. Overwriting.")
             cls._LOSSES[key] = obj
             return obj
 
@@ -50,6 +54,8 @@ class Registry:
     def register_neck(cls, name: str = None):
         def decorator(obj):
             key = name or obj.__name__
+            if key in cls._NECKS:
+                logger.warning(f"Neck {key} already registered. Overwriting.")
             cls._NECKS[key] = obj
             return obj
 
