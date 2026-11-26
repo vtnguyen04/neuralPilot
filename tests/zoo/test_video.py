@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import cv2
@@ -26,10 +27,10 @@ from neuro_pilot.utils.viz import (
     sample_gradient_bgr,
 )
 
-PILOT_S_PT = Path(
-    "/home/quynhthu/Documents/AI-project/Vinfast/onnx_reverse_engineering/"
-    "converted_pt/planner/pilot_s.pt"
-)
+ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_VINFAST = ROOT.parent / "Vinfast" / "onnx_reverse_engineering"
+VINFAST_DIR = Path(os.environ.get("NEUROPILOT_VINFAST_DIR", str(DEFAULT_VINFAST)))
+PILOT_S_PT = VINFAST_DIR / "converted_pt" / "planner" / "pilot_s.pt"
 
 
 def test_camera_geom_and_zero_text_trajectory_viz():

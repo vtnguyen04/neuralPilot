@@ -1,8 +1,8 @@
+import sys
 import torch
 from neuro_pilot.nn.factory import build_model
 from neuro_pilot.cfg.schema import HeadConfig
-from loguru import logger
-import sys
+from neuro_pilot.utils.logger import logger
 
 
 def verify_io(cfg_path="neuro_pilot/cfg/models/neuralPilot.yaml"):
@@ -62,9 +62,9 @@ def verify_io(cfg_path="neuro_pilot/cfg/models/neuralPilot.yaml"):
 
     logger.info("--- Summary ---")
     if not missing:
-        print("\n🚀 Input and Output standards are VERIFIED and COMPLIANT.", file=sys.stderr)
+        logger.info("🚀 Input and Output standards are VERIFIED and COMPLIANT.")
     else:
-        print("\n⚠️ Model output is missing standard keys. Needs alignment.", file=sys.stderr)
+        logger.warning("⚠️ Model output is missing standard keys. Needs alignment.")
 
 
 if __name__ == "__main__":
