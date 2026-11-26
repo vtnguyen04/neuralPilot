@@ -1,0 +1,50 @@
+# Single-Camera Multi-Task MHP Planner (FastViT-T12 + PANet DFL Det + K=5 Laplace TrajMHPHead)
+
+name: pilot_mhp
+family: planner
+
+inputs:
+  img:     {shape: [1, 6, 256, 320], dtype: uint8, dist: randint, low: 0, high: 256}
+  command: {shape: [1], dtype: int64, dist: const, value: 0}
+
+outputs:
+  det:         23.decoded
+  waypoints:   24.waypoints
+  mu:          24.mu
+  log_b:       24.log_b
+  mode_logits: 24.mode_logits
+
+backbone:
+  # Single-camera YUV420 normalization & 24ch tiling (exact pilot_s FastViTStem transfer)
+  - [img, 1, YuvSinglePrep, [4]]                                  # 0  - [B, 24, 256, 320]
+
+  # Pretrained OpenPilot FastViT-T12 Vision Backbone (1:1 layer parity with pilot_s.yaml 1..9)
+  - [-1,  1, FastViTStem,   [24, 64]]                             # 1  - Stem P3/8  (64x80)
+  - [-1,  2, RepMixerBlock, [64, 3]]                              # 2  - Stage 0    (64x80)
+  - [-1,  1, PatchEmbed2d,  [64, 128]]                            # 3  - Down P4/16 (32x40)
+  - [-1,  2, RepMixerBlock, [128, 3]]                             # 4  - Stage 1    (32x40)
+  - [-1,  1, PatchEmbed2d,  [128, 256]]                           # 5  - Down P5/32 (16x20)
+  - [-1,  6, RepMixerBlock, [256, 3]]                             # 6  - Stage 2    (16x20)
+  - [-1,  1, PatchEmbed2d,  [256, 512]]                           # 7  - Down P6/64 (8x10)
+  - [-1,  2, RepMixerBlock, [512, 3]]                             # 8  - Stage 3    (8x10)
+  - [-1,  1, FastViTHead,   [512, 512]]                           # 9  - Global SE+GAP [B, 1, 512]
+
+head:
+  # Branch 1: Multi-Scale Anchor-Free DFL Object Detection (PANet on P3/8, P4/16, P5/32)
+  - [6,        1, VPSPPF,   [256, 256, true]]                     # 10 - P5 SPPF (16x20)
+  - [-1,       1, Upsample, [2.0, nearest]]                       # 11 - P5 up (32x40)
+  - [[-1, 4],  1, Concat,   [1]]                                  # 12 - cat (P5_up, P4) = 384
+  - [-1,       1, CSPBlock, [384, 128, 64, false, true]]          # 13 - FPN h1 (32x40)
+  - [-1,       1, Upsample, [2.0, nearest]]                       # 14 - h1 up (64x80)
+  - [[-1, 2],  1, Concat,   [1]]                                  # 15 - cat (h1_up, P3) = 192
+  - [-1,       1, CSPBlock, [192, 96, 48, false, true]]           # 16 - P3 out (64x80, 96ch)
+  - [-1,       1, VPConv,   [96, 96, 3, 2, 1, 1, true, true]]     # 17 - P3 down (32x40)
+  - [[-1, 13], 1, Concat,   [1]]                                  # 18 - cat (P3_down, h1) = 224
+  - [-1,       1, CSPBlock, [224, 160, 80, false, true]]          # 19 - P4 out (32x40, 160ch)
+  - [-1,       1, VPConv,   [160, 160, 3, 2, 1, 1, true, true]]   # 20 - P4 down (16x20)
+  - [[-1, 10], 1, Concat,   [1]]                                  # 21 - cat (P4_down, P5) = 416
+  - [-1,       1, CSPBlock, [416, 256, 128, false, true]]         # 22 - P5 out (16x20, 256ch)
+  - [[16, 19, 22], 1, DFLDetectHead, [[96, 160, 256], 13, 16, [8.0, 16.0, 32.0], true, true, true]]  # 23
+
+  # Branch 2: OpenPilot-Style K=5 MHP Laplace Decoder with P3/P4 Grid-Sample & Heatmap Scoring
+  - [[16, 19, 22, 8, 9, command], 1, TrajMHPHead, [96, 160, 256, 512, 512, 5, 10, 4, 256, 128]]  # 24

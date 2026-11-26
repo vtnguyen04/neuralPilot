@@ -18,6 +18,7 @@ _BLOCK_MODULES = (
     "neuro_pilot.nn.zoo.blocks.eomt",
     "neuro_pilot.nn.zoo.blocks.vit_ae",
     "neuro_pilot.nn.zoo.blocks.world",
+    "neuro_pilot.nn.zoo.blocks.traj",
 )
 
 

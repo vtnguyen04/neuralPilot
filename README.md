@@ -251,19 +251,18 @@ names:
   2: stop_sign
 ```
 
-### 2. Fine-Tune Any Pretrained Zoo Backbone (`CommandAdapter`)
+### 2. Fine-Tune Any Pretrained Backbone (`CommandAdapter`)
 
-Attach a trainable command-conditioned waypoint and control head onto any frozen Zoo backbone (`pilot_s`, `pilot_l`, `jepa`, `driver`, ...):
+Attach a trainable command-conditioned waypoint and control head directly through `NeuroPilot` onto any pretrained model (`pilot_s`, `pilot_l`, `jepa`, `driver`, ...):
 
 ```python
-from neuro_pilot import ModelZoo
+from neuro_pilot import NeuroPilot
 
-base = ModelZoo.load(ModelZoo.download("pilot_s"))
-adapter = ModelZoo.attach_adapter(
-    base,
+model = NeuroPilot("pilot_s.pt")
+adapter = model.attach_adapter(
     feat_dim=256,
-    num_commands=7,
-    num_waypoints=12,
+    num_commands=4,
+    num_waypoints=10,
     freeze_base=True,
 )
 ```

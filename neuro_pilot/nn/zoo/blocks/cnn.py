@@ -53,10 +53,16 @@ class VPConv(nn.Module):
 class Bottleneck(nn.Module):
     """Two-layer 3x3 residual bottleneck."""
 
-    def __init__(self, channels: int, hidden_ch: int, shortcut: bool = True) -> None:
+    def __init__(
+        self,
+        channels: int,
+        hidden_ch: int,
+        shortcut: bool = True,
+        with_bn: bool = False,
+    ) -> None:
         super().__init__()
-        self.conv1 = VPConv(channels, hidden_ch, kernel_size=3, padding=1)
-        self.conv2 = VPConv(hidden_ch, channels, kernel_size=3, padding=1)
+        self.conv1 = VPConv(channels, hidden_ch, kernel_size=3, padding=1, with_bn=with_bn)
+        self.conv2 = VPConv(hidden_ch, channels, kernel_size=3, padding=1, with_bn=with_bn)
         self.shortcut = shortcut
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -67,14 +73,14 @@ class Bottleneck(nn.Module):
 class C3kInner(nn.Module):
     """Nested C3k block with two residual 3x3 bottlenecks."""
 
-    def __init__(self, channels: int, hidden_ch: int) -> None:
+    def __init__(self, channels: int, hidden_ch: int, with_bn: bool = False) -> None:
         super().__init__()
-        self.conv1 = VPConv(channels, hidden_ch, kernel_size=1)
-        self.conv2 = VPConv(channels, hidden_ch, kernel_size=1)
-        self.conv3 = VPConv(hidden_ch * 2, channels, kernel_size=1)
+        self.conv1 = VPConv(channels, hidden_ch, kernel_size=1, with_bn=with_bn)
+        self.conv2 = VPConv(channels, hidden_ch, kernel_size=1, with_bn=with_bn)
+        self.conv3 = VPConv(hidden_ch * 2, channels, kernel_size=1, with_bn=with_bn)
         self.res_m = nn.Sequential(
-            Bottleneck(hidden_ch, hidden_ch, shortcut=True),
-            Bottleneck(hidden_ch, hidden_ch, shortcut=True),
+            Bottleneck(hidden_ch, hidden_ch, shortcut=True, with_bn=with_bn),
+            Bottleneck(hidden_ch, hidden_ch, shortcut=True, with_bn=with_bn),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -87,17 +93,24 @@ class C3kInner(nn.Module):
 class CSPBlock(nn.Module):
     """Cross-Stage Partial block with Bottleneck or C3k inner layers."""
 
-    def __init__(self, in_ch: int, out_ch: int, hidden_ch: int, use_c3k: bool = False) -> None:
+    def __init__(
+        self,
+        in_ch: int,
+        out_ch: int,
+        hidden_ch: int,
+        use_c3k: bool = False,
+        with_bn: bool = False,
+    ) -> None:
         super().__init__()
         half_ch = out_ch // 2
-        self.conv1 = VPConv(in_ch, out_ch, kernel_size=1)
+        self.conv1 = VPConv(in_ch, out_ch, kernel_size=1, with_bn=with_bn)
         inner: nn.Module = (
-            C3kInner(half_ch, hidden_ch)
+            C3kInner(half_ch, hidden_ch, with_bn=with_bn)
             if use_c3k
-            else Bottleneck(half_ch, hidden_ch, shortcut=True)
+            else Bottleneck(half_ch, hidden_ch, shortcut=True, with_bn=with_bn)
         )
         self.res_m = nn.ModuleList([inner])
-        self.conv2 = VPConv(half_ch * 3, out_ch, kernel_size=1)
+        self.conv2 = VPConv(half_ch * 3, out_ch, kernel_size=1, with_bn=with_bn)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         part_a, part_b = self.conv1(x).chunk(2, dim=1)

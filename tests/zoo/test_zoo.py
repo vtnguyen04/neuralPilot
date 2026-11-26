@@ -44,6 +44,8 @@ EXPECTED_MODELS = {
     "ae",
     "dit",
     "gpt",
+    "pilot_det",
+    "pilot_mhp",
 }
 
 EXPECTED_CONVERTERS = {
@@ -69,7 +71,7 @@ def test_registry_and_yamls_detailed_layer_graphs() -> None:
     assert EXPECTED_CONVERTERS.issubset(set(ModelZoo.list_converters()))
 
     yamls = sorted(YAML_DIR.glob("*.yaml"))
-    assert len(yamls) == 16
+    assert len(yamls) == 18
     forbidden = (
         "/home/",
         "/media/",
@@ -218,6 +220,9 @@ def test_neuropilot_unified_predict_and_export(tmp_path: Path) -> None:
     ad = NeuroPilot("drive", device="cpu")
     assert "distance_m" in ad.predict(frame) and "cipo_prob" in ad.predict(frame)
     assert "outputs" in NeuroPilot("driver", device="cpu").predict(frame)
+    mt = NeuroPilot("pilot_mhp", device="cpu")
+    mt_out = mt.predict(frame, command=0)
+    assert mt_out["waypoints"].shape == (10, 2) and "detections" in mt_out
 
     vq_enc = NeuroPilot("vq_enc", scale="tiny", device="cpu")
     vq_dec = NeuroPilot("vq_dec", scale="tiny", device="cpu")

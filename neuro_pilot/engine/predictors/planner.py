@@ -9,7 +9,7 @@ import numpy as np
 import torch
 
 from neuro_pilot.engine.predictors.base import PREDICTOR_REGISTRY, BaseGraphPredictor
-from neuro_pilot.engine.predictors.utils import bgr_to_yuv6, load_bgr, sigmoid
+from neuro_pilot.engine.predictors.utils import bgr_to_yuv6, load_bgr, nms_xywh, sigmoid
 from neuro_pilot.nn.zoo.graph import GraphModel
 from neuro_pilot.utils.camera import (
     get_virtual_warp_matrix,
@@ -192,3 +192,32 @@ class DriverPredictor(BaseGraphPredictor):
     ) -> Dict[str, Any]:
         vec = raw_outputs["outputs"].detach().cpu().numpy()
         return {"outputs": vec, "raw": vec}
+
+
+@PREDICTOR_REGISTRY.register("pilot_det")
+@PREDICTOR_REGISTRY.register("pilot_mhp")
+@PREDICTOR_REGISTRY.register("bfmc")
+@PREDICTOR_REGISTRY.register("bfmc_mhp")
+class MultitaskPredictor(BaseGraphPredictor):
+    """Single-camera multi-task predictor returning 2D waypoints and NMS detections."""
+
+    def preprocess(self, source: Any, **kwargs: Any) -> Dict[str, torch.Tensor]:
+        if isinstance(source, dict):
+            return super().preprocess(source)
+        bgr = load_bgr(source)
+        img_shape = self.model.input_specs.get("img", {}).get("shape", [1, 6, 256, 320])
+        h_in, w_in = int(img_shape[-2]) * 2, int(img_shape[-1]) * 2
+        yuv = torch.from_numpy(bgr_to_yuv6(bgr, width=w_in, height=h_in)).unsqueeze(0)
+        cmd_val = int(kwargs.get("command", 0))
+        cmd = torch.tensor([cmd_val], dtype=torch.int64, device=self.device)
+        return {"img": yuv.to(self.device), "command": cmd}
+
+    def postprocess(
+        self, raw_outputs: Dict[str, torch.Tensor], **kwargs: Any
+    ) -> Dict[str, Any]:
+        conf = float(kwargs.get("conf", 0.30))
+        iou = float(kwargs.get("iou", 0.50))
+        det_np = raw_outputs["det"].detach().float().cpu().numpy()
+        wps = raw_outputs["waypoints"].detach().float().cpu().numpy()[0]
+        boxes = nms_xywh(det_np, conf_thres=conf, iou_thres=iou)
+        return {"waypoints": wps, "detections": boxes, "raw_det": det_np}

@@ -46,6 +46,8 @@ def maybe_build_zoo_graph(
     if raw_key in MODEL_YAML_MAP:
         return build_zoo_model(raw_key, scale=zoo_scale)
     path = Path(raw_key)
+    if path.suffix.lower() in {".yaml", ".yml"} and path.stem in MODEL_YAML_MAP:
+        return build_zoo_model(path.stem, scale=zoo_scale)
     if path.is_file() and path.suffix.lower() in {".yaml", ".yml"}:
         import yaml
 
