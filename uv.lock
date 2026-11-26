@@ -1239,19 +1239,6 @@ wheels = [
 ]
 
 [[package]]
-name = "loguru"
-version = "0.7.3"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "colorama", marker = "sys_platform == 'win32'" },
-    { name = "win32-setctime", marker = "sys_platform == 'win32'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/3a/05/a1dae3dffd1116099471c643b8924f5aa6524411dc6c63fdae648c4f1aca/loguru-0.7.3.tar.gz", hash = "sha256:19480589e77d47b8d85b2c827ad95d49bf31b0dcde16593892eb51dd18706eb6", size = 63559, upload-time = "2024-12-06T11:20:56.608Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/0c/29/0348de65b8cc732daa3e33e67806420b2ae89bdce2b04af740289c5c6c8c/loguru-0.7.3-py3-none-any.whl", hash = "sha256:31a33c10c8e1e10422bfd431aeb5d351c7cf7fa671e3c4df004162264b28220c", size = 61595, upload-time = "2024-12-06T11:20:54.538Z" },
-]
-
-[[package]]
 name = "markdown-it-py"
 version = "4.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1759,7 +1746,6 @@ dependencies = [
     { name = "datasets" },
     { name = "decord" },
     { name = "einops" },
-    { name = "loguru" },
     { name = "matplotlib" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
@@ -1783,7 +1769,6 @@ dependencies = [
     { name = "scikit-learn", version = "1.7.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "scikit-learn", version = "1.8.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "seaborn" },
-    { name = "tensorrt" },
     { name = "timm" },
     { name = "torch" },
     { name = "torchmetrics" },
@@ -1804,7 +1789,6 @@ requires-dist = [
     { name = "datasets", specifier = ">=4.8.4" },
     { name = "decord" },
     { name = "einops", specifier = ">=0.8.2" },
-    { name = "loguru", specifier = ">=0.7.2" },
     { name = "matplotlib", specifier = ">=3.10.8" },
     { name = "numpy" },
     { name = "omegaconf", specifier = ">=2.3.0" },
@@ -1825,7 +1809,6 @@ requires-dist = [
     { name = "rich" },
     { name = "scikit-learn", specifier = ">=1.7.2" },
     { name = "seaborn", specifier = ">=0.13.2" },
-    { name = "tensorrt", specifier = ">=10.15.1.29" },
     { name = "timm", specifier = ">=0.9.0" },
     { name = "torch", specifier = ">=2.0.0" },
     { name = "torchmetrics", specifier = ">=1.8.2" },
@@ -3649,50 +3632,6 @@ wheels = [
 ]
 
 [[package]]
-name = "tensorrt"
-version = "10.16.0.72"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "tensorrt-cu13" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/b7/40/4a27d7e7ec1781a33731e67705ce10ddd9c1efddfa83961d13f08b7234ba/tensorrt-10.16.0.72.tar.gz", hash = "sha256:bd3b478f9986535ee44008fe4bcf20360ebced5fd4b82997e0ab698a0d6dcd78", size = 16618, upload-time = "2026-03-18T18:29:35.832Z" }
-
-[[package]]
-name = "tensorrt-cu13"
-version = "10.16.0.72"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "tensorrt-cu13-bindings" },
-    { name = "tensorrt-cu13-libs" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/c9/85/6535f7f1906a145d78b36ec54ea28d82998bea94a5ba4c210c72886362e7/tensorrt_cu13-10.16.0.72.tar.gz", hash = "sha256:9526aee25519d0243072aa8e3bb6846059efc9fdf23927f74873a7af6e9f7d4b", size = 17927, upload-time = "2026-03-18T18:30:23.499Z" }
-
-[[package]]
-name = "tensorrt-cu13-bindings"
-version = "10.16.0.72"
-source = { registry = "https://pypi.org/simple" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/78/ac/5650044d76a4d593835766a55a28f7e3932490cabdb1ce4dca2b5994bdd1/tensorrt_cu13_bindings-10.16.0.72-cp310-none-manylinux_2_28_x86_64.whl", hash = "sha256:5be6cee769a9a6a1ec295cfd3d0247b5be5dd411afdf19f8d5fb23582172084a", size = 1346287, upload-time = "2026-03-18T18:31:15.068Z" },
-    { url = "https://files.pythonhosted.org/packages/8c/b3/ac53e3dd5eed2c81895dd3652f55b8a2145070cc459984276d5822dde89c/tensorrt_cu13_bindings-10.16.0.72-cp310-none-manylinux_2_35_aarch64.whl", hash = "sha256:29ba53494c212d2478180f04ef4874b3ebaea307567b7de91d7c8700a261749e", size = 1338468, upload-time = "2026-03-18T18:36:49.529Z" },
-    { url = "https://files.pythonhosted.org/packages/9b/4d/7222b8794dcabf9a51bbc3681163cc55cb5a066f995c77e46fad03844e28/tensorrt_cu13_bindings-10.16.0.72-cp310-none-win_amd64.whl", hash = "sha256:8eadbf327b09ad1616c57cde6834b41623a1bc93ab8e405fdbb3c94ee99f8bf2", size = 963361, upload-time = "2026-03-18T18:34:08.507Z" },
-    { url = "https://files.pythonhosted.org/packages/23/a1/3091a86bbcb0b1f6d3470305ad5856d5169d1262c0536d2495807007b829/tensorrt_cu13_bindings-10.16.0.72-cp311-none-manylinux_2_28_x86_64.whl", hash = "sha256:9795ad12065916e3a3b0efa1aa3d2dd3c18f5926bdde7810ef23e1208696fc16", size = 1346363, upload-time = "2026-03-18T18:33:05.628Z" },
-    { url = "https://files.pythonhosted.org/packages/b2/db/9b08474581de41c07160bab485d6c83d414d863f780350e0334403234ccd/tensorrt_cu13_bindings-10.16.0.72-cp311-none-manylinux_2_35_aarch64.whl", hash = "sha256:74ff29d99646ffbf4c24d9603a59669ff5d796448e448732bba127af849dc4f0", size = 1340942, upload-time = "2026-03-18T18:37:43.057Z" },
-    { url = "https://files.pythonhosted.org/packages/d4/c2/b977c399c82afc5499c644e44a13c45adf79d5017535ec0731b9bc139b06/tensorrt_cu13_bindings-10.16.0.72-cp311-none-win_amd64.whl", hash = "sha256:df2a4d54390426db2e004de10690deb32255642e3a563e6d35bd2d428e23cafa", size = 963771, upload-time = "2026-03-18T18:34:37.946Z" },
-    { url = "https://files.pythonhosted.org/packages/05/fe/177f138a63b4242f207613a7deec3f2188dc61d0ad95755c533cd9d5c80b/tensorrt_cu13_bindings-10.16.0.72-cp312-none-manylinux_2_28_x86_64.whl", hash = "sha256:a6390a852fecdede756c8a85b6f859388cdca2115728b3cfc6ca8226b0484f09", size = 1341248, upload-time = "2026-03-18T18:31:36.848Z" },
-    { url = "https://files.pythonhosted.org/packages/e1/d4/92775aca3575d1a01d87c69c8466999f7fef531dc7d2b404bf059a05c2e9/tensorrt_cu13_bindings-10.16.0.72-cp312-none-manylinux_2_35_aarch64.whl", hash = "sha256:7ba79616ed52fab40f3342fdd5679f3994616fbe09cbfef879fbc7437debf077", size = 1329587, upload-time = "2026-03-18T18:31:55.492Z" },
-    { url = "https://files.pythonhosted.org/packages/30/75/dfc88a7a02c3765eae770ffcac7112000333bfc96be8f3d1ac05e7ae2dd8/tensorrt_cu13_bindings-10.16.0.72-cp312-none-win_amd64.whl", hash = "sha256:4330cd288fb074e4439f36fec4f59835ad808bc6050129c605937963a57c427a", size = 964890, upload-time = "2026-03-18T18:35:37.206Z" },
-    { url = "https://files.pythonhosted.org/packages/29/e6/03d598aa7d6e3f702dc5135f26784d5331ecae516d026df9001e7b90f7ae/tensorrt_cu13_bindings-10.16.0.72-cp313-none-manylinux_2_28_x86_64.whl", hash = "sha256:0047128d5ee7edf4ce79824944260545c9f6b980aa2f620311c4282f1beb4ebf", size = 1341149, upload-time = "2026-03-18T18:35:15.412Z" },
-    { url = "https://files.pythonhosted.org/packages/85/c9/fe48680b3d55434d1dfa9806d43447c065e43e8d33f475a00c3dcba70d11/tensorrt_cu13_bindings-10.16.0.72-cp313-none-manylinux_2_35_aarch64.whl", hash = "sha256:02cd81644fc56bc810371ce50b2ec50052d82519d80c8115a058fe680775bb5f", size = 1331545, upload-time = "2026-03-18T18:32:42.794Z" },
-    { url = "https://files.pythonhosted.org/packages/35/ff/ebe14ebf0f0ca441cc34bc048839aecbf2ce179f958c523b85256c22118f/tensorrt_cu13_bindings-10.16.0.72-cp313-none-win_amd64.whl", hash = "sha256:e7919ca8fcd7b766adbb5113d39c07fa36e4bb85f8618216b0da2889f52f7937", size = 964914, upload-time = "2026-03-18T18:33:24.728Z" },
-]
-
-[[package]]
-name = "tensorrt-cu13-libs"
-version = "10.16.0.72"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/70/2f/0aa3da3b5f171702b2770b0dc56d180fe88c52a453b314fe5f1731c3ccf7/tensorrt_cu13_libs-10.16.0.72.tar.gz", hash = "sha256:b72924a48c68a615b44bb78af036417a99240119f2164f26cc9b32e9a1337bcd", size = 15745, upload-time = "2026-03-18T18:30:40.925Z" }
-
-[[package]]
 name = "threadpoolctl"
 version = "3.6.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3979,15 +3918,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/c7/24/5f1b3bdffd70275f6661c76461e25f024d5a38a46f04aaca912426a2b1d3/urllib3-2.6.3.tar.gz", hash = "sha256:1b62b6884944a57dbe321509ab94fd4d3b307075e0c2eae991ac71ee15ad38ed", size = 435556, upload-time = "2026-01-07T16:24:43.925Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/39/08/aaaad47bc4e9dc8c725e68f9d04865dbcb2052843ff09c97b08904852d84/urllib3-2.6.3-py3-none-any.whl", hash = "sha256:bf272323e553dfb2e87d9bfd225ca7b0f467b919d7bbd355436d3fd37cb0acd4", size = 131584, upload-time = "2026-01-07T16:24:42.685Z" },
-]
-
-[[package]]
-name = "win32-setctime"
-version = "1.2.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/b3/8f/705086c9d734d3b663af0e9bb3d4de6578d08f46b1b101c2442fd9aecaa2/win32_setctime-1.2.0.tar.gz", hash = "sha256:ae1fdf948f5640aae05c511ade119313fb6a30d7eabe25fef9764dca5873c4c0", size = 4867, upload-time = "2024-12-07T15:28:28.314Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/e1/07/c6fe3ad3e685340704d314d765b7912993bcb8dc198f0e7a89382d37974b/win32_setctime-1.2.0-py3-none-any.whl", hash = "sha256:95d644c4e708aba81dc3704a116d8cbc974d70b3bdb8be1d150e36be6e9d1390", size = 4083, upload-time = "2024-12-07T15:28:26.465Z" },
 ]
 
 [[package]]
