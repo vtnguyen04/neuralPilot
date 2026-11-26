@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="24" y1="16" x2="232" y2="240" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#111827"/>
+      <stop offset="100%" stop-color="#070B12"/>
+    </linearGradient>
+    <linearGradient id="border" x1="0" y1="0" x2="256" y2="256" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#334155"/>
+      <stop offset="100%" stop-color="#1E293B"/>
+    </linearGradient>
+    <linearGradient id="traj" x1="108" y1="212" x2="150" y2="62" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#67E8F9"/>
+      <stop offset="52%" stop-color="#38BDF8"/>
+      <stop offset="100%" stop-color="#2563EB"/>
+    </linearGradient>
+    <linearGradient id="corridor" x1="128" y1="214" x2="146" y2="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#38BDF8" stop-opacity="0.30"/>
+      <stop offset="68%" stop-color="#2563EB" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#1D4ED8" stop-opacity="0.02"/>
+    </linearGradient>
+    <linearGradient id="rail" x1="128" y1="214" x2="144" y2="54" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#CBD5E1" stop-opacity="0.72"/>
+      <stop offset="100%" stop-color="#94A3B8" stop-opacity="0.10"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="8" y="8" width="240" height="240" rx="54" fill="url(#bg)" stroke="url(#border)" stroke-width="2.5"/>
+  <!-- Gently curving right-hand perspective road lane corridor (zero collisions) -->
+  <path d="M52 214 C72 152, 98 104, 134 56 L168 56 C174 106, 186 154, 206 214 Z" fill="url(#corridor)"/>
+  <path d="M52 214 C72 152, 98 104, 134 56" stroke="url(#rail)" stroke-width="4.5" stroke-linecap="round"/>
+  <path d="M206 214 C186 154, 174 106, 168 56" stroke="url(#rail)" stroke-width="4.5" stroke-linecap="round"/>
+
+  <!-- Centered drivable trajectory ribbon sweeping cleanly inside the lane -->
+  <path d="M118 210 C122 156, 132 108, 151 64" stroke="url(#traj)" stroke-width="13" stroke-linecap="round"/>
+  <path d="M118 210 C122 156, 132 108, 151 64" stroke="#F8FAFC" stroke-opacity="0.90" stroke-width="3.6" stroke-linecap="round"/>
+
+  <!-- Minimal geometric waypoints -->
+  <circle cx="123" cy="166" r="7" fill="#38BDF8" stroke="#F8FAFC" stroke-width="2.8"/>
+  <circle cx="134" cy="116" r="6.5" fill="#2563EB" stroke="#F8FAFC" stroke-width="2.6"/>
+  <circle cx="151" cy="64" r="16" stroke="#67E8F9" stroke-opacity="0.28" stroke-width="2.2"/>
+  <circle cx="151" cy="64" r="9" fill="#67E8F9" stroke="#F8FAFC" stroke-width="3.2"/>
+</svg>

@@ -1,0 +1,58 @@
+{
+  "dataset": "comma2k19 (MIT License)",
+  "day": {
+    "clip": "day_1455_s2.hevc",
+    "frames": 1200,
+    "fps": 20.0,
+    "mean_latency_ms": 33.92,
+    "infer_fps": 29.5
+  },
+  "night": {
+    "clip": "night_2242_s3.hevc",
+    "frames": 1200,
+    "fps": 20.0,
+    "mean_latency_ms": 28.63,
+    "infer_fps": 34.9
+  },
+  "demos": {
+    "hero": {
+      "video": "hero.mp4",
+      "gif": "hero.gif",
+      "preview": "hero.jpg",
+      "layout": "2x2 (Day E2E | Night E2E | EoMT-L Semantic Seg | 3D Multi-Lane + CIPO)"
+    },
+    "day_night": {
+      "video": "day_night.mp4",
+      "gif": "day_night.gif",
+      "duration_s": 58.5,
+      "resolution": "1924x540",
+      "size_mb": 42.58,
+      "frames": [
+        "frames/t004.7s.jpg",
+        "frames/t014.6s.jpg",
+        "frames/t026.3s.jpg",
+        "frames/t038.0s.jpg",
+        "frames/t046.8s.jpg",
+        "frames/t055.0s.jpg"
+      ]
+    },
+    "perception": {
+      "video": "perception.mp4",
+      "gif": "perception.gif",
+      "preview": "perception.jpg",
+      "layout": "2x2 (Day EoMT-L Semantic Seg | Day 3D Multi-Lane + CIPO | Day Magma Depth | Night 3D Multi-Lane + CIPO)"
+    },
+    "world_vq": {
+      "video": "world_vq.mp4",
+      "gif": "world_vq.gif",
+      "preview": "world_vq.jpg",
+      "mean_psnr_db": 23.78
+    }
+  },
+  "seg_l": {
+    "model": "EoMT-Large (DINOv2 ViT-L, MIT)",
+    "params_m": 316.0,
+    "latency_ms": 96.0,
+    "infer_fps": 10.4
+  }
+}
