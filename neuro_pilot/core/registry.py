@@ -1,7 +1,7 @@
-import logging
-from typing import Dict, Type
+from __future__ import annotations
 
-logger = logging.getLogger(__name__)
+from typing import Dict, Type
+from neuro_pilot.utils.logger import logger
 
 
 class Registry:
@@ -18,48 +18,40 @@ class Registry:
     _AGGREGATORS: Dict[str, Type] = {}
 
     @classmethod
-    def register_backbone(cls, name: str = None):
+    def _register(cls, target_dict: Dict[str, Type], category: str, name: str | None = None):
+        """Helper decorator factory to handle registrations across all components."""
         def decorator(obj):
             key = name or obj.__name__
-            if key in cls._BACKBONES:
-                logger.warning(f"Backbone {key} already registered. Overwriting.")
-            cls._BACKBONES[key] = obj
+            if key in target_dict:
+                logger.warning(f"{category} {key} already registered. Overwriting.")
+            target_dict[key] = obj
             return obj
 
         return decorator
 
     @classmethod
-    def register_head(cls, name: str = None):
-        def decorator(obj):
-            key = name or obj.__name__
-            if key in cls._HEADS:
-                logger.warning(f"Head {key} already registered. Overwriting.")
-            cls._HEADS[key] = obj
-            return obj
-
-        return decorator
+    def register_backbone(cls, name: str | None = None):
+        return cls._register(cls._BACKBONES, "Backbone", name)
 
     @classmethod
-    def register_loss(cls, name: str = None):
-        def decorator(obj):
-            key = name or obj.__name__
-            if key in cls._LOSSES:
-                logger.warning(f"Loss {key} already registered. Overwriting.")
-            cls._LOSSES[key] = obj
-            return obj
-
-        return decorator
+    def register_head(cls, name: str | None = None):
+        return cls._register(cls._HEADS, "Head", name)
 
     @classmethod
-    def register_neck(cls, name: str = None):
-        def decorator(obj):
-            key = name or obj.__name__
-            if key in cls._NECKS:
-                logger.warning(f"Neck {key} already registered. Overwriting.")
-            cls._NECKS[key] = obj
-            return obj
+    def register_loss(cls, name: str | None = None):
+        return cls._register(cls._LOSSES, "Loss", name)
 
-        return decorator
+    @classmethod
+    def register_neck(cls, name: str | None = None):
+        return cls._register(cls._NECKS, "Neck", name)
+
+    @classmethod
+    def register_task(cls, name: str | None = None):
+        return cls._register(cls._TASKS, "Task", name)
+
+    @classmethod
+    def register_aggregator(cls, name: str | None = None):
+        return cls._register(cls._AGGREGATORS, "Aggregator", name)
 
     @classmethod
     def get_backbone(cls, name: str) -> Type:
@@ -80,61 +72,51 @@ class Registry:
     @classmethod
     def get(cls, name: str) -> Type:
         """General lookup across all categories."""
-        if name in cls._BACKBONES:
-            return cls._BACKBONES[name]
-        if name in cls._HEADS:
-            return cls._HEADS[name]
-        if name in cls._NECKS:
-            return cls._NECKS[name]
-        if name in cls._LOSSES:
-            return cls._LOSSES[name]
-        if name in cls._TASKS:
-            return cls._TASKS[name]
-        if name in cls._AGGREGATORS:
-            return cls._AGGREGATORS[name]
-        return None
+        return (
+            cls._BACKBONES.get(name)
+            or cls._HEADS.get(name)
+            or cls._NECKS.get(name)
+            or cls._LOSSES.get(name)
+            or cls._TASKS.get(name)
+            or cls._AGGREGATORS.get(name)
+        )
 
     @classmethod
-    def register_task(cls, name: str = None):
-        def decorator(obj):
-            key = name or obj.__name__
-            if key in cls._TASKS:
-                logger.warning(f"Task {key} already registered. Overwriting.")
-            cls._TASKS[key] = obj
-            return obj
-
-        return decorator
+    def _get_required(cls, target_dict: Dict[str, Type], category: str, name: str) -> Type:
+        """Helper to retrieve a required registry entry or raise ValueError."""
+        if name not in target_dict:
+            raise ValueError(f"{category} '{name}' not found in registry. Available: {list(target_dict.keys())}")
+        return target_dict[name]
 
     @classmethod
     def get_task(cls, name: str) -> Type:
-        if name not in cls._TASKS:
-            raise ValueError(f"Task '{name}' not found in registry. Available: {list(cls._TASKS.keys())}")
-        return cls._TASKS[name]
+        return cls._get_required(cls._TASKS, "Task", name)
 
     @classmethod
     def list_tasks(cls) -> list[str]:
         return list(cls._TASKS.keys())
 
     @classmethod
-    def register_aggregator(cls, name: str = None):
-        def decorator(obj):
-            key = name or obj.__name__
-            if key in cls._AGGREGATORS:
-                logger.warning(f"Aggregator {key} already registered. Overwriting.")
-            cls._AGGREGATORS[key] = obj
-            return obj
-
-        return decorator
-
-    @classmethod
     def get_aggregator(cls, name: str) -> Type:
-        if name not in cls._AGGREGATORS:
-            raise ValueError(f"Aggregator '{name}' not found in registry. Available: {list(cls._AGGREGATORS.keys())}")
-        return cls._AGGREGATORS[name]
+        return cls._get_required(cls._AGGREGATORS, "Aggregator", name)
 
     @classmethod
     def list_aggregators(cls) -> list[str]:
         return list(cls._AGGREGATORS.keys())
+
+    @classmethod
+    def list_zoo_models(cls) -> list[str]:
+        from neuro_pilot.nn.zoo import ZOO_REGISTRY, register_all_zoo_models
+
+        register_all_zoo_models()
+        return ZOO_REGISTRY.keys()
+
+    @classmethod
+    def get_zoo_model(cls, name: str) -> Type:
+        from neuro_pilot.nn.zoo import ZOO_REGISTRY, register_all_zoo_models
+
+        register_all_zoo_models()
+        return ZOO_REGISTRY.get(name)
 
 
 register_backbone = Registry.register_backbone

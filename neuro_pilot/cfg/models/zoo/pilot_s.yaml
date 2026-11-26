@@ -1,0 +1,54 @@
+# Dual-camera E2E Planner Small (FastViT-T12 + 4L Off-Policy + 1L On-Policy Residual)
+
+name: pilot_s
+family: planner
+
+inputs:
+  new_img:            {shape: [2, 6, 128, 256], dtype: uint8, dist: randint, low: 0, high: 256}
+  desire:             {shape: [8], dtype: float32, dist: rand, low: 0.0, high: 1.0}
+  traffic_convention: {shape: [1, 2], dtype: float32, dist: const, value: [1.0, 0.0]}
+  action_t:           {shape: [1, 2], dtype: float32, dist: randn, scale: 0.2}
+  state_img_q:        {shape: [2, 5, 6, 128, 256], dtype: uint8, dist: randint, low: 0, high: 256}
+  state_desire_q:     {shape: [132, 1, 8], dtype: float32, dist: rand, low: 0.0, high: 1.0}
+  state_feat_q:       {shape: [128, 1, 512], dtype: float32, dist: randn, scale: 0.5}
+
+outputs:
+  outputs:             20.outputs
+  next_state_img_q:    0.next_img_q
+  next_state_desire_q: 0.next_desire_q
+  next_state_feat_q:   20.next_state_feat_q
+
+backbone:
+  # Rolling Queue Preprocessing
+  - [[new_img, desire, state_img_q, state_desire_q, state_feat_q], 1, QueuePreproc, [1]]  # 0
+
+  # FastViT-T12 Vision Backbone (24ch dual-cam -> [1, 1, 512])
+  - [0.img_norm, 1, FastViTStem,   [24, 64]]                      # 1  - Stem P2/4
+  - [-1,         2, RepMixerBlock, [64, 3]]                       # 2  - Stage 0 (2 blocks)
+  - [-1,         1, PatchEmbed2d,  [64, 128]]                     # 3  - Downsample P3/8
+  - [-1,         2, RepMixerBlock, [128, 3]]                      # 4  - Stage 1 (2 blocks)
+  - [-1,         1, PatchEmbed2d,  [128, 256]]                    # 5  - Downsample P4/16
+  - [-1,         6, RepMixerBlock, [256, 3]]                      # 6  - Stage 2 (6 blocks)
+  - [-1,         1, PatchEmbed2d,  [256, 512]]                    # 7  - Downsample P5/32
+  - [-1,         2, RepMixerBlock, [512, 3]]                      # 8  - Stage 3 (2 blocks)
+  - [-1,         1, FastViTHead,   [512, 512]]                    # 9  - SE + 1x1 + GAP [1, 1, 512]
+  - [[0.hist_feats, 9], 1, VisionSeqCat, [9]]                     # 10 - Temporal window [1, 9, 1, 512]
+
+head:
+  # Single-Frame Spatial Policy
+  - [9, 1, PointPolicy, [512]]                                    # 11 - lanes, road_edges, meta, pose
+
+  # Off-Policy Temporal Transformer (4L Causal QK-Norm)
+  - [[10, 0.desire_win, traffic_convention, action_t], 1, TemporalEmbed, [1, 200, 512, 9]]  # 12
+  - [-1, 4, QKNormBlock, [512, 8, 2.0, true, 9]]                  # 13 - 4L causal attention
+  - [-1, 1, LastToken,   []]                                      # 14 - Final temporal token
+  - [-1, 1, TemporalHydra, [[[plan, 990, true], [lead, 144, true], [lead_prob, 3, false], [action, 4, true], [desire_state, 8, false]], 512]]  # 15
+
+  # On-Policy Temporal Transformer (1L Causal QK-Norm + Linear Residual)
+  - [[10, 0.desire_win, traffic_convention, action_t], 1, TemporalEmbed, [1, 200, 512, 9]]  # 16
+  - [-1, 1, QKNormBlock, [512, 8, 2.0, true, 9]]                  # 17 - 1L causal attention
+  - [-1, 1, LastToken,   []]                                      # 18 - Final temporal token
+  - [[18, 15], 1, ResidualActionHead, [512, false]]               # 19 - Linear residual action
+
+  # Output Packing & Feature Queue Shift
+  - [[11, 15, 19, 9, state_feat_q], 1, SupercomboPack, [1, false]]  # 20

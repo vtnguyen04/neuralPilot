@@ -1,0 +1,77 @@
+# Map-Guided Dual-camera E2E Planner (ConvNeXt-XL + NavMap ConvNeXt + Nav MLP)
+
+name: pilot_nav
+family: planner
+
+inputs:
+  new_img:                     {shape: [2, 6, 128, 256], dtype: uint8, dist: randint, low: 0, high: 256}
+  desire:                      {shape: [8], dtype: float32, dist: rand, low: 0.0, high: 1.0}
+  traffic_convention:          {shape: [1, 2], dtype: float32, dist: const, value: [1.0, 0.0]}
+  action_t:                    {shape: [1, 2], dtype: float32, dist: randn, scale: 0.2}
+  state_img_q:                 {shape: [2, 5, 6, 128, 256], dtype: uint8, dist: randint, low: 0, high: 256}
+  state_desire_q:              {shape: [132, 1, 8], dtype: float32, dist: rand, low: 0.0, high: 1.0}
+  state_feat_q:                {shape: [128, 1, 16384], dtype: float32, dist: randn, scale: 0.5}
+  nav_map:                     {shape: [1, 1, 256, 256], dtype: float32, dist: rand, low: 0.0, high: 255.0}
+  navigation:                  {shape: [1, 47], dtype: float32, dist: randn, scale: 0.5}
+  state_map_features_q:        {shape: [128, 1, 64], dtype: float32, dist: randn, scale: 0.5}
+  state_navigation_features_q: {shape: [128, 1, 64], dtype: float32, dist: randn, scale: 0.5}
+
+outputs:
+  outputs:                          33.outputs
+  next_state_img_q:                 0.next_img_q
+  next_state_desire_q:              0.next_desire_q
+  next_state_feat_q:                33.next_state_feat_q
+  next_state_map_features_q:        33.next_state_map_features_q
+  next_state_navigation_features_q: 33.next_state_navigation_features_q
+
+backbone:
+  # Rolling Queue Preprocessing
+  - [[new_img, desire, state_img_q, state_desire_q, state_feat_q], 1, QueuePreproc, [32]]  # 0
+
+  # ConvNeXt-XL Vision Backbone (24ch dual-cam -> [1, 32, 512])
+  - [0.img_norm, 1,  ConvNeXtStem,  [24, 256, 1.0e-5]]            # 1  - Vision stem P2/4
+  - [-1,         3,  ConvNeXtBlock, [256, 4, 1.0e-5]]             # 2  - Vision stage 0
+  - [-1,         1,  ConvNeXtDown,  [256, 512, 1.0e-5]]           # 3  - Vision down P3/8
+  - [-1,         3,  ConvNeXtBlock, [512, 4, 1.0e-5]]             # 4  - Vision stage 1
+  - [-1,         1,  ConvNeXtDown,  [512, 1024, 1.0e-5]]          # 5  - Vision down P4/16
+  - [-1,         27, ConvNeXtBlock, [1024, 4, 6.25e-7]]           # 6  - Vision stage 2
+  - [-1,         1,  ConvNeXtDown,  [1024, 2048, 6.25e-7]]        # 7  - Vision down P5/32
+  - [-1,         3,  ConvNeXtBlock, [2048, 4, 1.0e-5]]            # 8  - Vision stage 3
+  - [-1,         1,  ConvNeXtHead,  [2048, 512, 1.0e-5]]          # 9  - Vision head [1, 32, 512]
+  - [[0.hist_feats, 9], 1, VisionSeqCat, [9]]                     # 10 - Temporal window [1, 9, 32, 512]
+
+  # NavMap ConvNeXt Encoder (1x256x256 -> [1, 64])
+  - [nav_map, 1, ConvNeXtStem,  [1, 64, 1.0e-5, 255.0]]           # 11 - Map stem P2/4
+  - [-1,      2, ConvNeXtBlock, [64, 4, 1.0e-5]]                  # 12 - Map stage 0
+  - [-1,      1, ConvNeXtDown,  [64, 128, 1.0e-5]]                # 13 - Map down P3/8
+  - [-1,      2, ConvNeXtBlock, [128, 4, 1.0e-5]]                 # 14 - Map stage 1
+  - [-1,      1, ConvNeXtDown,  [128, 256, 1.0e-5]]               # 15 - Map down P4/16
+  - [-1,      6, ConvNeXtBlock, [256, 4, 1.0e-5]]                 # 16 - Map stage 2
+  - [-1,      1, ConvNeXtDown,  [256, 512, 1.0e-5]]               # 17 - Map down P5/32
+  - [-1,      2, ConvNeXtBlock, [512, 4, 6.25e-7]]                # 18 - Map stage 3
+  - [-1,      1, LayerNorm2d,   [512, 6.25e-7]]                   # 19 - Map head norm
+  - [-1,      1, Flatten,       [1]]                              # 20 - Flatten [1, 32768]
+  - [-1,      1, Linear,        [32768, 64]]                      # 21 - Map embedding [1, 64]
+
+  # Turn-by-Turn Navigation MLP & Temporal Context Fusion
+  - [navigation, 1, SiLUProj, [47, 64]]                           # 22 - Nav embedding [1, 64]
+  - [[0.desire_win, 21, 22, state_map_features_q, state_navigation_features_q], 1, NavContextFuse, [9]]  # 23
+
+head:
+  # Single-Frame Spatial Policy
+  - [9, 1, PointPolicy, [512]]                                    # 24 - lanes, road_edges, meta, pose
+
+  # Off-Policy Temporal Transformer (4L Causal QK-Norm)
+  - [[10, 23, traffic_convention, action_t], 1, TemporalEmbed, [32, 328, 512, 9]]  # 25
+  - [-1, 4, QKNormBlock, [512, 8, 2.0, true, 288]]                # 26 - 4L causal attention
+  - [-1, 1, LastToken,   []]                                      # 27 - Final temporal token
+  - [-1, 1, TemporalHydra, [[[plan, 990, true], [lead, 144, true], [lead_prob, 3, false], [action, 4, true], [desire_state, 8, false]], 512]]  # 28
+
+  # On-Policy Temporal Transformer (4L Causal QK-Norm + Tanh Residual)
+  - [[10, 23, traffic_convention, action_t], 1, TemporalEmbed, [32, 328, 512, 9]]  # 29
+  - [-1, 4, QKNormBlock, [512, 8, 2.0, true, 288]]                # 30 - 4L causal attention
+  - [-1, 1, LastToken,   []]                                      # 31 - Final temporal token
+  - [[31, 28], 1, ResidualActionHead, [512, true]]                # 32 - Tanh residual action
+
+  # Output Packing & Feature/Map/Nav Queue Shifts
+  - [[24, 28, 32, 9, state_feat_q, 21, 22, state_map_features_q, state_navigation_features_q], 1, SupercomboPack, [32, true]]  # 33

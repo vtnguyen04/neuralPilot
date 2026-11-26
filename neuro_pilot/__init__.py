@@ -16,7 +16,11 @@ def __getattr__(name):
         from neuro_pilot.utils.checks import check_version
 
         return check_version
+    elif name == "ModelZoo":
+        from neuro_pilot.engine.zoo import ModelZoo
+
+        return ModelZoo
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-__all__ = ["NeuroPilot", "Results", "check_version"]
+__all__ = ["ModelZoo", "NeuroPilot", "Results", "check_version"]

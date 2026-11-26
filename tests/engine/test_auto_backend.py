@@ -34,7 +34,7 @@ class TestBackend(unittest.TestCase):
         mock_suffix.return_value = ".onnx"
 
         # Need to mock ONNXBackend instantiation to avoid real onnxruntime init
-        with patch("neuro_pilot.engine.backend.factory.ONNXBackend") as MockONNX:
+        with patch("neuro_pilot.engine.backend.onnx.ONNXBackend") as MockONNX:
             import torch
 
             AutoBackend.create("model.onnx", device=torch.device("cpu"))

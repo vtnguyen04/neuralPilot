@@ -8,6 +8,7 @@ from typing import Union
 from neuro_pilot.utils.logger import logger, log_system_info
 from neuro_pilot.core.registry import Registry
 import neuro_pilot.engine.task  # triggers @Registry.register_task dynamically
+import neuro_pilot.engine.tasks  # registers self-driving GraphModel tasks
 from neuro_pilot.engine.backend.factory import AutoBackend
 from neuro_pilot.utils.torch_utils import select_device, default_names
 
@@ -28,7 +29,7 @@ class NeuroPilot(nn.Module):
     def __init__(
         self,
         model: Union[str, Path, nn.Module] = "neuralPilot.yaml",
-        task: str = None,
+        task: str | None = None,
         scale: str = "n",
         **kwargs,
     ):
@@ -54,16 +55,31 @@ class NeuroPilot(nn.Module):
             return
 
         model = str(model)
-        p = Path(model)
-        if p.exists() and p.suffix in [".pt", ".pth"]:
-            self._load(p, scale=scale)
-        elif p.exists() and p.suffix in [".onnx", ".engine", ".tflite", ".pb"]:
-            self.task_name = task or "multitask"
-            logger.info(f"Loading NeuroPilot ({self.task_name}) inference engine from {p}")
-            self.model = str(p)
-            self._init_task(self.task_name)
+        model_path = Path(model)
+        if model_path.exists() and model_path.suffix in [".pt", ".pth"]:
+            self._load(model_path, scale=scale)
+        elif model_path.exists() and model_path.suffix in [
+            ".onnx", ".engine", ".plan", ".torchscript", ".ts", ".tflite", ".pb",
+        ]:
+            self._load_compiled(model_path, task=task)
         else:
-            self._new(model, scale=scale)
+            auto_pt = self._maybe_download_zoo_weights(model, model_path)
+            if auto_pt is not None:
+                self._load(auto_pt, scale=scale)
+            else:
+                self._new(model, scale=scale)
+
+    def _maybe_download_zoo_weights(self, model: str, model_path: Path) -> Path | None:
+        """Auto-download pretrained Zoo `.pt` weights for `<key>.pt` or `pretrained=True`."""
+        from neuro_pilot.nn.zoo.hub import download_weights, resolve_weight_key
+
+        want_pt = model_path.suffix in {".pt", ".pth"} or bool(self.overrides.get("pretrained"))
+        if not want_pt:
+            return None
+        key = resolve_weight_key(model)
+        if key is None:
+            return None
+        return download_weights(key, dest_dir=self.overrides.get("cache_dir"))
 
     def _init_task(self, task_name, overrides=None):
         """Initialize the Task Wrapper."""
@@ -113,28 +129,68 @@ class NeuroPilot(nn.Module):
             else:
                 self.model = self.task_wrapper.build_model()
 
-        if self.model and not isinstance(self.model, str):
+        is_pytorch = self.model and not isinstance(self.model, str)
+        is_compiled = isinstance(self.model, str) and Path(self.model).suffix in [".onnx", ".engine", ".tflite", ".pb"]
+
+        if is_pytorch:
             if not self.task_wrapper.model:
                 self.task_wrapper.model = self.model
             self.model.to(self.target_device)
+
+        if is_pytorch or is_compiled:
             self.backend = AutoBackend.create(self.model, device=self.target_device)
-        elif isinstance(self.model, str) and Path(self.model).suffix in [".onnx", ".engine", ".tflite", ".pb"]:
-            # AutoBackend will wrap it properly later when predicting or here
-            self.backend = AutoBackend.create(self.model, device=self.target_device)
+
+    def _load_compiled(self, model_path: Path, task: str | None = None) -> None:
+        """Load compiled ONNX, TensorRT `.engine`, or TorchScript runtime artifact."""
+        from neuro_pilot.engine.tasks import load_compiled_zoo_backend
+
+        backend, task_name, wrapper = load_compiled_zoo_backend(
+            model_path, self.target_device, self.overrides, task=task
+        )
+        self.backend = backend
+        self.task_name = task_name
+        if wrapper is not None:
+            self.model, self.task_wrapper = backend, wrapper
+            return
+        self.model = str(model_path)
+        self._init_task(self.task_name)
+
+    def _bind_graph_model(self, graph_model) -> None:
+        """Bind a Zoo GraphModel to its inferred driving task and device."""
+        from neuro_pilot.engine.tasks import infer_driving_task
+
+        self.model = graph_model.to(self.target_device)
+        self.task_name = self.overrides.get("task") or infer_driving_task(
+            graph_model.model_key, graph_model.family
+        )
+        self.task_wrapper = Registry.get_task(self.task_name)(overrides=self.overrides)
+        self.task_wrapper.model = self.model
 
     def _new(self, cfg_path: Union[str, Path], scale: str = "n"):
         """Initialize new model from config."""
+        from neuro_pilot.engine.tasks import maybe_build_zoo_graph
         from neuro_pilot.utils.checks import check_yaml
 
-        cfg_path = check_yaml(cfg_path)
+        zoo_model = maybe_build_zoo_graph(cfg_path, scale=scale)
+        if zoo_model is None:
+            cfg_path = check_yaml(cfg_path)
+            zoo_model = maybe_build_zoo_graph(cfg_path, scale=scale)
+        if zoo_model is not None:
+            self._bind_graph_model(zoo_model)
+            return
         logger.info(f"Initializing NeuroPilot ({self.task_name}) from {cfg_path} (scale={scale})")
-        self._init_task(self.task_name, overrides={"model_cfg": str(cfg_path), "scale": scale})
+        self._init_task(self.task_name, overrides={"model_cfg": cfg_path, "scale": scale})
 
     def _load(self, weights_path: Union[str, Path], scale: str = "n"):
         """Load from checkpoint."""
         logger.info(f"Loading NeuroPilot ({self.task_name}) from {weights_path}")
 
         ckpt = torch.load(weights_path, map_location="cpu", weights_only=False)
+        if isinstance(ckpt, dict) and "model_key" in ckpt:
+            from neuro_pilot.nn.zoo import load_zoo_pt
+
+            self._bind_graph_model(load_zoo_pt(weights_path, device=str(self.target_device)))
+            return
         model_cfg = ckpt.get("model_cfg")
         if not model_cfg and "args" in ckpt:
             model_cfg = ckpt["args"].get("model_cfg")
@@ -146,11 +202,8 @@ class NeuroPilot(nn.Module):
         final_scale = scale if scale != "n" else (ckpt_scale or "n")
 
         if model_cfg:
-            import neuro_pilot
-            import os
-
             basename = Path(model_cfg).name
-            local_path = Path(neuro_pilot.__file__).parent / "cfg" / "models" / basename
+            local_path = Path(__file__).resolve().parent.parent / "cfg" / "models" / basename
             if local_path.exists():
                 model_cfg = str(local_path)
 
@@ -161,7 +214,7 @@ class NeuroPilot(nn.Module):
         final_overrides = {**overrides, **self.overrides}
 
         self._init_task(self.task_name, overrides=final_overrides)
-        self.task_wrapper.load_weights(weights_path)
+        self.task_wrapper.load_weights(ckpt)
         self.model = self.task_wrapper.model
 
         if self.model:
@@ -300,10 +353,20 @@ class NeuroPilot(nn.Module):
             logger.info(f"Resuming from specified checkpoint: {self.cfg_obj.trainer.resume}")
 
     def predict(self, source, **kwargs):
-        """
-        Perform inference on the given source.
-        Returns a list of Results objects.
-        """
+        """Run inference; returns Results (multitask) or decoded dict (Zoo GraphModel)."""
+        from neuro_pilot.engine.backend.base import BaseBackend
+        from neuro_pilot.nn.zoo.graph import GraphModel
+
+        is_zoo_runtime = isinstance(self.model, GraphModel) or (
+            isinstance(self.model, BaseBackend) and bool(self.model.model_key)
+        )
+        if is_zoo_runtime:
+            if self.predictor is None:
+                from neuro_pilot.engine.predictors import create_zoo_predictor
+
+                self.predictor = create_zoo_predictor(self.model, device=self.target_device)
+            return self.predictor(source, **kwargs)
+
         if self.predictor is None:
             from neuro_pilot.engine.predictor import Predictor
 
@@ -311,13 +374,17 @@ class NeuroPilot(nn.Module):
 
         return self.predictor(source, **kwargs)
 
+    def predict_video(self, source, out_mp4=None, right_source=None, **kwargs):
+        """Stream single/dual driving videos and optionally render zero-text 3D trajectory MP4."""
+        from neuro_pilot.engine.video import run_predict_video
+
+        return run_predict_video(self, source, out_mp4=out_mp4, right_source=right_source, **kwargs)
+
     def export(self, **kwargs):
-        """
-        Export the model to a specific format (e.g., ONNX, TensorRT).
-        """
+        """Export the model to ONNX, TensorRT, or TorchScript."""
         from neuro_pilot.engine.exporter import Exporter
 
-        exporter = Exporter(self.cfg_obj, self.model, self.device)
+        exporter = Exporter(getattr(self, "cfg_obj", None), self.model, self.device)
         return exporter(**kwargs)
 
     def val(self, **kwargs):
@@ -338,16 +405,11 @@ class NeuroPilot(nn.Module):
         model = self.model.to(device)
         if half and device.type != "cpu":
             model.half()
-
-        img = torch.zeros(batch, 3, imgsz, imgsz).to(device)
-        if half and device.type != "cpu":
-            img = img.half()
-
-        cmd = torch.zeros(batch, dtype=torch.long).to(device)
-
+        img = torch.zeros(batch, 3, imgsz, imgsz, device=device)
+        img = img.half() if (half and device.type != "cpu") else img
+        cmd = torch.zeros(batch, dtype=torch.long, device=device)
         for _ in range(10):
             model(img, cmd=cmd)
-
         n = 100
         if device.type == "cuda" and torch.cuda.is_available():
             torch.cuda.synchronize()
@@ -356,13 +418,9 @@ class NeuroPilot(nn.Module):
             model(img, cmd=cmd)
         if device.type == "cuda" and torch.cuda.is_available():
             torch.cuda.synchronize()
-        t2 = time.time()
-
-        dt = (t2 - t1) / n * 1000
+        dt = (time.time() - t1) / n * 1000
         fps = 1000 / dt * batch
-        logger.info(f"Benchmark: {imgsz}x{imgsz}, batch={batch}, device={device}, half={half}")
-        logger.info(f"  Latency: {dt:.2f} ms")
-        logger.info(f"  Throughput: {fps:.2f} FPS")
+        logger.info(f"Benchmark: {imgsz}x{imgsz}, batch={batch} | {dt:.2f} ms | {fps:.2f} FPS")
         return {"latency_ms": dt, "fps": fps}
 
     def fuse(self):
@@ -376,18 +434,22 @@ class NeuroPilot(nn.Module):
 
     def save(self, filename: Union[str, Path]):
         """Save model to file."""
+        from neuro_pilot.engine.tasks import save_graph_checkpoint
+        from neuro_pilot.nn.zoo.graph import GraphModel
+
         filename = Path(filename)
         filename.parent.mkdir(parents=True, exist_ok=True)
-        torch.save(
-            {
-                "state_dict": self.model.state_dict(),
-                "task": self.task_name,
-                "overrides": self.overrides,
-                "scale": self.overrides.get("scale", "n"),
-                "cfg": self.cfg_obj,
-            },
-            filename,
-        )
+        if isinstance(self.model, GraphModel):
+            save_graph_checkpoint(self.model, filename)
+            return
+        payload = {
+            "state_dict": self.model.state_dict(),
+            "task": self.task_name,
+            "overrides": self.overrides,
+            "scale": self.overrides.get("scale", "n"),
+            "cfg": self.cfg_obj,
+        }
+        torch.save(payload, filename)
 
     def to(self, *args, **kwargs):
         """Override to move backend as well."""
@@ -401,7 +463,7 @@ class NeuroPilot(nn.Module):
 
     def half(self):
         """Override to set backend to FP16."""
-        if self.model:
+        if self.model and hasattr(self.model, "half"):
             self.model.half()
         if hasattr(self, "backend"):
             self.backend.fp16 = True
@@ -435,6 +497,8 @@ class NeuroPilot(nn.Module):
         return default_names(num_classes)
 
     def __call__(self, source, **kwargs):
+        if self.model is None:
+            raise RuntimeError("Model not loaded or initialized. Please load weights or initialize a config.")
         if self.training:
             return self.model(source, **kwargs)
         return self.predict(source, **kwargs)

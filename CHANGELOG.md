@@ -1,234 +1,90 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+All notable changes to NeuroPilot are documented in this file.
+Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [Unreleased]
+
+### Added
+- Layer-by-layer modular YAML model zoo (`neuro_pilot/cfg/models/zoo/`) with 16 architectures across planning (`pilot_s`, `pilot_l`, `pilot_nav`, `driver`), perception (`cipo`, `lane`, `drive`, `depth`, `seg`, `seg_l`), and world models (`jepa`, `vq_enc`, `vq_dec`, `ae`, `dit`, `gpt`).
+- Generic `GraphModel` YAML executor (`neuro_pilot/nn/zoo/graph.py`) and shared atomic block library (`neuro_pilot/nn/zoo/blocks/`).
+- Deterministic ONNX and safetensors weight converters (`neuro_pilot/nn/zoo/converters/`) and numerical parity harness (`neuro_pilot/nn/zoo/parity.py`), verified on 13 converted models including lightweight `seg` (`DDRNet23-Slim`, 5.7M) and `seg_l` (`EoMT-Large` DINOv2 ViT-L, 316M).
+- Two-tier automatic checkpoint hub (`neuro_pilot/nn/zoo/hub.py`) and `neuropilot download` CLI caching pretrained `.pt` weights into `~/.cache/neuro_pilot/weights/` on first use (`NeuroPilot("pilot_l.pt")`, `NeuroPilot("seg.pt")`).
+- Plug-and-play driving tasks (`planner`, `world`, `lane`, `depth`, `seg`, `driver`, `bfmc`) and stateful domain predictors (`neuro_pilot/engine/predictors/`).
+- Multi-backend runtime auto-discovery for PyTorch `.pt`, ONNX Runtime `.onnx`, TorchScript `.torchscript`, and TensorRT 10 `.engine` (`neuro_pilot/engine/backend/`, `neuro_pilot/engine/trt_builder.py`).
+- Standalone camera calibration, virtual view warp, streaming video inference (`NeuroPilot.predict_video`), 3D trajectory corridor, 3D multi-lane, CIPO corner-bracket, semantic segmentation, and depth visualizers (`neuro_pilot/utils/camera.py`, `viz.py`, `overlay.py`, `neuro_pilot/engine/video.py`).
+- Unified demo rendering CLI (`neuro_pilot/tools/demo.py`) and MIT-licensed `comma2k19` demo clips in `assets/demos/`.
+- Official Apache License 2.0 (`LICENSE`) and third-party license notices (`THIRD_PARTY_LICENSES.md`).
+
+### Changed
+- Standardized zoo configs, modules, tests, and demo assets to short 1-2 word domain names while keeping backward-compatible aliases in `MODEL_YAML_MAP` and `PREDICTOR_REGISTRY`.
+- Updated `pyproject.toml` license metadata to Apache-2.0 and replaced the README and icon assets.
 
 ## [1.3.2] - 2026-06-14
 
 ### Added
-- **Registry Warnings**: Added overwrite warning logging in `register_head`, `register_loss`, and `register_neck` to prevent silent overrides of core components.
-- **Duplicate Warnings Tests**: Expanded unit tests in `tests/core/test_registry.py` to validate duplicate warning logs.
+- Overwrite warnings in `register_head`, `register_loss`, and `register_neck` with unit tests in `tests/core/test_registry.py`.
 
 ### Fixed
-- **NameError in Command Prep**: Resolved a runtime `NameError` in `Predictor._prepare_command` where `_nc` was reference-checked but undefined outside the `cmd is None` block.
-- **TensorRT IO Duplication**: Resolved a bug in `TensorRTBackend._allocate_buffers` where input/output tensor name buffers were appended repeatedly on dynamic input shape re-allocations.
-- **Scheduler Step Warnings**: Cleaned up false-positive PyTorch `UserWarning` regarding learning rate scheduler step execution order during training resume flows.
+- Fixed `NameError` in `Predictor._prepare_command` when `cmd` was passed explicitly.
+- Fixed repeated TensorRT I/O buffer name appending in `TensorRTBackend._allocate_buffers` during dynamic shape reallocation.
+- Removed false-positive PyTorch LR scheduler step warnings on training resume.
 
 ### Performance
-- **Vectorized Heatmap Generation**: Redesigned `HeatmapLoss.generate_heatmap` to compute the target coordinate grids using vectorized tensor math, removing the sequential Python loop.
-- **Grid Coordinate Caching**: Added meshgrid caching by `(H, W, device)` in `generate_heatmap` to avoid redundant memory allocations on every training step.
-
----
+- Vectorized target grid generation in `HeatmapLoss.generate_heatmap` and added `(H, W, device)` meshgrid caching.
 
 ## [1.3.1] - 2026-04-20
 
 ### Added
-- **SOTA Trajectory Losses**: Added `WingLoss` implementation for high-precision waypoint regression.
-- **Flexible Loss Configuration**: Updated `MultiTaskLossManager` to support dynamic switching between `smooth_l1`, `l2`, and `wing` loss types via API or YAML.
-- **Automated Benchmarking**: Created `scripts/benchmark_losses.py` to facilitate standardized performance comparisons across different loss functions (ADE/FDE metrics).
+- `WingLoss` for waypoint regression and dynamic `smooth_l1` / `l2` / `wing` switching in `MultiTaskLossManager`.
+- `scripts/benchmark_losses.py` for ADE/FDE comparison across trajectory loss variants.
 
 ### Fixed
-- **Code Quality**: Performed global linting and formatting using `ruff` across 129 files to ensure PEP 8 compliance.
-- **Type Safety**: Improved type hinting in `neuro_pilot/utils/losses.py` and `neuro_pilot/cfg/schema.py`.
-- **Bug Fixes**: Resolved minor logical issues and unused variables identified during static analysis.
-
-### Changed
-- **Documentation**: Updated `README.md` with new benchmarking instructions and loss function descriptions.
-
----
+- Fixed FDAT anisotropic normalization (`(alpha + beta) / 2`), gate gradient flow, and default backbone naming.
+- Applied `ruff` cleanup and type-hint fixes across `neuro_pilot/utils/losses.py` and `neuro_pilot/cfg/schema.py`.
 
 ## [1.3.0] - 2026-04-16
 
 ### Added
-
-#### Temporal Video Dataset Handling
-- **`neuro_pilot/data/datasets/video_dataset.py`**: Added `BaseVideoDataset` interface to standardize inputs for temporal sequences.
-
-  - Implemented `ClipSample` dataclass for ordered chronological frame parsing.
-
-  - Added continuous slicing arguments: `clip_length` (sub-sequence sizing) and `frame_stride` (frame interval skipping).
-
-  - Implemented `temporal_jitter` and `temporal_dropout` parameters for stochastic sequence extraction during training loops.
-
-  - Modified standard `collate_fn` to enforce strict segregation between conventional 4D variables and new 5D temporal video streams (`[B, T, C, H, W]`).
-
-- **`neuro_pilot/data/datasets/video_driving.py`**: Created concrete `VideoDrivingDataset` adapter for temporal inference.
-
-  - Engineered zero-copy sequence extraction directly utilizing `Decord` streaming protocols.
-
-  - Embedded logic to dynamically map 3D local coordinate maps (`waypoints`, `extrinsic_matrix`) to sliding MP4 frame windows.
-
-  - Implemented Fallback synchronization bridging `sequence_id` matches when explicit `.mp4` payloads are unavailable.
-
-#### Temporal Multi-Frame Aggregators
-- **`neuro_pilot/nn/modules/temporal.py`**: Created `AGGREGATOR_REGISTRY` encapsulating distinct dimension scaling architectures.
-
-  - Added `ConcatAggregator`: Standardizes consecutive inputs by flattening timeline dimensions mapped natively against MLP pipelines.
-
-  - Added `TemporalAttentionAggregator`: Implants Multi-Head Cross-Attention mechanisms anchored locally against chronological memory buffers. Embedded `motion_proj` differencing blocks to enforce velocity limits.
-
-  - Added `GRUAggregator`: Lightweight recurrent iteration handling specifically developed for memory-constrained edge deployment limitations.
-
-#### Trajectory Processing
-- **`neuro_pilot/nn/modules/temporal_heads.py`**: Developed `TemporalTrajectoryHead` bridging backbone output feature-maps with temporal contexts.
-
-  - Adaptive bounding ensures single-frame inputs are routed backwards-compatibly to standard Trajectory Head logic when context arrays are absent (adhering to Liskov-Substitution Principle).
-
-#### Schema and Environment Bootstrapping
-- **`neuro_pilot/cfg/models/neuralPilot_video.yaml`**: Added standalone YAML configurations natively binding the Temporal heads against shared `MobileNetV4` variants.
-
-- **`examples/train_temporal.py`**: Supplied dedicated evaluation script generating temporal data-loaders to prevent configuration collisions with standard image pipelines.
-
-- **`tests/models/test_temporal.py` & `tests/data/test_video_dataset.py`**: Introduced continuous unit matrices verifying falling-back edge behaviors and temporal sequence overlap logic (expanding test stability to 119/119 passing cases).
+- Temporal video dataset interfaces (`BaseVideoDataset`, `VideoDrivingDataset`) using Decord with `clip_length`, `frame_stride`, and temporal jitter/dropout.
+- Multi-frame temporal aggregators (`ConcatAggregator`, `TemporalAttentionAggregator`, `GRUAggregator`) and `TemporalTrajectoryHead`.
+- `neuralPilot_video.yaml`, `examples/train_temporal.py`, and temporal unit tests (`tests/models/test_temporal.py`, `tests/data/test_video_dataset.py`).
 
 ### Changed
-
-#### Core Neural Decoupling
-- **`neuro_pilot/nn/modules/lewm_modules.py`**: Permanently eradicated the monolithic `lewm_modules` file to resolve cyclic-dependency limits overriding global configurations.
-
-- Abstracted the legacy namespace into strictly separated, single-responsibility entities to prevent cross-talk:
-
-  - **`transformer.py`**: Limits generalized `Transformer`, `ConditionalBlock`, and `Attention` components locally.
-
-  - **`mlp.py`**: Limits point-wise `Embedder` operations and standard dimensionality transitions.
-
-  - **`predictor.py`**: Enforces strict Auto-Regressive recursive projection boundaries.
-
-  - **`regularization.py`**: Encapsulates Variance calculations completely isolated from direct architecture instantiations.
-
-  - **`jepa.py`**: Extracts latent transition predictions mapped natively onto local space operations.
-
-- Updated `neuro_pilot/nn/modules/__init__.py` and `neuro_pilot/models/base.py` to route the module instantiation sequences appropriately toward the decoupled files.
-
-#### Engine Evaluation Loop
-- **`neuro_pilot/engine/trainer.py` & `neuro_pilot/engine/validator.py`**: Updated metric scaling logic uniformly detecting sequence depths `T`, avoiding statically bounded tensor flattening processes historically wiping spatial mapping operations on extended datasets.
-
-- **`neuro_pilot/utils/losses.py` & `neuro_pilot/utils/metrics.py`**: Reconstructed metric tracking parameters resolving backwards-compatibility for dimension collapsing errors when trailing timesteps were fed.
+- Split monolithic `lewm_modules.py` into `transformer.py`, `mlp.py`, `predictor.py`, `regularization.py`, and `jepa.py`.
+- Updated `Trainer`, `Validator`, losses, and metrics to handle 5D temporal clips (`[B, T, C, H, W]`).
 
 ### Fixed
-
-#### Constant Dimensional Overflows
-- **`neuro_pilot/nn/modules/regularization.py`**: Corrected mathematical vector definitions managing gradient convergences inside `SIGReg`. 
-
-- Explicitly reapplied the necessary statistical scalar property `* proj.size(-2)` directly adjusting covariance measurements `(err @ self.weights)`. 
-
-- Resolves constant unbounded calculation errors aggressively triggered during variable-batch deployments when execution samples naturally fluctuate.
+- Fixed batch-size scaling (`* proj.size(-2)`) inside `SIGReg` in `neuro_pilot/nn/modules/regularization.py`.
 
 ### Removed
-- **`neuro_pilot/data/datasets/covla_hf.py` & `covla_local.py`**: Deleted individual single-frame specific mapping dependencies obsolete after continuous sequences integrations.
-
-- **`neuro_pilot/utils/marker_detection.py`**: Deprecated obsolete structural visualization frameworks completely overridden by standardized Catmull vector arrays.
-
-- **`tools/run_covla_test.py` & `tools/test_proj.py`**: Dropped invalid inference routines explicitly bound to deprecated configurations.
-
----
+- Removed deprecated single-frame CoVLA dataset scripts (`covla_hf.py`, `covla_local.py`), `marker_detection.py`, and obsolete CoVLA test scripts.
 
 ## [1.2.1] - 2026-04-15
 
 ### Fixed
-#### CI/CD PEP8 Validation Violations
-- **Global Restructuring (`f71f166`)**: Swept across more than twenty-two distinct functional code files orchestrating massive cleanup procedures eliminating overlapping trailing whitespace characters rendering automated Lint mechanisms permanently stable without triggering syntax pipeline breakages efficiently natively.
-
----
+- Cleaned trailing whitespace and PEP 8 lint violations across 22 files for CI stability.
 
 ## [1.2.0] - 2026-04-15
 
 ### Added
-#### Core System Extensibility
-- **`neuro_pilot/core/registry.py`**: Formulated a Task-Aware Dataset framework operating through the `@register_dataset` Open-Closed structure mapping dynamic pipeline initialization gracefully circumventing direct Factory manipulation conflicts.
-
-- **`neuralPilot_cfr.yaml`**: Exposed models injecting continuous Perception-driven Causal Feature Routing limits explicitly informing Planning systems statically.
-
-- **`neuralPilot_deformable.yaml`**: Instantiated Deformable Cross-Attention implementations optimizing highly volatile trajectory interpolation routines specifically bound for dense curve routing bounds.
-
-- **`jepa.py`**: Designed target network representations extracting sequential tracking variables seamlessly mapped explicitly.
+- `@register_dataset` registry pattern in `neuro_pilot/core/registry.py`.
+- Causal Feature Routing (`neuralPilot_cfr.yaml`), deformable cross-attention trajectory head (`neuralPilot_deformable.yaml`), and JEPA predictor (`jepa.py`).
 
 ### Changed
-#### Massive Hardware Scaling Upgrades
-- **`uv.lock` & `pyproject.toml`**: Switched default internal ONNX inference logic seamlessly from standard `onnxruntime` libraries to CUDA optimized arrays mapped via `onnxruntime-gpu v1.23.2` aggressively parallelizing bounding metrics targeting parallel NVIDIA CUDA acceleration cores natively.
-
-- **`README.md`**: Implemented massive documentation integrations attaching precise Mermaid Topological Diagrams structurally mapping architecture limits continuously rendering exact command-line arguments.
-
----
+- Switched default ONNX runtime dependency to `onnxruntime-gpu`.
 
 ## [1.1.6] - 2026-04-14
 
 ### Fixed
-#### Visual Plotting UI Anomalies
-- **`neuro_pilot/utils/plotting.py`**: Resolved constant 'Waypoint Clumping' visual degradation rendering anomalies historically recorded as UI regressions explicitly rendering unpredictable mapping structures on-screen. Modifying bounding array Catmull-Rom splines separated parameter overlapping completely.
+- Fixed waypoint clumping in `neuro_pilot/utils/plotting.py` using Catmull-Rom spline spacing.
 
 ### Changed
-#### Locking Mechanisms Integrity
-- **`uv.lock`**: Fired systematic environmental registry compilations continuously restricting volatile variable updates heavily locking external runtime framework states precisely preventing recursive breakages dynamically successfully explicitly strictly enforcing dependency stability safely securely efficiently automatically continuously consistently explicitly properly natively strictly permanently.
-
----
+- Locked dependency versions in `uv.lock`.
 
 ## [1.0.0] - 2026-03-01
 
 ### Added
-#### Foundation Release of NeuroPilot Multi-Task Engine
-The inaugural release `1.0.0` officially marks the establishment of the NeuroPilot End-to-End Autonomous Driving architectural baseline. It merges Visual Object Detection, Semantic Heatmaps, and direct Auto-Regressive Trajectory predictions entirely into a singular computational pipeline sharing one underlying feature extractor (`MobileNetV4`).
-
-#### End-to-End Trajectory Bézier Generation
-- Designed explicit computational trajectory generation models bypassing naive discrete pixel classifications.
-
-- Integrated a completely learned **Bernstein Polynomial Matrix (Bézier Cures)** natively into the base trajectory head. 
-
-- Generated robust, kinetically feasible autonomous driving routes using continuous 10-point mathematical sequences mapped gracefully inside bounding 2D visual fields avoiding physically impossible geometric jumps entirely.
-
-#### Navigation Command Routing (`FiLM`)
-- Embedded Feature-wise Linear Modulation (`FiLM`) layers natively into the bottleneck features of the trajectory pathway.
-
-- This allows external navigation targets (e.g., Command `0`: Turn Left, `1`: Turn Right, `2`: Go Straight, `3`: Stop) to modulate and completely re-route the inner convolution channels prioritizing appropriate spatial representations actively.
-
-#### Object Detection and Semantic Heatmaps
-- Implemented state-of-the-art native Multi-Scale object bounding integrations processing Traffic Lights, Vehicles, and Pedestrians utilizing direct continuous regression algorithms (`Decoupled Heads`).
-
-- Bound parallel Semantic Heatmap extraction capabilities dynamically prioritizing drivable space boundaries identifying hard obstacle masks automatically scaling the tensor layers securely natively without splitting model weight overheads.
-
-#### Core PyTorch Training Infrastructure
-- Engineered `neuro_pilot/engine/trainer.py`: Established the baseline automated forward-gradient training loops supporting multi-GPU `DistributedDataParallel (DDP)` operations.
-
-- Developed dynamic `AverageMeter` logging trackers isolating prediction errors across Bounding Box `CIOU` losses, Trajectory `MSE` deviations, and Classification Cross-Entropy independently cleanly.
-
-#### Dataset Pipeline Implementations
-- Created `neuro_pilot/data/neuro_pilot_dataset.py` representing massive multi-task structural processing protocols.
-
-- Supported custom `custom_collate_fn` generating dynamic zero-padded batched tensors resolving irregular object tracking counts sequentially stabilizing GPU buffer boundaries globally comprehensively inherently properly.
-
-- Implemented standard image augmentation processing schemas utilizing internal affine transformations effectively matching dynamic sequences reliably.
-
-#### Configured Backbone Architecture System
-- Developed integrated architectural scaling parameters (`n`, `s`, `m`, `l`) mapped directly over core YOLO/MobileNet variables managing execution widths dynamically.
-
-- Exposed native config arguments bounding exact inference coordinates defining explicit output head geometries accurately matching output formats natively seamlessly.
-
-#### Hardware Acceleration Standards
-- Enforced native multi-device execution states mapping Automatic Mixed Precision (AMP) logic natively reducing memory consumptions.
-
-- Verified baseline tensor generations explicitly accelerating runtime inference capacities directly integrating TensorRT compatibilities structurally guaranteeing evaluation latencies securely implicitly properly natively actively.
-
-#### Extensibility and Modularity Definitions
-- Designed root class architectures explicitly targeting downstream overriding capabilities inherently isolating network logic properly securely efficiently cleanly correctly deeply smoothly logically dynamically cleanly properly effectively smoothly nicely.
-
-- Initiated complete dependency isolation limiting absolute constraints cleanly mapping standard modularity functionally.
-
-#### Multi-Loss Metric Calculations
-- Developed unified optimization metrics combining multi-task boundary evaluations into a singular backward pass mapping multiple objectives seamlessly.
-- **Bounding Box Loss (CIOU)**: Implemented Complete Intersection over Union (CIOU) calculating exact overlapping ratios alongside aspect ratio scaling penalties naturally driving bounding coordinates inward without causing gradient vanish problems explicitly.
-- **Trajectory Loss (MSE)**: Anchored prediction stability utilizing continuous Mean Squared Error calculations directly comparing generation tensors against normalized `Waypoint` labels uniformly accurately.
-- **Semantic Classification Loss (BCE/CE)**: Regulated semantic traffic light behaviors and object typing arrays relying purely on structured Cross-Entropy gradients carefully balanced avoiding domination from physical trajectory matrices intrinsically securely successfully.
-
-#### Data Augmentation & Normalization Transformations
-- Engineered specialized affine transformations scaling input tensors mathematically maintaining normalized coordinate relationships accurately identically natively explicitly seamlessly safely optimally.
-- Handled tensor preprocessing steps directly scaling image inputs globally leveraging established ImageNet metrics:
-  - Global `MEAN` normalization bounds exactly configured as `[0.485, 0.456, 0.406]`.
-  - Global `STD` divisor coefficients accurately constrained at `[0.229, 0.224, 0.225]`.
-
-#### Neural Forward Loop APIs
-- Designed `neuro_pilot/nn/modules/base.py`: Formulated the `BaseHead` generic interface ensuring explicit dictionary mappings returned across all pipeline iterations natively.
-- Standardized execution arguments parsing directly inside the base trajectory forward methods capturing inputs: `(x, cmd, cmd_idx, heatmap, epoch)`.
-- Verified tensor extraction loops strictly maintaining `[B, 4, 2]` control representations flawlessly preventing output degradation natively perfectly ensuring system alignment systematically completely natively appropriately organically smoothly.
-
+- Initial NeuroPilot multi-task framework combining trajectory prediction (cubic Bezier head with FiLM command conditioning), anchor-free object detection, attention heatmaps, and command classification.
+- YAML-configurable model scaling (`n`, `s`, `m`, `l`, `x`) with pluggable `timm` and Conv backbones.
+- PyTorch training engine (`Trainer` with AMP, EMA, DDP), YOLO-format driving dataset loader, and ONNX / TensorRT export.

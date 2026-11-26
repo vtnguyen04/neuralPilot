@@ -20,11 +20,25 @@ def build_model(
     verbose: bool = True,
     **kwargs,
 ) -> nn.Module:
-    """Build a DetectionModel from a YAML config path.
+    """Build a DetectionModel or Zoo model from a YAML config path.
 
     This is the single source of truth for model construction.
     All call-sites should use this instead of importing DetectionModel directly.
     """
+    from pathlib import Path
+    import yaml
+
+    cfg_file = Path(str(cfg_path))
+    if cfg_file.is_file():
+        raw_cfg = yaml.safe_load(cfg_file.read_text(encoding="utf-8")) or {}
+        from neuro_pilot.nn.zoo import build_zoo_model, is_zoo_yaml
+
+        if is_zoo_yaml(raw_cfg):
+            scales = raw_cfg.get("scales")
+            zoo_scale = scale if (isinstance(scales, dict) and scale in scales) else None
+            logger.info(f"Building Zoo model from {cfg_path}")
+            return build_zoo_model(cfg_file, scale=zoo_scale, **kwargs)
+
     from neuro_pilot.nn.tasks import DetectionModel
 
     if nc is None:

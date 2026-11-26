@@ -1,0 +1,36 @@
+# Video Dense DiT + Inverse-Dynamics Plan Head World Model
+
+name: dit
+family: world
+
+scale: tiny
+scales:
+  tiny:
+    dim: 256
+    depth: 6
+    num_heads: 8
+    cond_dim: 256
+  4b:
+    dim: 3072
+    depth: 32
+    num_heads: 24
+    cond_dim: 3072
+
+inputs:
+  latents:       {shape: [1, 15, 32, 16, 32], dtype: float32}
+  timesteps:     {shape: [1, 15], dtype: float32, dist: const, value: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]}
+  rel_pose:      {shape: [1, 15, 6], dtype: float32}
+  pose_mask:     {shape: [1, 15], dtype: float32, dist: const, value: 1.0}
+  frame_indices: {shape: [1, 15], dtype: int64, dist: arange}
+
+outputs:
+  velocity: 2
+  plan: 3
+
+backbone:
+  - [[latents, timesteps, rel_pose, pose_mask, frame_indices], 1, DiTPatchIn, [32, 16, 32, 2, dim, cond_dim, 6, 256]]  # 0: patchify + cond
+  - [-1, depth, DiTBlock, [dim, num_heads, cond_dim, 4.0]]        # 1: block-causal DiT stack
+
+head:
+  - [1, 1, DiTUnpatch, [dim, 32, 16, 32, 2]]                      # 2: velocity field
+  - [1, 1, PlanHead, [dim, 33, 3]]                                # 3: ego trajectory plan
