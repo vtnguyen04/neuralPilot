@@ -1,0 +1,50 @@
+# V-JEPA ViT-L 3D-RoPE World Model Planner (310.02M params)
+
+name: jepa
+family: world
+
+scale: full
+scales:
+  full:
+    img_h: 256
+    img_w: 512
+    embed_dim: 1024
+    enc_depth: 24
+    enc_heads: 16
+    d_model: 256
+    plan_heads: 8
+    plan_enc: 3
+    plan_dec: 3
+    ff_dim: 1024
+    num_waypoints: 40
+    num_src_tokens: 257
+  tiny:
+    img_h: 64
+    img_w: 128
+    embed_dim: 192
+    enc_depth: 2
+    enc_heads: 4
+    d_model: 64
+    plan_heads: 4
+    plan_enc: 1
+    plan_dec: 1
+    ff_dim: 128
+    num_waypoints: 8
+    num_src_tokens: 17
+
+inputs:
+  video:  {shape: [1, 3, 4, img_h, img_w], dtype: float32}
+  status: {shape: [1, 16], dtype: float32}
+
+outputs:
+  plan: -1
+
+backbone:
+  - [video, 1, TubeletEmbed, [3, embed_dim, 2, 16]]                 # 0: 3D tubelet patches
+  - [-1, enc_depth, RoPEViTBlock, [embed_dim, enc_heads, 4.0, 1.0e-6]]  # 1: 3D-RoPE ViT stack
+  - [-1, 1, RoPEFinalNorm, [embed_dim, 1.0e-6]]                     # 2: final ViT LayerNorm
+
+head:
+  - [[2, status], 1, LatentPoolFuse, [embed_dim, d_model, 16, num_src_tokens, 2]]  # 3: pool + fuse
+  - [-1, 1, LatentPlanTransformer, [d_model, plan_heads, plan_enc, plan_dec, ff_dim, num_waypoints]]  # 4: planner
+  - [-1, 1, TrajectoryMLP, [d_model, ff_dim, 3]]                    # 5: (x, y, tanh(yaw)*pi)

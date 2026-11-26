@@ -1,150 +1,98 @@
 <p align="center">
-  <img src="assets/logo.png" alt="NeuroPilot Logo" width="180"/>
+  <img src="assets/logo.svg" alt="NeuroPilot" width="116" />
 </p>
 
 <h1 align="center">NeuroPilot</h1>
 
 <p align="center">
-  <b>Unified End-to-End Autonomous Driving Framework</b><br/>
-  Multi-Task Perception · Trajectory Prediction · Edge Deployment
+  All-in-one PyTorch framework for self-driving.<br />
+  Planning, perception, segmentation, depth, and world models.
 </p>
 
 <p align="center">
-  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/Python-≥3.10-3776AB?logo=python&logoColor=white" alt="Python"></a>
-  <a href="https://pytorch.org/"><img src="https://img.shields.io/badge/PyTorch-≥2.0-EE4C2C?logo=pytorch&logoColor=white" alt="PyTorch"></a>
-  <a href="https://developer.nvidia.com/tensorrt"><img src="https://img.shields.io/badge/TensorRT-Optimized-76B900?logo=nvidia&logoColor=white" alt="TensorRT"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue" alt="License"></a>
+  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white" alt="Python" /></a>
+  <a href="https://pytorch.org/"><img src="https://img.shields.io/badge/PyTorch-2.0+-EE4C2C?logo=pytorch&logoColor=white" alt="PyTorch" /></a>
+  <a href="https://developer.nvidia.com/tensorrt"><img src="https://img.shields.io/badge/TensorRT-10-76B900?logo=nvidia&logoColor=white" alt="TensorRT" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-2563EB" alt="Apache 2.0 License" /></a>
 </p>
-
----
-
-NeuroPilot jointly learns **trajectory prediction**, **object detection**, **attention heatmap segmentation**, and **command classification** in a single forward pass. Designed for real-time edge deployment on **NVIDIA Jetson Orin Nano** with <30ms inference latency.
 
 <p align="center">
-  <img src="assets/demo-waypoint.gif" alt="NeuroPilot Waypoint & Trajectory Prediction" width="700"/>
+  <a href="#demos">Demos</a> ·
+  <a href="#install">Install</a> ·
+  <a href="#quick-start">Quick Start</a> ·
+  <a href="#pretrained-weights">Weights</a> ·
+  <a href="#model-zoo">Model Zoo</a> ·
+  <a href="#training">Training</a> ·
+  <a href="#export-and-runtimes">Runtimes</a> ·
+  <a href="#project-structure">Structure</a> ·
+  <a href="#extending">Extending</a> ·
+  <a href="#testing">Testing</a> ·
+  <a href="#license">License</a>
 </p>
-
----
-
-## Table of Contents
-
-- [Features](#features)
-- [Architecture](#architecture)
-- [Multi-Task Heads](#multi-task-heads)
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [CLI Reference](#cli-reference)
-- [Python API](#python-api)
-- [Model Configurations](#model-configurations)
-- [Dataset Reference](#dataset-reference)
-- [Training Configuration](#training-configuration)
-- [Export & Deployment](#export--deployment)
-- [Project Structure](#project-structure)
-- [Testing & Quality](#testing--quality)
-- [Metrics](#metrics)
-- [Extending NeuroPilot](#extending-neuropilot)
-- [Roadmap](#roadmap)
-- [Acknowledgments](#acknowledgments--references)
-- [Authors](#authors)
-- [License](#license)
-
----
-
-## Features
-
-- **Multi-Task Learning** — Trajectory, Detection (YOLO-style anchor-free), Heatmap, and Command Classification sharing a single backbone.
-- **7 Model Architectures** — From lightweight Timm-based models to Dual-Branch and Causal Feature Routing (CFR) architectures.
-- **Task-Aware Engine** — Dynamically toggle tasks via loss lambdas. Metrics, logs, and visualization adapt automatically.
-- **Dataset Registry (OCP)** — `@register_dataset` decorator pattern. Adding datasets requires **zero** factory modifications.
-- **FDAT Loss** — Frenet-Decomposed Anisotropic Trajectory Loss for lane-aware supervision.
-- **SOTA Loss Functions** — Support for **Wing Loss** (high-precision landmark regression), SmoothL1, and L2.
-- **Bézier Trajectory Head** — Cubic Bézier control points with FiLM command modulation and ego-speed conditioning.
-- **Deformable Attention** — Optional Deformable Trajectory Head with cross-attention for precise waypoint regression.
-- **JEPA World Model** — Optional Joint Embedding Predictive Architecture head for latent representation learning.
-- **Pluggable Backbones** — Any `timm` model (MobileNetV4, EfficientViT, FastViT, MobileViT) via one YAML line, or use native Conv-based YOLO11 backbone.
-- **5-Level Scaling** — `n` (nano), `s` (small), `m` (medium), `l` (large), `x` (extra-large) — one flag changes the entire model.
-- **Extensive Temporal Video Support** — End-to-end processing of `.mp4` video pipelines alongside `JSONL` trajectory records using Decord. *(Run `PYTHONPATH=. uv run python examples/train_temporal.py` natively with the `neuralPilot_video.yaml` architecture).*
-- **Epps-Pulley SIGReg** — State-of-the-art Sketch Isotropic Gaussian Regularizer preserving exact statistical sample sizing logic.
-- **SOLID Neural Architecture** — Focused, abstracted neural blocks (`transformer.py`, `predictor.py`, `regularization.py`)
-- **Edge-Ready** — ONNX & TensorRT export, <30ms on Jetson Orin Nano.
-- **Beautiful Visualization** — Catmull-Rom spline trajectory rendering with gradient coloring, glow effects, and numbered waypoint nodes.
-
----
-
-## Architecture
 
 <p align="center">
-  <img src="assets/architecture.png" alt="NeuroPilot Architecture" width="700" />
+  <a href="assets/demos/hero.mp4">
+    <img src="assets/demos/hero.gif" alt="NeuroPilot 2x2 showcase: day E2E planning, night E2E planning, semantic segmentation, and 3D multi-lane with CIPO detection" width="860" />
+  </a>
+  <br />
+  <sub>
+    Top: day and night E2E trajectory planning (<code>pilot_l</code>).
+    Bottom: semantic segmentation (<code>seg_l</code>) and 3D multi-lane with CIPO detection (<code>pilot_l</code> + <code>cipo</code> + <code>drive</code>).
+    Click any animated preview for the full-resolution MP4. All clips are sourced from <a href="https://github.com/commaai/comma2k19">comma2k19</a> (MIT).
+  </sub>
 </p>
 
-
-**Model Size:** ~2.8M params (scale=s, no Detect) · ~9.7M (scale=s, full multi-task)
+NeuroPilot unifies end-to-end driving planners, multi-task perception, semantic segmentation, monocular depth, cabin monitoring, and world models under a single PyTorch YAML graph engine. Load pretrained checkpoints by name (`NeuroPilot("pilot_l.pt")`), train custom multi-task networks on your own dataset, or export models to ONNX, TorchScript, and TensorRT 10.
 
 ---
 
-## Multi-Task Heads
+## Demos
 
-NeuroPilot supports **4 core tasks** that can be enabled/disabled independently via loss lambda weights:
+All demonstration videos and previews use zero-text overlays on MIT-licensed `comma2k19` driving sequences. Click any GIF to open the full MP4 clip, or view the high-resolution still snapshots.
 
-| Task | Head Module | Output | Lambda | Description |
-|---|---|---|---|---|
-| **Trajectory** | `TrajectoryHead` / `DeformableTrajectoryHead` | `[T, 2]` waypoints in `[-1, 1]` | `lambda_traj` | Cubic Bézier control points with FiLM command modulation. Optionally uses deformable cross-attention. |
-| **Detection** | `Detect` | Anchor-free bboxes + class scores | `lambda_det` | YOLO11-style DFL + CIoU loss. Multi-scale P3/P4/P5 prediction. |
-| **Heatmap** | `HeatmapHead` | `[H, W]` attention map | `lambda_heatmap` | Full-resolution gaze/attention prediction. Fuses P3 neck + P2 backbone skip. |
-| **Classification** | `ClassificationHead` | `[num_commands]` logits | `lambda_cls` | Navigation command prediction (Left/Right/Straight/Follow). |
+| Demo | Animated Preview (click for full MP4) | Still | Models & Measured Speed (RTX 3060) |
+| :--- | :---: | :---: | :--- |
+| Flagship 2x2 Suite | [<img src="assets/demos/hero.gif" width="380" alt="Flagship 2x2 suite" />](assets/demos/hero.mp4) | [JPG](assets/demos/hero.jpg) | `pilot_l.pt` (day & night E2E) + `seg_l.pt` (`EoMT-Large`) + `cipo.pt` + `drive.pt` + 3D multi-lane. |
+| Day / Night E2E Planning | [<img src="assets/demos/day_night.gif" width="380" alt="Day and night E2E planning" />](assets/demos/day_night.mp4) | [Frames](assets/demos/frames/) | `pilot_l.pt` (381.6M). 58.5s continuous day/night driving at 30 to 35 FPS. |
+| Perception, Seg & Depth | [<img src="assets/demos/perception.gif" width="380" alt="Segmentation, multi-lane, CIPO, and depth" />](assets/demos/perception.mp4) | [JPG](assets/demos/perception.jpg) | `seg_l.pt` (10.4 FPS FP16), `cipo.pt`, `drive.pt`, `depth.pt`, and `pilot_l` 3D multi-lane (day & night). |
+| Discrete World Tokenizer | [<img src="assets/demos/world_vq.gif" width="380" alt="Original vs 128-token VQGAN reconstruction" />](assets/demos/world_vq.mp4) | [JPG](assets/demos/world_vq.jpg) | `vq_enc.pt` + `vq_dec.pt` (72.4M). 128 discrete tokens/frame, 23.78 dB PSNR reconstruction. |
 
-**Optional experimental heads:**
+### Day & Night Trajectory Keyframes
 
-| Head | Module | Lambda | Description |
-|---|---|---|---|
-| **JEPA** | `JEPAPredictor` | `lambda_jepa` | World-model latent representation learning |
-| **Collision** | Built-in loss | `lambda_collision` | Collision avoidance penalization |
-| **Progress** | Built-in loss | `lambda_progress` | Forward progress reward |
+| Straight Urban & Night Highway (`t = 4.7s`) | Curved Turn Behind Lead Pickup (`t = 14.6s`) |
+| :---: | :---: |
+| <img src="assets/demos/frames/t004.7s.jpg" width="420" alt="Day and night driving at 4.7s" /> | <img src="assets/demos/frames/t014.6s.jpg" width="420" alt="Curved turn trajectory at 14.6s" /> |
 
-### Disabling Tasks
+| Intersection & Lane Merge (`t = 38.0s`) | Sweep Curve & Dense Night Traffic (`t = 55.0s`) |
+| :---: | :---: |
+| <img src="assets/demos/frames/t038.0s.jpg" width="420" alt="Intersection trajectory at 38.0s" /> | <img src="assets/demos/frames/t055.0s.jpg" width="420" alt="Sweep curve and night traffic at 55.0s" /> |
 
-Set the corresponding lambda to `0.0` to completely disable a task during training. The head will still exist in the model graph but will produce no gradient.
+### High-Resolution Perception & Tokenizer Snapshots
+
+| Multi-Task Perception (`seg_l` + 3D Multi-Lane + CIPO + Depth) | Discrete VQGAN Reconstruction (Original vs 128 Tokens) |
+| :---: | :---: |
+| <img src="assets/demos/perception.jpg" width="440" alt="Multi-task perception snapshot" /> | <img src="assets/demos/world_vq.jpg" width="440" alt="VQGAN tokenizer reconstruction snapshot" /> |
+
+---
+
+## Install
+
+Requires Python 3.10+, PyTorch 2.0+, and `ffmpeg` (for video demo rendering). CUDA 11.8/12.x is recommended for GPU inference and training.
 
 ```bash
-# Trajectory-only training (disable detection, heatmap, gate)
-uv run neuropilot train neuralPilot.yaml --data data/covla.yaml \
-    lambda_det=0.0 lambda_heatmap=0.0 lambda_gate=0.0
-
-# Detection + Trajectory (disable heatmap)
-uv run neuropilot train neuralPilot.yaml --data data/yolo_dataset.yaml \
-    lambda_heatmap=0.0
-```
-
----
-
-## Requirements
-
-| Component | Minimum |
-|---|---|
-| Python | ≥ 3.10 |
-| CUDA | ≥ 11.8 |
-| GPU VRAM | ≥ 4 GB |
-| Tested on | RTX 3060, Jetson Orin Nano |
-
----
-
-## Installation
-
-```bash
-# Install uv (fast Python package manager)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Clone & install
 git clone https://github.com/vtnguyen04/neuralPilot.git
 cd neuralPilot
+
+# Recommended (uv)
 uv sync
+
+# Or standard editable install
+pip install -e .
 ```
 
-### Development Setup
+Optional developer dependencies (`pytest`, `ruff`, `mypy`):
 
 ```bash
-# Install with dev dependencies (ruff, mypy, pytest)
 uv sync --group dev
 ```
 
@@ -152,823 +100,266 @@ uv sync --group dev
 
 ## Quick Start
 
-```bash
-# Train with default settings
-uv run neuropilot train neuralPilot.yaml --data data/your_dataset.yaml
+### Python API
 
-# Run inference on a video
-uv run neuropilot predict video.mp4 --model best.pt --save
-
-# Export to ONNX
-uv run neuropilot export --model best.pt --format onnx --imgsz 320
-
-# Benchmark performance
-uv run neuropilot benchmark --model best.pt --imgsz 320
-```
-
----
-
-## CLI Reference
-
-NeuroPilot provides a unified CLI via the `neuropilot` command. All modes accept additional keyword arguments as `key=value` pairs.
-
-### `train` — Train a Model
-
-```bash
-uv run neuropilot train <MODEL_CONFIG> [OPTIONS] [KEY=VALUE ...]
-```
-
-| Argument | Type | Default | Description |
-|---|---|---|---|
-| `MODEL_CONFIG` | positional | — | Path to model YAML (e.g. `neuralPilot.yaml`) |
-| `--data` | str | — | Path to dataset YAML |
-| `--epochs` | int | `100` | Number of training epochs |
-| `--batch` | int | `16` | Batch size |
-| `--imgsz` | int | `640` | Input image size |
-| `--device` | str | `"0"` | CUDA device ID |
-
-**Extra kwargs** (passed as `key=value`):
-
-| Key | Example | Description |
-|---|---|---|
-| `model_scale` | `model_scale=s` | Model scale: `n`, `s`, `m`, `l`, `x` |
-| `lambda_traj` | `lambda_traj=5.0` | Trajectory loss weight |
-| `lambda_det` | `lambda_det=0.0` | Detection loss weight (0 = disabled) |
-| `lambda_heatmap` | `lambda_heatmap=2.0` | Heatmap loss weight |
-| `lambda_cls` | `lambda_cls=1.0` | Classification loss weight |
-| `use_fdat` | `use_fdat=True` | Enable FDAT trajectory loss |
-| `experiment_name` | `experiment_name=exp1` | Experiment output directory |
-| `resume` | `resume=True` | Resume from last checkpoint |
-| `learning_rate` | `learning_rate=1e-4` | Initial learning rate |
-| `patience` | `patience=20` | Early stopping patience |
-
-**Examples:**
-
-```bash
-# Full multi-task training with scale=s
-uv run neuropilot train neuralPilot.yaml \
-    --data data/yolo_dataset.yaml \
-    --epochs 200 --batch 32 --imgsz 320 \
-    model_scale=s experiment_name=full_mt
-
-# Trajectory-only with FDAT loss on CoVLA data
-uv run neuropilot train neuralPilot_covla.yaml \
-    --data data/covla.yaml \
-    --epochs 150 --batch 64 --imgsz 320 \
-    model_scale=s lambda_det=0.0 use_fdat=True \
-    fdat_alpha_lane=15.0 experiment_name=traj_fdat
-
-# Resume training from checkpoint
-uv run neuropilot train neuralPilot.yaml \
-    --data data/yolo_dataset.yaml \
-    resume=True experiment_name=full_mt
-
-# Deformable attention model with JEPA world model
-uv run neuropilot train neuralPilot_deformable.yaml \
-    --data data/covla.yaml \
-    model_scale=s lambda_jepa=0.5
-
-# Temporal Video Training (using script entrypoint)
-PYTHONPATH=. uv run python examples/train_temporal.py
-```
-
----
-
-### `predict` — Run Inference
-
-```bash
-uv run neuropilot predict <SOURCE> --model <WEIGHTS> [OPTIONS] [KEY=VALUE ...]
-```
-
-| Argument | Type | Default | Description |
-|---|---|---|---|
-| `SOURCE` | positional | — | Input source: image, directory, video, or webcam (`0`) |
-| `--model` | str | required | Path to weights (`.pt`, `.onnx`, `.engine`) |
-| `--conf` | float | `0.25` | Detection confidence threshold |
-| `--imgsz` | int | `640` | Input image size |
-| `--stream` | flag | `False` | Stream mode for real-time |
-| `--save` | flag | `False` | Save output to `runs/predict/` |
-
-**Extra kwargs:**
-
-| Key | Example | Description |
-|---|---|---|
-| `scale` | `scale=s` | Model scale (required for `.onnx`) |
-| `heatmap` | `heatmap=False` | Disable heatmap panel in output |
-
-**Examples:**
-
-```bash
-# Inference on video, save output
-uv run neuropilot predict video.mp4 \
-    --model best.pt --imgsz 320 --save
-
-# ONNX inference without heatmap overlay
-uv run neuropilot predict video.mp4 \
-    --model neuro_pilot_model.onnx --imgsz 320 \
-    --save scale=s heatmap=False
-
-# Inference on image directory
-uv run neuropilot predict images/ \
-    --model best.pt --conf 0.3
-
-# Webcam real-time inference
-uv run neuropilot predict 0 \
-    --model best.pt --stream
-```
-
----
-
-### `export` — Export Model
-
-```bash
-uv run neuropilot export --model <WEIGHTS> [OPTIONS]
-```
-
-| Argument | Type | Default | Description |
-|---|---|---|---|
-| `--model` | str | required | Path to `.pt` weights |
-| `--format` | str | `onnx` | Export format: `onnx`, `engine` |
-| `--imgsz` | int | `640` | Input resolution |
-| `--dynamic` | flag | `False` | Enable dynamic batch size |
-
-**Extra kwargs:**
-
-| Key | Example | Description |
-|---|---|---|
-| `model_scale` | `model_scale=s` | Model scale (must match training) |
-
-**Examples:**
-
-```bash
-# Export to ONNX
-uv run neuropilot export --model best.pt --format onnx --imgsz 320 model_scale=s
-
-# Export to TensorRT engine
-uv run neuropilot export --model best.pt --format engine --imgsz 320 model_scale=s
-```
-
----
-
-### `val` — Validate Model
-
-```bash
-uv run neuropilot val --model <WEIGHTS> [OPTIONS]
-```
-
-| Argument | Type | Default | Description |
-|---|---|---|---|
-| `--model` | str | required | Path to weights |
-| `--data` | str | — | Dataset configuration YAML |
-| `--imgsz` | int | `640` | Input resolution |
-
----
-
-### `benchmark` — Benchmark Performance
-
-```bash
-uv run neuropilot benchmark --model <WEIGHTS> [OPTIONS]
-```
-
-| Argument | Type | Default | Description |
-|---|---|---|---|
-| `--model` | str | required | Path to weights |
-| `--imgsz` | int | `640` | Input resolution |
-| `--batch` | int | `1` | Batch size |
-
-**Example:**
-
-```bash
-uv run neuropilot benchmark --model best.pt --imgsz 320 --batch 1
-```
-
----
-
-## Python API
-
-### Training
+Pass any supported checkpoint name (`pilot_l.pt`, `seg_l.pt`, `cipo.pt`, `depth.pt`, ...) or `pretrained=True` to load pretrained weights automatically from local cache.
 
 ```python
-from neuro_pilot.engine.model import NeuroPilot
+from neuro_pilot import NeuroPilot
 
-# Initialize model from config
-model = NeuroPilot(
-    model="neuro_pilot/cfg/models/neuralPilot.yaml",
-    scale="s"
-)
+# 1. End-to-end 3D trajectory planning on video
+planner = NeuroPilot("pilot_l.pt", device="cuda")
+planner.predict_video("drive.hevc", out_mp4="trajectory.mp4")
 
-# Full multi-task training
+# 2. Semantic segmentation (EoMT-Large SOTA, or use "seg.pt" for 88 FPS edge)
+seg = NeuroPilot("seg_l.pt", device="cuda")
+class_map = seg.predict("frame.jpg")["class_map"]  # (512, 896) uint8
+
+# 3. Vehicle/CIPO detection, monocular 3D depth, ego-lane, and lead distance
+boxes = NeuroPilot("cipo.pt", device="cuda").predict("frame.jpg")["boxes"]
+depth = NeuroPilot("depth.pt", device="cuda").predict("frame.jpg")["depth"]
+lane_pts = NeuroPilot("lane.pt", device="cuda").predict("frame.jpg")["points"]
+lead = NeuroPilot("drive.pt", device="cuda").predict("frame.jpg")  # distance_m, curvature, cipo_prob
+
+# 4. Discrete visual tokenizer (VQGAN encoder + decoder)
+tokens = NeuroPilot("vq_enc.pt", device="cuda").predict("frame.jpg")["tokens"]
+recon_bgr = NeuroPilot("vq_dec.pt", device="cuda").predict(tokens)["image_bgr"]
+
+# 5. Export any model to ONNX or TorchScript
+planner.export(format="onnx", file="pilot_l.onnx", opset=17)
+```
+
+### CLI Reference
+
+| Command | Description |
+| :--- | :--- |
+| `neuropilot download --list` | List all checkpoints supported by the automatic hub |
+| `neuropilot download seg_l pilot_l cipo depth` | Pre-fetch specific `.pt` checkpoints into cache |
+| `neuropilot download --all --dir ./weights` | Download every supported checkpoint to a custom directory |
+| `neuropilot train neuralPilot.yaml --data data.yaml --epochs 100 --batch 16` | Train a native multi-task driving model |
+| `neuropilot predict video.mp4 --model weights/best.pt --save` | Run inference on images or videos |
+| `neuropilot val --model weights/best.pt --data data.yaml` | Run validation metrics |
+| `neuropilot export --model weights/best.pt --format onnx --imgsz 640` | Export to ONNX or TensorRT |
+| `neuropilot benchmark --model weights/best.pt --imgsz 640` | Measure latency and throughput |
+
+Render single/dual trajectory videos or the full 4-clip demo suite directly from the demo tool:
+
+```bash
+# Single or dual-panel 3D trajectory video
+python -m neuro_pilot.tools.demo video \
+  --pt ~/.cache/neuro_pilot/weights/pilot_l.pt \
+  --video day.hevc --right_video night.hevc \
+  --out assets/demos/day_night.mp4
+
+# Full 4-clip showcase suite (hero, day_night, perception, world_vq)
+python -m neuro_pilot.tools.demo suite \
+  --day_video day.hevc --night_video night.hevc \
+  --pt_root ~/.cache/neuro_pilot/weights/ --out_dir assets/demos/
+```
+
+---
+
+## Pretrained Weights
+
+Checkpoints are never committed to Git. [neuro_pilot/nn/zoo/hub.py](neuro_pilot/nn/zoo/hub.py) resolves weights in two tiers when you call `NeuroPilot("<key>.pt")`, `NeuroPilot("<key>", pretrained=True)`, `ModelZoo.download("<key>")`, or `neuropilot download <key>`:
+
+1. **Local cache:** Checks `~/.cache/neuro_pilot/weights/<key>.pt` first and loads immediately with zero network traffic.
+2. **Remote fetch:** Checks any configured `.pt` mirror (`NEUROPILOT_WEIGHTS_URL` or HuggingFace repo `NEUROPILOT_HF_REPO`), then falls back to the official permissive upstream weights (MIT / Apache-2.0) and converts them deterministically into `.pt` on first run.
+
+| Environment Variable | Default | Purpose |
+| :--- | :--- | :--- |
+| `NEUROPILOT_CACHE_DIR` | `~/.cache/neuro_pilot/weights` | Directory for cached `.pt` checkpoints |
+| `NEUROPILOT_HF_REPO` | `vtnguyen04/neuropilot-weights` | HuggingFace repo hosting prebuilt `.pt` mirrors |
+| `NEUROPILOT_WEIGHTS_URL` | *(unset)* | Optional custom HTTPS base URL for `.pt` downloads |
+
+---
+
+## Model Zoo
+
+### Modular YAML Graph Models (`neuro_pilot/cfg/models/zoo/`)
+
+All 16 architectures are declared layer-by-layer in YAML and executed by `GraphModel` ([neuro_pilot/nn/zoo/graph.py](neuro_pilot/nn/zoo/graph.py)). Changing layer repeats, channel widths, or heads in YAML modifies the model directly without editing Python code.
+
+| Key | Family | Params | Auto-Download | License | Description |
+| :--- | :--- | ---: | :---: | :--- | :--- |
+| `pilot_s` | planner | 34.3M | Yes | MIT | Dual-camera E2E planner (FastViT-T12 + 5L Transformer) |
+| `pilot_l` | planner | 381.6M | Yes | MIT | Dual-camera E2E planner + 3D multi-lane & road edges (ConvNeXt-XL + 8L Transformer) |
+| `pilot_nav` | planner | 393.7M | Yes | MIT | Map-guided dual-camera E2E planner with navigation map encoder |
+| `driver` | cabin | 3.6M | Yes | MIT | Cabin driver monitoring (MobileNetV4, LHD/RHD heads) |
+| `cipo` | perception | 9.3M | Yes | Apache-2.0 | 4-class vehicle and CIPO detector (PANet + decoupled DFL head) |
+| `lane` | perception | 8.2M | Yes | Apache-2.0 | Row-anchor ego-lane detector |
+| `drive` | perception | 10.6M | Yes | Apache-2.0 | Temporal Siamese lead distance and curvature estimator |
+| `depth` | perception | 7.0M | Yes | Apache-2.0 | Monocular 3D depth (EfficientNet-B1 + separable DeepLabV3+) |
+| `seg` | perception | 5.7M | Yes | MIT | Edge semantic segmentation (DDRNet23-Slim, 88 FPS) |
+| `seg_l` | perception | 316.0M | Yes | MIT | Semantic segmentation (EoMT-Large DINOv2 ViT-L, 10.4 FPS FP16) |
+| `jepa` | world | 310.0M | Yes | Apache-2.0 | V-JEPA ViT-L 3D-RoPE world model planner |
+| `vq_enc` | world | 29.6M | Yes | MIT | Discrete VQGAN encoder (128x256 RGB to 8x16 tokens) |
+| `vq_dec` | world | 42.8M | Yes | MIT | Discrete VQGAN decoder (8x16 tokens to 128x256 RGB) |
+| `ae` | world | 128.2M | Config | MIT | Paired-camera ViT autoencoder (`f8c32`, 42.9M enc / 85.4M dec) |
+| `dit` | world | scalable | Config | MIT | Video Dense DiT + inverse-dynamics plan head (`tiny` / `full`) |
+| `gpt` | world | scalable | Config | MIT | Autoregressive token video world model (`tiny` / `full`) |
+
+### Native Multi-Task Training Configs (`neuro_pilot/cfg/models/`)
+
+For training joint trajectory, object detection, heatmap, and command classification models from scratch with Ultralytics-style scaling (`n`, `s`, `m`, `l`, `x`):
+
+| Config | Purpose |
+| :--- | :--- |
+| [neuralPilot.yaml](neuro_pilot/cfg/models/neuralPilot.yaml) | Default MobileNetV4 + language-command fusion multi-task backbone |
+| [neuralPilot_yolo11.yaml](neuro_pilot/cfg/models/neuralPilot_yolo11.yaml) | Pure Conv YOLO11 backbone without `timm` dependency |
+| [neuralPilot_dual.yaml](neuro_pilot/cfg/models/neuralPilot_dual.yaml) | Dual-branch decoupled perception and driving control network |
+| [neuralPilot_deformable.yaml](neuro_pilot/cfg/models/neuralPilot_deformable.yaml) | Deformable cross-attention trajectory head |
+| [neuralPilot_cfr.yaml](neuro_pilot/cfg/models/neuralPilot_cfr.yaml) | Causal Feature Routing (CFR) architecture |
+| [neuralPilot_video.yaml](neuro_pilot/cfg/models/neuralPilot_video.yaml) | Multi-frame temporal video clip training (`[B, T, C, H, W]`) |
+| [neuralPilot_60wp.yaml](neuro_pilot/cfg/models/neuralPilot_60wp.yaml) | Dense 60-waypoint horizon trajectory configuration |
+
+---
+
+## Training
+
+### 1. Train a Native Multi-Task Model
+
+Supports FDAT (Frenet-Decomposed Anisotropic Trajectory) loss, Wing loss, uncertainty-weighted multi-task balancing, and optional JEPA / SIGReg representation regularization. See [examples/train.py](examples/train.py) and [examples/train_temporal.py](examples/train_temporal.py) for complete scripts.
+
+```python
+from neuro_pilot import NeuroPilot
+
+model = NeuroPilot("neuro_pilot/cfg/models/neuralPilot_deformable.yaml", scale="s")
 model.train(
-    data="data/yolo_dataset.yaml",
-
-    # Training
-    max_epochs=100,
-    batch_size=16,
-    learning_rate=5e-4,
-
-    # Task weights (set 0.0 to disable)
-    lambda_traj=5.0,
-    lambda_det=1.0,
-    lambda_heatmap=2.0,
-    lambda_gate=0.5,
-    lambda_cls=1.0,
-
-    # Detection sub-losses
-    box=2.5,
-    cls_det=10.0,
-    dfl=4.0,
-
-    # FDAT trajectory loss
+    data="data.yaml",
+    epochs=100,
+    batch=16,
+    imgsz=640,
     use_fdat=True,
-    fdat_alpha_lane=15.0,
-
-    # Augmentation
-    rotate_deg=5.0,
-    mosaic=0.0,
-
-    experiment_name="my_experiment"
+    use_uncertainty=True,
+    lambda_traj=2.0,
+    lambda_det=1.0,
+    lambda_heatmap=1.5,
 )
 ```
 
-### Inference
-
-```python
-from neuro_pilot.engine.model import NeuroPilot
-
-# Load from checkpoint
-model = NeuroPilot(model="experiments/default/weights/best.pt", scale="s")
-
-# Predict on video
-results = model.predict("video.mp4", imgsz=320, conf=0.25)
-
-for res in results:
-    # res.boxes     → Detection bounding boxes (Tensor)
-    # res.waypoints → Predicted trajectory (Tensor[T, 2])
-    # res.heatmap   → Attention heatmap (Tensor[H, W])
-    # res.command   → Navigation command index (int)
-
-    img = res.plot()           # Annotated image with all overlays
-    img = res.plot(heatmap=False)  # Without heatmap panel
-    res.save()                 # Save to runs/predict/
-```
-
-### Export
-
-```python
-model = NeuroPilot(model="best.pt", scale="s")
-
-# Export to ONNX
-onnx_path = model.export(format="onnx", imgsz=320)
-
-# Export to TensorRT
-engine_path = model.export(format="engine", imgsz=320)
-```
-
-### Benchmark
-
-```python
-model = NeuroPilot(model="best.pt", scale="s")
-
-results = model.benchmark(imgsz=320, batch=1)
-print(f"Latency: {results['latency_ms']:.2f} ms")
-print(f"Throughput: {results['fps']:.2f} FPS")
-```
-
-### Validation
-
-```python
-model = NeuroPilot(model="best.pt", scale="s")
-metrics = model.val(imgsz=320)
-```
-
-### Loading ONNX / TensorRT models
-
-```python
-# The same API works seamlessly with exported models
-model = NeuroPilot(model="neuro_pilot_model.onnx", scale="s")
-results = model.predict("video.mp4", imgsz=320)
-```
-
----
-
-## Model Configurations
-
-All model architectures are defined as YAML files in `neuro_pilot/cfg/models/`. Each supports 5 scaling levels.
-
-### Available Architectures
-
-| Config | Backbone | Heads | Use Case |
-|---|---|---|---|
-| `neuralPilot.yaml` | Timm (MobileNetV4-S) | Detect + Heatmap + Trajectory + Classification | Full multi-task with YOLO-format data |
-| `neuralPilot_covla.yaml` | Timm (MobileNetV4-S) | Heatmap + Trajectory + Classification (60 wp) | Trajectory-focused with CoVLA data |
-| `neuralPilot_deformable.yaml` | Timm (MobileNetV4-S) | Detect + Heatmap + **Deformable** Trajectory + Classification + JEPA | Research: deformable attention + world model |
-| `neuralPilot_yolo11.yaml` | Native Conv (YOLO11) | Detect + Heatmap + Trajectory + Classification | No Timm dependency, pure Conv backbone |
-| `neuralPilot_dual.yaml` | Shared Conv Stem | **Driving Branch** (Heatmap+Traj+Cls) + **Perception Branch** (Detect) | Dual-branch: separate driving & perception |
-| `neuralPilot_cfr.yaml` | Shared Conv Stem | **Perception** (Detect) → CFRBridge → **Driving** (Heatmap+Traj+Cls) | Causal Feature Routing: perception informs planning |
-| `neuralPilot_60wp.yaml` | Timm (MobileNetV4-S) | Full multi-task (60 waypoints) | Long-horizon trajectory prediction |
-| `neuralPilot_video.yaml` | Timm (MobileNetV4-S) | **TemporalTrajectoryHead** + Detect | End-to-end Video Trajectory Forecasting with Temporal Sequence mapping |
-
-### Model Scaling
-
-Each model YAML defines 5 scales that control depth, width, and max channels:
+Dataset YAML format (`data.yaml`):
 
 ```yaml
-scales:
-  # [depth_multiplier, width_multiplier, max_channels]
-  n: [0.33, 0.25, 1024]   # Nano   — fastest, smallest
-  s: [0.33, 0.50, 1024]   # Small  — balanced
-  m: [0.67, 0.75, 768]    # Medium — higher accuracy
-  l: [1.00, 1.00, 512]    # Large  — best accuracy
-  x: [1.00, 1.25, 512]    # Extra  — maximum capacity
-```
-
-Select scale via CLI or API:
-
-```bash
-uv run neuropilot train neuralPilot.yaml --data data.yaml model_scale=s
-```
-
-```python
-model = NeuroPilot(model="neuralPilot.yaml", scale="s")
-```
-
-### Changing the Backbone
-
-For Timm-based configs, edit one line in the model YAML:
-
-```yaml
-backbone:
-  # MobileNetV4-Small (CNN, 3.5M, fastest)
-  - [-1, 1, TimmBackbone, ['mobilenetv4_conv_small.e2400_r224_in1k', True, True]]
-
-  # EfficientViT-B1 (ViT, 4.6M, attention-based)
-  # - [-1, 1, TimmBackbone, ['efficientvit_b1.r224_in1k', True, True]]
-
-  # FastViT-T8 (Apple hybrid, 3.2M)
-  # - [-1, 1, TimmBackbone, ['fastvit_t8.apple_dist_in1k', True, True]]
-
-  # MobileViT-S (Apple mobile ViT, 4.5M)
-  # - [-1, 1, TimmBackbone, ['mobilevitv2_050.cvnets_in1k', True, True]]
-```
-
-Any model from the [timm model zoo](https://huggingface.co/docs/timm) can be used. The `TimmBackbone` module automatically extracts multi-scale features (P2–P5).
-
-### Model YAML Format
-
-```yaml
-nc: 14          # Number of detection classes
-nm: 4           # Number of navigation commands
-nw: 10          # Number of trajectory waypoints
-
-scales:
-  n: [0.33, 0.25, 1024]
-  s: [0.33, 0.50, 1024]
-  # ...
-
-backbone:
-  # [from, repeats, module, args]
-  - [-1, 1, TimmBackbone, ['model_name', pretrained, features_only]]
-
-head:
-  # Feature routing, fusion, neck, and task heads
-  - [0, 1, FeatureRouter, [4]]        # Select P5
-  - [1, 1, LanguagePromptEncoder, [256, nm, 'embedding']]
-  # ... neck layers ...
-  - [[14, 17, 20], 1, Detect, [nc]]   # Detection head
-  - [[14, 4], 1, HeatmapHead, [1, 64, 3]]  # Heatmap head
-  - [[20, 22], 1, TrajectoryHead, [nm, nw]] # Trajectory head
-  - [20, 1, ClassificationHead, [nm]]       # Command head
-```
-
----
-
-## Dataset Reference
-
-NeuroPilot supports two dataset paradigms: **YOLO format** (folder-based) and **Registry format** (adapter-based).
-
-### YOLO Format
-
-Standard YOLO folder structure with detection labels + optional waypoint/heatmap annotations.
-
-```yaml
-# data/my_dataset.yaml
-path: /path/to/dataset
+path: ./dataset
 train: images/train
 val: images/val
+nc: 14
 names:
   0: car
-  1: truck
-  2: pedestrian
-  3: bicycle
-  # ... up to 14 classes
+  1: pedestrian
+  2: stop_sign
 ```
 
-**Expected folder structure:**
+### 2. Fine-Tune Any Pretrained Zoo Backbone (`CommandAdapter`)
 
-```
-dataset/
-├── images/
-│   ├── train/
-│   │   ├── 0001.jpg
-│   │   └── ...
-│   └── val/
-├── labels/
-│   ├── train/
-│   │   ├── 0001.txt    # YOLO format: class cx cy w h
-│   │   └── ...
-│   └── val/
-├── waypoints/           # Optional
-│   ├── train/
-│   │   ├── 0001.txt    # T lines of: x y (normalized)
-│   │   └── ...
-│   └── val/
-└── heatmaps/            # Optional
-    ├── train/
-    │   ├── 0001.png
-    │   └── ...
-    └── val/
-```
-
-### Registry Format — Video Driving (Temporal Video Support)
-
-The `video_driving` adapter natively supports parsing `.mp4` files coupled with frame-by-frame JSONL labels, grouping them into temporal sequences for Video Trajectory Prediction.
-
-```yaml
-# data/video.yaml
-type: video_driving
-path: data/covla
-train: state.jsonl
-format: jsonl
-```
-
-**Expected structure (Layout 1: CoVLA-style JSONL):**
-
-```
-data/covla/
-├── state.jsonl           # Per-frame annotations (trajectory, ego_state, matrices)
-└── videos/
-    ├── sequence_001.mp4
-    ├── sequence_002.mp4
-```
-
-**Supported Annotations in JSONL:**
-
-| Field | Type | Description |
-|---|---|---|
-| `video_path` | str | Relative path to `.mp4` video (Fallback: `sequence_id`) |
-| `frame_idx` | int | Temporal index of the frame |
-| `trajectory` | `[[x,y,z], ...]` | 3D future trajectory points (auto-projected) |
-| `extrinsic_matrix` | `4×4 float[][]` | Camera extrinsic matrix |
-| `intrinsic_matrix` | `3×3 float[][]` | Camera intrinsic matrix |
-| `ego_state.vEgo` | float | Ego speed (m/s) for conditioning |
-| `ego_state.leftBlinker` | bool | Left turn signal |
-
-*Note: You can also place raw images inside directories instead of `.mp4` files, and the Dataset adapter will automatically fall back to processing frame images.*
-
-### Adding a Custom Dataset
+Attach a trainable command-conditioned waypoint and control head onto any frozen Zoo backbone (`pilot_s`, `pilot_l`, `jepa`, `driver`, ...):
 
 ```python
-# neuro_pilot/data/datasets/my_dataset.py
-from .base import BaseDrivingDataset, register_dataset
+from neuro_pilot import ModelZoo
 
-@register_dataset("my_type")
-class MyDataset(BaseDrivingDataset):
-    def __getitem__(self, idx) -> dict:
-        return {
-            "image": tensor,          # [C, H, W] normalized
-            "waypoints": tensor,      # [T, 2] in [-1, 1]
-            "command": int_or_onehot, # Navigation command
-            "command_idx": int,       # Command index
-            "bboxes": tensor,         # [N, 4] or empty
-            "cls": tensor,            # [N] class labels
-            "heatmap": tensor,        # [H/4, W/4] attention
-            "waypoints_mask": float,  # 1.0 if valid, 0.0 if missing
-        }
-
-    def __len__(self) -> int:
-        return len(self.data)
-
-    @classmethod
-    def from_config(cls, config, split, yaml_dict):
-        return cls(
-            data_dir=yaml_dict.get('path'),
-            img_size=config.data.image_size,
-            split=split,
-        )
+base = ModelZoo.load(ModelZoo.download("pilot_s"))
+adapter = ModelZoo.attach_adapter(
+    base,
+    feat_dim=256,
+    num_commands=7,
+    num_waypoints=12,
+    freeze_base=True,
+)
 ```
-
-Then import in `datasets/__init__.py`:
-```python
-from . import my_dataset
-```
-
-Use it with:
-```yaml
-# data/my_data.yaml
-type: my_type
-path: /path/to/data
-```
-
-**No factory code changes needed.**
 
 ---
 
-## Training Configuration
+## Export and Runtimes
 
-All training hyperparameters are defined in `neuro_pilot/cfg/default.yaml` and validated by `neuro_pilot/cfg/schema.py` (Pydantic).
+`NeuroPilot(path)` detects the backend from the file suffix and preserves the same `predict()` output dictionary across all four runtimes.
 
-### Loss Weights
+| Format | Backend | Notes |
+| :--- | :--- | :--- |
+| `.pt` | PyTorch | Training, fine-tuning, and FP32/FP16 inference |
+| `.onnx` | ONNX Runtime | CPU and CUDA providers with automatic task discovery |
+| `.torchscript` | TorchScript | C++ / LibTorch deployment |
+| `.engine` | TensorRT 10 | FP16/INT8 dynamic multi-input profile builds via [trt_builder.py](neuro_pilot/engine/trt_builder.py) |
 
-| Parameter | Default | Description |
-|---|---|---|
-| `lambda_traj` | `2.0` | Trajectory prediction loss multiplier |
-| `lambda_det` | `1.0` | Object detection loss multiplier |
-| `lambda_heatmap` | `1.0` | Attention heatmap loss multiplier |
-| `lambda_cls` | `1.0` | Command classification loss multiplier |
-| `lambda_gate` | `0.0` | Command gating loss multiplier |
-| `lambda_smooth` | `0.1` | Trajectory smoothness regularization |
-| `lambda_collision` | `0.0` | Collision avoidance penalization (experimental) |
-| `lambda_progress` | `0.0` | Forward progress reward (experimental) |
-| `lambda_jepa` | `0.0` | JEPA world model consistency loss |
-| `lambda_sigreg` | `0.0` | SIGReg isotropic regularization (Epps-Pulley Statistic). *Note: Needs tuning based on model Batch Size* |
+```python
+from neuro_pilot import NeuroPilot
 
-### FDAT (Frenet-Decomposed Anisotropic Trajectory Loss)
+model = NeuroPilot("depth.pt", device="cuda")
+onnx_path = model.export(format="onnx", file="depth.onnx", opset=17)
+ts_path = model.export(format="torchscript", file="depth.torchscript")
 
-| Parameter | Default | Description |
-|---|---|---|
-| `use_fdat` | `True` | Toggle FDAT (False = SmoothL1) |
-| `fdat_alpha_lane` | `10.0` | Cross-track penalty (lane following) |
-| `fdat_beta_lane` | `1.0` | Along-track penalty (lane following) |
-| `fdat_alpha_inter` | `5.0` | Cross-track penalty (intersection) |
-| `fdat_beta_inter` | `3.0` | Along-track penalty (intersection) |
-| `fdat_lambda_heading` | `2.0` | Heading consistency weight |
-| `fdat_lambda_endpoint` | `5.0` | Endpoint anchor weight |
-
-### Detection Sub-Losses
-
-| Parameter | Default | Description |
-|---|---|---|
-| `box` | `7.5` | Box IoU loss multiplier |
-| `cls_det` | `0.5` | Box classification loss multiplier |
-| `dfl` | `1.5` | Distribution Focal Loss multiplier |
-
-### Trainer
-
-| Parameter | Default | Description |
-|---|---|---|
-| `max_epochs` | `300` | Maximum training epochs |
-| `learning_rate` | `0.001` | Initial LR (SGD=1e-2, Adam=1e-3) |
-| `lr_final` | `0.01` | Final LR ratio (`lr * lr_final`) |
-| `lr_schedule` | `"cosine"` | LR scheduler type |
-| `optimizer` | `"AdamW"` | Optimizer |
-| `momentum` | `0.937` | SGD momentum / Adam beta1 |
-| `weight_decay` | `0.0005` | Weight decay |
-| `warmup_epochs` | `3.0` | Warmup epochs (fractions OK) |
-| `use_amp` | `True` | Automatic Mixed Precision |
-| `use_ema` | `True` | Exponential Moving Average |
-| `ema_decay` | `0.999` | EMA decay factor |
-| `grad_clip_norm` | `10.0` | Gradient clipping threshold |
-| `early_stop_patience` | `10` | Early stopping patience |
-| `checkpoint_top_k` | `3` | Keep top-K best checkpoints |
-| `cmd_dropout_prob` | `0.4` | Command dropout (forces visual learning) |
-
-### Data & Augmentation
-
-| Parameter | Default | Description |
-|---|---|---|
-| `image_size` | `320` | Input resolution |
-| `batch_size` | `32` | Training batch size |
-| `num_workers` | `4` | DataLoader workers |
-| `hsv_h` | `0.015` | HSV hue augmentation |
-| `hsv_s` | `0.7` | HSV saturation augmentation |
-| `hsv_v` | `0.4` | HSV value augmentation |
-| `color_jitter` | `0.3` | Brightness/contrast jitter |
-| `noise_prob` | `0.2` | Gaussian noise probability |
-| `blur_prob` | `0.1` | Motion/Gaussian blur probability |
-| `mosaic` | `0.0` | Mosaic augmentation probability |
-| `mixup` | `0.0` | MixUp augmentation probability |
-| `fliplr` | `0.0` | Horizontal flip probability |
-
-### Trajectory Loss Benchmarking
-
-NeuroPilot supports automated benchmarking for different SOTA loss functions to find the optimal configuration for your dataset.
-
-You can run the built-in benchmark script to compare **SmoothL1**, **MSE (L2)**, and **Wing Loss** both with and without **FDAT** decomposition:
-
-```bash
-# Run the automated benchmark suite
-PYTHONPATH=. python scripts/benchmark_losses.py
+# Reload any compiled artifact directly with the same API
+ort_model = NeuroPilot(onnx_path, device="cuda")
+depth_map = ort_model.predict("frame.jpg")["depth"]
 ```
 
-This will run 5 sequential experiments:
-1. **Baseline L2** — Basic point regression.
-2. **Standard SmoothL1** — Industrial standard.
-3. **SOTA Wing** — High-precision regression.
-4. **FDAT (Ours)** — Frenet-Decomposed trajectory.
-5. **FDAT + Wing** — Combined optimal approach.
-
-Results for each experiment are stored in `runs/<exp_name>/` for direct comparison of ADE/FDE and lateral deviation.
-
----
-
-## Export & Deployment
-
-### ONNX Export
-
-```bash
-uv run neuropilot export --model best.pt --format onnx --imgsz 320 model_scale=s
-```
-
-Output: `neuro_pilot_model.onnx`
-
-### TensorRT Export
-
-```bash
-# Via NeuroPilot CLI
-uv run neuropilot export --model best.pt --format engine --imgsz 320 model_scale=s
-
-# Or via trtexec for fine-tuned control
-trtexec --onnx=neuro_pilot_model.onnx \
-    --saveEngine=neuro_pilot_model.engine \
-    --fp16 --workspace=4096
-```
-
-### Inference with Exported Models
-
-```bash
-# ONNX inference
-uv run neuropilot predict video.mp4 \
-    --model neuro_pilot_model.onnx --imgsz 320 --save scale=s
-
-# TensorRT inference
-uv run neuropilot predict video.mp4 \
-    --model neuro_pilot_model.engine --imgsz 320 --save scale=s
-```
-
-### Supported Backends
-
-| Format | Extension | GPU Accel | Notes |
-|---|---|---|---|
-| PyTorch | `.pt` | ✅ CUDA | Native, full feature support |
-| ONNX | `.onnx` | ✅ CUDA/CPU | Requires `onnxruntime-gpu` |
-| TensorRT | `.engine` | ✅ CUDA | Fastest, Jetson-optimized |
+For edge deployment on NVIDIA Jetson, see [examples/jetson_inference_onnx.py](examples/jetson_inference_onnx.py) and [examples/jetson_inference_trt.py](examples/jetson_inference_trt.py).
 
 ---
 
 ## Project Structure
 
-```
-neuralPilot/
-├── neuro_pilot/
-│   ├── cfg/                      # Configuration
-│   │   ├── default.yaml          #   Default hyperparameters
-│   │   ├── schema.py             #   Pydantic AppConfig validation
-│   │   └── models/               #   7 architecture YAMLs
-│   │       ├── neuralPilot.yaml
-│   │       ├── neuralPilot_covla.yaml
-│   │       ├── neuralPilot_deformable.yaml
-│   │       ├── neuralPilot_yolo11.yaml
-│   │       ├── neuralPilot_dual.yaml
-│   │       ├── neuralPilot_cfr.yaml
-│   │       └── neuralPilot_60wp.yaml
-│   ├── core/                     # Central Registry
-│   ├── data/                     # Data pipeline
-│   │   ├── datasets/             #   Adapters (base, covla_local, covla_hf)
-│   │   ├── augment.py            #   Mosaic, MixUp, HSV, Noise, Blur
-│   │   ├── neuro_pilot_dataset.py#   YOLO-format dataset
-│   │   └── build.py              #   InfiniteDataLoader factory
-│   ├── deploy/                   # ONNX / TensorRT backends
-│   ├── engine/                   # Core engine
-│   │   ├── model.py              #   NeuroPilot unified interface
-│   │   ├── trainer.py            #   Training loop
-│   │   ├── predictor.py          #   Inference pipeline
-│   │   ├── exporter.py           #   Model export
-│   │   ├── results.py            #   Results & visualization
-│   │   └── backend/              #   AutoBackend (PyTorch/ONNX/TRT)
-│   ├── nn/modules/               # Neural network modules
-│   │   ├── backbone.py           #   TimmBackbone wrapper
-│   │   ├── head.py               #   Task heads (Detect, Trajectory, Heatmap, etc.)
-│   │   ├── attention.py          #   Attention mechanisms (C2PSA, VLFusion)
-│   │   ├── deformable.py         #   Deformable attention modules
-│   │   ├── block.py              #   C3k2, SPPF, BottleneckCSP
-│   │   ├── conv.py               #   Conv, DWConv, GhostConv
-│   │   ├── jepa.py               #   JEPA world model predictor
-│   │   └── routing.py            #   CFRBridge, FeatureRouter
-│   ├── utils/                    # Utilities
-│   │   ├── ops.py                #   Box/coord transforms
-│   │   ├── plotting.py           #   Annotator, trajectory visualization
-│   │   ├── nms.py                #   Non-Maximum Suppression
-│   │   ├── metrics.py            #   ADE, FDE, mAP
-│   │   └── logger.py             #   Logging setup
-│   ├── entrypoint.py             # CLI entry point
-│   └── main.py                   # Alternative entry point
-├── tests/                        # Unit + integration tests
-├── tools/                        # Development scripts
-├── assets/                       # Logo & media
-└── pyproject.toml                # Dependencies (uv)
+```text
+neuro_pilot/
+├── cfg/models/
+│   ├── neuralPilot*.yaml         # Native joint multi-task training architectures
+│   └── zoo/*.yaml                # 16 layer-by-layer modular Zoo YAML graphs
+├── nn/zoo/
+│   ├── graph.py                  # Generic GraphModel YAML executor
+│   ├── hub.py                    # 2-tier automatic weight downloader & cache
+│   ├── parity.py                 # ONNX-to-PyTorch conversion & numerical parity verifier
+│   ├── losses.py                 # LaplaceNLL, MHPLaplaceLoss, FlowMatchingLoss, WaypointLoss
+│   ├── blocks/                   # Shared atomic blocks (CNN, ViT, EoMT, VQ, EffNet, Planner)
+│   └── converters/               # Deterministic ONNX & safetensors weight converters
+├── engine/
+│   ├── model.py                  # Unified NeuroPilot entry point
+│   ├── tasks.py                  # Plug-and-play driving tasks (planner, seg, depth, lane, world, driver, bfmc)
+│   ├── predictors/               # Stateful domain predictors (planner, perception, world)
+│   ├── backend/                  # AutoBackend (PyTorch, ONNX Runtime, TorchScript, TensorRT 10)
+│   ├── trt_builder.py            # Multi-input TensorRT 10 trtexec builder
+│   ├── video.py                  # Streaming driving video inference & projection runner
+│   └── zoo.py                    # ModelZoo facade & CommandAdapter fine-tuning head
+├── utils/
+│   ├── camera.py                 # Intrinsics, extrinsic RPY calibration, virtual view warp
+│   ├── viz.py                    # 2x supersampled 3D drivable trajectory corridor renderer
+│   └── overlay.py                # 3D multi-lane, AR CIPO brackets, segmentation & depth overlays
+└── tools/demo.py                 # CLI for single/dual trajectory and 4-clip demo suite rendering
 ```
 
 ---
 
-## Testing & Quality
+## Extending
+
+### Add a Custom Model Architecture
+
+1. Register any custom `nn.Module` block in `neuro_pilot/nn/zoo/blocks/` with `@BLOCK_REGISTRY.register("MyBlock")`.
+2. Declare your layer list in `neuro_pilot/cfg/models/zoo/my_model.yaml` (`inputs`, `backbone`, `head`, `outputs`).
+3. Build directly with `NeuroPilot("neuro_pilot/cfg/models/zoo/my_model.yaml")`.
+
+### Add a Driving Task
+
+Subclass `GraphDrivingTask` in [neuro_pilot/engine/tasks.py](neuro_pilot/engine/tasks.py) and decorate with `@Registry.register_task("my_task")`.
+
+### Add a Dataset
+
+Register any `BaseDrivingDataset` subclass with `@register_dataset("my_dataset")` in `neuro_pilot/data/datasets/` without modifying any factory code.
+
+---
+
+## Testing
 
 ```bash
-# Run all tests
-uv run pytest tests/
-
-# Integration tests only
-uv run pytest tests/integration/
+# Run full Zoo, multi-backend, video visualizer, hub, and guardrail suite
+pytest tests/zoo/ -k "not parity" -v
 
 # Lint check
-uv run ruff check .
-
-# Type check
-uv run mypy neuro_pilot/
+ruff check neuro_pilot/nn/zoo neuro_pilot/engine/predictors neuro_pilot/utils/viz.py neuro_pilot/utils/overlay.py neuro_pilot/tools/demo.py tests/zoo
 ```
-
----
-
-## Metrics
-
-### Trajectory
-
-| Metric | Description |
-|---|---|
-| L1 / Weighted L1 | Mean absolute error (time-weighted) |
-| ADE | Average Displacement Error |
-| FDE | Final Displacement Error |
-| Lateral / Longitudinal | Frenet-decomposed components |
-
-### Detection
-
-| Metric | Description |
-|---|---|
-| mAP@50 | Mean AP at IoU = 0.50 |
-| mAP@50-95 | Mean AP at IoU 0.50:0.05:0.95 |
-
----
-
-## Extending NeuroPilot
-
-### Adding a Dataset
-
-See [Dataset Reference → Adding a Custom Dataset](#adding-a-custom-dataset).
-
-### Adding a New Head
-
-1. Create a new `nn.Module` in `neuro_pilot/nn/modules/head.py`
-2. Register it in `neuro_pilot/nn/modules/__init__.py`
-3. Add it to your model YAML under the `head:` section
-4. Add corresponding loss computation in the task's `compute_loss` method
-
-### Creating a New Architecture
-
-1. Copy an existing YAML from `neuro_pilot/cfg/models/`
-2. Modify backbone, neck, or head layers
-3. Adjust `nc`, `nm`, `nw` parameters as needed
-4. Use it directly: `uv run neuropilot train my_arch.yaml --data data.yaml`
-
----
-
-## Roadmap
-
-- [x] Multi-task engine (Trajectory + Detection + Heatmap)
-- [x] Dataset Registry with `@register_dataset` (OCP)
-- [x] Task-aware metrics & visualization
-- [x] FDAT loss
-- [x] ONNX + TensorRT export
-- [x] Deformable Trajectory Head
-- [x] JEPA World Model head
-- [x] Dual-Branch architecture
-- [x] Causal Feature Routing (CFR)
-- [x] Catmull-Rom spline trajectory visualization
-- [ ] SOTA Auto-Regressive Trajectory Head (GRU + Cross-Attention)
-- [ ] BEV transform module
-- [ ] nuScenes / Waymo dataset adapters
-
----
-
-## Acknowledgments & References
-
-NeuroPilot builds upon and is inspired by the following outstanding open-source projects and research:
-
-| Project | Role in NeuroPilot |
-|---|---|
-| [Ultralytics YOLOv8/v11](https://github.com/ultralytics/ultralytics) | Detection head architecture, anchor-free design, DFL, training pipeline patterns |
-| [timm (PyTorch Image Models)](https://github.com/huggingface/pytorch-image-models) | Backbone zoo — MobileNetV4, EfficientViT, FastViT, MobileViT |
-| [CoVLA Dataset](https://huggingface.co/datasets/turing-motors/CoVLA-Dataset-Mini) | Vision-Language-Action driving dataset |
-| [NVIDIA TensorRT](https://developer.nvidia.com/tensorrt) | Edge inference optimization |
-| [Pydantic](https://docs.pydantic.dev/) | Configuration schema validation |
-| [uv](https://docs.astral.sh/uv/) | High-speed Python dependency management |
-
----
-
-## Authors
-
-**Vo Thanh Nguyen** · [thcs2nguyen@gmail.com](mailto:thcs2nguyen@gmail.com) · [GitHub](https://github.com/vtnguyen04)
 
 ---
 
 ## License
 
-[MIT License](LICENSE)
+Licensed under the [Apache License 2.0](LICENSE). Third-party architectures, pretrained weight attributions, and dataset redistribution rules are documented in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md). Full version history is in [CHANGELOG.md](CHANGELOG.md).
+
+Author: Vo Thanh Nguyen ([GitHub](https://github.com/vtnguyen04) · [thcs2nguyen@gmail.com](mailto:thcs2nguyen@gmail.com))

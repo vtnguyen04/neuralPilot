@@ -1,22 +1,43 @@
 import sys
-import neuro_pilot.engine.task  # triggers @Registry.register_task
 from neuro_pilot.engine.model import NeuroPilot
-from neuro_pilot.utils.logger import logger
-from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
+from neuro_pilot.utils.logger import logger, log_banner, log_table, console
 import argparse
 
-console = Console()
-
-
 def print_banner():
-    console.print(
-        Panel.fit(
-            "[bold cyan]NeuroPilot 🚀[/bold cyan]\n[dim]End-to-End Autonomous Driving Framework[/dim]",
-            border_style="cyan",
-        )
-    )
+    log_banner("NeuroPilot 🚀", "End-to-End Autonomous Driving Framework")
+
+
+def infer_type(val: str):
+    val_lower = str(val).lower()
+    if val_lower == "true":
+        return True
+    if val_lower == "false":
+        return False
+    try:
+        return float(val) if "." in val else int(val)
+    except ValueError:
+        return val
+
+
+def parse_dynamic_kwargs(unknown_args: list) -> dict:
+    kwargs = {}
+    i = 0
+    while i < len(unknown_args):
+        arg = unknown_args[i]
+
+        if "=" in arg:
+            key, val = arg.split("=", 1)
+            kwargs[key.lstrip("-")] = infer_type(val)
+            i += 1
+        elif arg.startswith("-") and i + 1 < len(unknown_args) and not unknown_args[i + 1].startswith("-"):
+            key = arg.lstrip("-")
+            val = unknown_args[i + 1]
+            kwargs[key] = infer_type(val)
+            i += 2
+        else:
+            kwargs[arg.lstrip("-")] = True
+            i += 1
+    return kwargs
 
 
 def main():
@@ -56,43 +77,39 @@ def main():
     benchmark.add_argument("--imgsz", type=int, default=640)
     benchmark.add_argument("--batch", type=int, default=1)
 
+    download = subparsers.add_parser("download", help="Download pretrained zoo checkpoints (.pt)")
+    download.add_argument("models", nargs="*", help="Model keys (e.g. pilot_l seg cipo depth)")
+    download.add_argument("--all", action="store_true", help="Download all supported checkpoints")
+    download.add_argument("--dir", type=str, default=None, help="Output cache directory")
+    download.add_argument("--list", action="store_true", help="List downloadable checkpoints")
+    download.add_argument("--force", action="store_true", help="Re-download even if cached")
+
+    # Default to 'train' if first argument is a model file
+    if len(sys.argv) > 1 and sys.argv[1] not in subparsers.choices and not sys.argv[1].startswith("-"):
+        sys.argv.insert(1, "train")
+
     args, unknown = parser.parse_known_args()
 
     # Parse extra kwargs dynamically (e.g. --lambda_jepa 1.0 or lambda_jepa=1.0)
-    kwargs = {}
-    i = 0
-    while i < len(unknown):
-        arg = unknown[i]
-        key, val = None, None
-        if "=" in arg:
-            key, val = arg.split("=", 1)
-            key = key.lstrip("-")
-        elif arg.startswith("--"):
-            key = arg[2:]
-            if i + 1 < len(unknown) and not unknown[i + 1].startswith("--") and "=" not in unknown[i + 1]:
-                val = unknown[i + 1]
-                i += 1
-            else:
-                val = "True"
-        if key and val is not None:
-            # Type inference
-            if val.lower() == "true":
-                val = True
-            elif val.lower() == "false":
-                val = False
-            else:
-                try:
-                    val = float(val) if "." in val else int(val)
-                except ValueError:
-                    pass
-            kwargs[key] = val
-        i += 1
-
+    kwargs = parse_dynamic_kwargs(unknown)
     if not args.mode:
         parser.print_help()
         return
 
     try:
+        if args.mode == "download":
+            from neuro_pilot.nn.zoo.hub import WEIGHT_SPECS, download_weights, list_downloadable
+
+            if args.list or (not args.all and not args.models):
+                rows = {k: f"{WEIGHT_SPECS[k].license} ({WEIGHT_SPECS[k].kind})" for k in list_downloadable()}
+                log_table("Downloadable Checkpoints", rows)
+                return
+            targets = list_downloadable() if args.all else list(args.models)
+            for key in targets:
+                path = download_weights(key, dest_dir=args.dir, force=args.force)
+                console.print(f"[green]Ready[/green] {key} -> {path}")
+            return
+
         model_scale = kwargs.pop("model_scale", "n")
         model = NeuroPilot(args.model, scale=model_scale)
 
@@ -107,60 +124,51 @@ def main():
             )
         elif args.mode == "predict":
             results = model.predict(args.source, conf=args.conf, imgsz=args.imgsz, stream=args.stream)
+
             if args.stream:
                 for r in results:
                     for res in r:
                         console.print(f"[green]✔[/green] Processed {res.path}")
-            else:
-                import cv2
-                from pathlib import Path
+                return
 
-                vid_writer = None
-                for res in results:
-                    console.print(f"[green]✔[/green] Processed {res.path}")
-                    if args.save:
-                        p = Path(res.path)
-                        is_video = p.suffix.lower() in [".mp4", ".avi", ".mkv", ".mov", ".ts"]
-                        if is_video:
-                            if vid_writer is None:
-                                save_path = Path("runs/predict") / p.name
-                                save_path.parent.mkdir(parents=True, exist_ok=True)
-                                plot_img = res.plot(**kwargs)
-                                h, w = plot_img.shape[:2]
-                                fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-                                vid_writer = cv2.VideoWriter(str(save_path), fourcc, 30.0, (w, h))
+            import cv2
+            from pathlib import Path
 
-                            plot_img = res.plot(**kwargs)
-                            plot_img = cv2.cvtColor(plot_img, cv2.COLOR_RGB2BGR)
-                            vid_writer.write(plot_img)
-                        else:
-                            res.save()
-                if vid_writer:
-                    vid_writer.release()
-                    console.print(f"[bold green]Video saved to runs/predict/{Path(args.source).name}[/bold green]")
+            vid_writer = None
+            for res in results:
+                logger.info(f"✔ Processed {res.path}")
+                if not args.save:
+                    continue
+
+                p = Path(res.path)
+                if p.suffix.lower() not in [".mp4", ".avi", ".mkv", ".mov", ".ts"]:
+                    res.save()
+                    continue
+
+                if vid_writer is None:
+                    save_path = Path("runs/predict") / p.name
+                    save_path.parent.mkdir(parents=True, exist_ok=True)
+                    h, w = res.plot(**kwargs).shape[:2]
+                    vid_writer = cv2.VideoWriter(str(save_path), cv2.VideoWriter_fourcc(*"mp4v"), 30.0, (w, h))
+
+                plot_img = cv2.cvtColor(res.plot(**kwargs), cv2.COLOR_RGB2BGR)
+                vid_writer.write(plot_img)
+
+            if vid_writer:
+                vid_writer.release()
+                console.print(f"[bold green]Video saved to runs/predict/{Path(args.source).name}[/bold green]")
         elif args.mode == "val":
             metrics = model.val(imgsz=args.imgsz)
-            table = Table(title="Validation Metrics")
-            table.add_column("Metric", style="cyan")
-            table.add_column("Value", style="magenta")
-            for k, v in metrics.items():
-                if isinstance(v, (float, int)):
-                    table.add_row(k, f"{v:.4f}")
-            console.print(table)
+            log_table("Validation Metrics", metrics)
         elif args.mode == "export":
             path = model.export(format=args.format, imgsz=args.imgsz, dynamic=args.dynamic)
-            console.print(f"[bold green]Exported to {path}[/bold green]")
+            logger.info(f"Exported to {path}")
         elif args.mode == "benchmark":
             res = model.benchmark(imgsz=args.imgsz, batch=args.batch)
-            table = Table(title="Benchmark Results")
-            table.add_column("Metric", style="cyan")
-            table.add_column("Value", style="magenta")
-            table.add_row("Latency", f"{res['latency_ms']:.2f} ms")
-            table.add_row("Throughput", f"{res['fps']:.2f} FPS")
-            console.print(table)
+            log_table("Benchmark Results", {"Latency": f"{res['latency_ms']:.2f} ms", "Throughput": f"{res['fps']:.2f} FPS"})
 
     except Exception as e:
-        console.print(f"[bold red]Error:[/bold red] {e}")
+        logger.error(f"Error: {e}")
         logger.exception(e)
         sys.exit(1)
 

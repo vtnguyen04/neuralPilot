@@ -1,0 +1,32 @@
+# Autoregressive Token Video World Model (GPT-2M)
+
+name: gpt
+family: world
+
+scale: tiny
+scales:
+  tiny:
+    n_positions: 516
+    n_embd: 256
+    n_layer: 6
+    n_head: 8
+    n_inner: 1024
+  2m:
+    n_positions: 2580
+    n_embd: 1024
+    n_layer: 24
+    n_head: 16
+    n_inner: 4096
+
+inputs:
+  input_ids: {shape: [1, 32], dtype: int64, dist: randint, low: 0, high: 1025}
+
+outputs:
+  logits: -1
+
+backbone:
+  - [-1, 1, TokenPosEmbed, [1025, n_positions, n_embd, 0.0]]      # 0: token + pos embeddings
+  - [-1, n_layer, GPTBlock, [n_embd, n_head, n_inner, 1.0e-5]]    # 1: causal GPT-2 stack
+
+head:
+  - [-1, 1, GPTOut, [n_embd, 1025, 1.0e-5]]                       # 2: LayerNorm + LM head
