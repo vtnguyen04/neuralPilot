@@ -15,7 +15,7 @@ import torch
 
 from examples.bfmc.metrics import CLS_NAMES, CMD_NAMES, decode_nms
 from neuro_pilot.engine.predictors.utils import bgr_to_yuv6
-from neuro_pilot.nn.zoo import load_zoo_pt
+from neuro_pilot.nn.zoo import download_weights, load_zoo_pt, resolve_weight_key
 
 _PALETTE: Tuple[Tuple[int, int, int], ...] = (
     (60, 70, 255), (255, 80, 220), (80, 230, 120), (0, 210, 255), (255, 220, 80),
@@ -152,7 +152,7 @@ def render_video_demo(
 
 def main() -> None:
     p = argparse.ArgumentParser()
-    p.add_argument("--ckpt", required=True)
+    p.add_argument("--ckpt", default="pilot_mhp.pt")
     p.add_argument("--val-json", default="")
     p.add_argument("--out-grid", default="")
     p.add_argument("--video", default="")
@@ -161,10 +161,15 @@ def main() -> None:
     p.add_argument("--conf", type=float, default=0.30)
     args = p.parse_args()
 
+    ckpt_path = Path(args.ckpt)
+    if not ckpt_path.is_file():
+        key = resolve_weight_key(args.ckpt)
+        if key is not None:
+            ckpt_path = download_weights(key)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    raw = torch.load(args.ckpt, map_location="cpu", weights_only=False)
+    raw = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     img_w, img_h = int(raw.get("img_w", 640)), int(raw.get("img_h", 512))
-    model = load_zoo_pt(args.ckpt, device=str(device))
+    model = load_zoo_pt(ckpt_path, device=str(device))
     if args.val_json and args.out_grid:
         render_val_grid(model, args.val_json, args.out_grid, device, args.conf, img_w, img_h)
     if args.video and args.out_mp4:

@@ -1,41 +1,47 @@
-# BFMC 1:10 Multi-Task Autonomous Driving Example (`pilot_mhp`)
+# BFMC 1:10 Driving Example (`pilot_mhp`)
 
-End-to-end training, evaluation, video rendering, and ONNX export example built on top of `neuro_pilot`'s generic YAML Zoo (`pilot_mhp.yaml` / `pilot_det.yaml`), reusing core `DFLDetectHead`, `CSPBlock`, `TrajMHPHead`, `DetectionLoss`, `ModelEMA`, `FDATLoss`, `HeatmapLoss`, `MHPLaplaceLoss`, and `neuro_pilot.nn.zoo.distill`.
+Single-camera multi-task model (`FastViT-T12` + PANet `DFLDetectHead` + 5-mode `TrajMHPHead`).
+Full dataset breakdown, training stages, experiment tables, and plots are in [REPORT.md](REPORT.md).
 
-Full experimental methodology, multi-stage training protocol, ablations (`EXP-MAIN-016` → `EXP-MAIN-024`), plots, and ONNXRuntime parity benchmarks are documented in **[REPORT.md](REPORT.md)**.
-
-## 1. Train (`pilot_mhp` from OpenPilot `pilot_s.pt` + DINOv3 REPA)
-
-```bash
-python3 -m examples.bfmc.train \
-  --arch pilot_mhp \
-  --train-json datasets/bfmc_clean/train.json \
-  --val-json datasets/bfmc_clean/val.json \
-  --unlabeled-json datasets/bfmc_clean/unlabeled.json \
-  --pilot-s-pt ~/.cache/neuro_pilot/weights/pilot_s.pt \
-  --dinov3-path ~/.cache/neuro_pilot/weights/dinov3_vitb16.safetensors \
-  --save-dir runs/bfmc_mhp \
-  --img-w 640 --img-h 512 --epochs 60 --distill
-```
-
-## 2. Evaluate, Render Demo Video & Export ONNX
-
-```bash
-python3 -m examples.bfmc.demo \
-  --ckpt runs/bfmc_v6_smooth_pure_mhp/best.pt \
-  --val-json datasets/bfmc_clean/val.json \
-  --out-grid val_grid.jpg \
-  --video bfmc.mp4 --out-mp4 demo.mp4 \
-  --export-onnx runs/bfmc_v6_smooth_pure_mhp/bfmc_v6_best.onnx
-```
-
-## 3. Unified Inference (`NeuroPilot` PyTorch or ONNX auto-detect)
+## Quick Inference (Auto-Downloads Weights)
 
 ```python
 from neuro_pilot import NeuroPilot
 
-# Works identically for .pt and .onnx checkpoints
-model = NeuroPilot("runs/bfmc_v6_smooth_pure_mhp/bfmc_v6_best.onnx", device="cpu")
+model = NeuroPilot("pilot_mhp.pt")  # downloads automatically on first run
 out = model.predict(frame_bgr, command=0)  # 0=FOLLOW_LANE, 1=TURN_LEFT, 2=TURN_RIGHT, 3=STRAIGHT
 waypoints, detections = out["waypoints"], out["detections"]
+```
+
+## Fine-Tune on Your Own Data
+
+Passing a bare checkpoint name (`pilot_s.pt` or `pilot_mhp.pt`) downloads weights automatically.
+
+```bash
+# Train from OpenPilot pilot_s backbone
+python3 -m examples.bfmc.train \
+  --arch pilot_mhp \
+  --pilot-s-pt pilot_s.pt \
+  --train-json train.json \
+  --val-json val.json \
+  --save-dir runs/bfmc
+
+# Fine-tune from pretrained BFMC checkpoint
+python3 -m examples.bfmc.train \
+  --arch pilot_mhp \
+  --resume-weights pilot_mhp.pt \
+  --train-json train.json \
+  --val-json val.json \
+  --epochs 25 --freeze-epochs 0 \
+  --lr-backbone 5e-5 --lr-head 4e-4 \
+  --save-dir runs/bfmc_ft
+```
+
+## Video Demo & ONNX Export
+
+```bash
+python3 -m examples.bfmc.demo \
+  --ckpt pilot_mhp.pt \
+  --video bfmc.mp4 --out-mp4 demo.mp4 \
+  --export-onnx pilot_mhp.onnx
 ```

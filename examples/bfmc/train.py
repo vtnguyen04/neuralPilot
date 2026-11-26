@@ -17,7 +17,7 @@ from torch.utils.data import DataLoader
 
 from examples.bfmc.dataset import BFMCDataset, UnlabeledFrameDataset, bfmc_collate_fn
 from examples.bfmc.metrics import evaluate_bfmc, sym_curve_dist
-from neuro_pilot.nn.zoo import MHPLaplaceLoss, build_zoo_model
+from neuro_pilot.nn.zoo import MHPLaplaceLoss, build_zoo_model, download_weights, resolve_weight_key
 from neuro_pilot.nn.zoo.distill import DinoV3Teacher, DistillProj, dense_distill_loss
 from neuro_pilot.utils.losses import DetectionLoss, FDATLoss, HeatmapLoss
 from neuro_pilot.utils.torch_utils import ModelEMA
@@ -50,8 +50,18 @@ def _forward_backbone_p4p5(model: nn.Module, img: torch.Tensor) -> Tuple[torch.T
     return p4, p5
 
 
+def _resolve_ckpt(ckpt_path: str | Path) -> Path:
+    p = Path(ckpt_path)
+    if p.is_file():
+        return p
+    key = resolve_weight_key(str(ckpt_path))
+    if key is not None:
+        return download_weights(key)
+    raise FileNotFoundError(f"Checkpoint not found locally or on hub: {ckpt_path}")
+
+
 def _load_matching_weights(model: nn.Module, ckpt_path: str | Path, prefixes: Optional[Tuple[str, ...]] = None) -> int:
-    ckpt = torch.load(str(ckpt_path), map_location="cpu", weights_only=False)
+    ckpt = torch.load(str(_resolve_ckpt(ckpt_path)), map_location="cpu", weights_only=False)
     src = ckpt["state_dict"] if "state_dict" in ckpt else ckpt
     dst = model.state_dict()
     matched = 0
@@ -295,7 +305,7 @@ def main() -> None:
     p.add_argument("--train-json", required=True)
     p.add_argument("--val-json", required=True)
     p.add_argument("--unlabeled-json", default="")
-    p.add_argument("--pilot-s-pt", required=True)
+    p.add_argument("--pilot-s-pt", default="pilot_s.pt")
     p.add_argument("--resume-weights", default="")
     p.add_argument("--dinov3-path", default="")
     p.add_argument("--save-dir", required=True)
