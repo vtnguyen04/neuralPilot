@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Sequence, Tuple
+import math
+from typing import Dict, List, Sequence, Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -125,32 +126,62 @@ class DFLDetectHead(nn.Module):
         num_classes: int = 4,
         reg_max: int = 16,
         strides: Sequence[float] = (8.0, 16.0, 32.0),
+        with_bn: bool = False,
+        return_dict: bool = False,
+        dense_cls: bool = False,
     ) -> None:
         super().__init__()
-        self.num_classes = num_classes
-        self.reg_max = reg_max
-        self.box_ch = reg_max * 4
+        self.num_classes = int(num_classes)
+        self.nc = self.num_classes
+        self.reg_max = int(reg_max)
+        self.box_ch = self.reg_max * 4
         self.strides = tuple(float(stride) for stride in strides)
-        self.dfl = DFL(reg_max=reg_max)
+        self.return_dict = bool(return_dict)
+        self.register_buffer(
+            "stride",
+            torch.tensor(self.strides, dtype=torch.float32),
+            persistent=self.return_dict,
+        )
+        self.dfl = DFL(reg_max=self.reg_max)
 
+        c2 = max(64, self.box_ch)
+        c3 = max(80, self.num_classes)
         self.box = nn.ModuleList(
             nn.Sequential(
-                VPConv(channels, 64, kernel_size=3, padding=1),
-                VPConv(64, 64, kernel_size=3, padding=1),
-                nn.Conv2d(64, self.box_ch, kernel_size=1),
+                VPConv(ch, c2, kernel_size=3, padding=1, with_bn=with_bn),
+                VPConv(c2, c2, kernel_size=3, padding=1, with_bn=with_bn),
+                nn.Conv2d(c2, self.box_ch, kernel_size=1),
             )
-            for channels in in_channels
+            for ch in in_channels
         )
-        self.cls = nn.ModuleList(
-            nn.Sequential(
-                VPConv(channels, channels, kernel_size=3, padding=1, groups=channels),
-                VPConv(channels, 80, kernel_size=1),
-                VPConv(80, 80, kernel_size=3, padding=1, groups=80),
-                VPConv(80, 80, kernel_size=1),
-                nn.Conv2d(80, num_classes, kernel_size=1),
+        if dense_cls:
+            self.cls = nn.ModuleList(
+                nn.Sequential(
+                    VPConv(ch, c3, kernel_size=3, padding=1, with_bn=with_bn),
+                    VPConv(c3, c3, kernel_size=3, padding=1, with_bn=with_bn),
+                    nn.Conv2d(c3, self.num_classes, kernel_size=1),
+                )
+                for ch in in_channels
             )
-            for channels in in_channels
-        )
+        else:
+            self.cls = nn.ModuleList(
+                nn.Sequential(
+                    VPConv(ch, ch, kernel_size=3, padding=1, groups=ch, with_bn=with_bn),
+                    VPConv(ch, c3, kernel_size=1, with_bn=with_bn),
+                    VPConv(c3, c3, kernel_size=3, padding=1, groups=c3, with_bn=with_bn),
+                    VPConv(c3, c3, kernel_size=1, with_bn=with_bn),
+                    nn.Conv2d(c3, self.num_classes, kernel_size=1),
+                )
+                for ch in in_channels
+            )
+        if with_bn:
+            self._init_biases()
+
+    def _init_biases(self) -> None:
+        prior_bias = -math.log((1.0 - 0.01) / 0.01)
+        for box_seq, cls_seq in zip(self.box, self.cls):
+            nn.init.constant_(box_seq[-1].bias, 1.0)
+            nn.init.constant_(cls_seq[-1].bias, prior_bias)
 
     def _make_anchors(
         self,
@@ -174,22 +205,35 @@ class DFLDetectHead(nn.Module):
         strides = torch.cat(stride_tensors, dim=0).transpose(0, 1)
         return anchors, strides
 
-    def forward(self, feats: Sequence[torch.Tensor]) -> torch.Tensor:
+    def forward(
+        self,
+        feats: Sequence[torch.Tensor],
+    ) -> Union[torch.Tensor, Dict[str, Union[torch.Tensor, List[torch.Tensor]]]]:
         batch = feats[0].shape[0]
-        pred_ch = self.box_ch + self.num_classes
-        raw_preds = [
-            torch.cat((box_head(feat), cls_head(feat)), dim=1).reshape(batch, pred_ch, -1)
-            for feat, box_head, cls_head in zip(feats, self.box, self.cls)
-        ]
-        preds = torch.cat(raw_preds, dim=2)
-        box_logits, cls_logits = preds.split((self.box_ch, self.num_classes), dim=1)
+        box_logits = torch.cat(
+            [b_head(feat).reshape(batch, self.box_ch, -1) for feat, b_head in zip(feats, self.box)],
+            dim=2,
+        )
+        cls_logits = torch.cat(
+            [
+                c_head(feat).reshape(batch, self.num_classes, -1)
+                for feat, c_head in zip(feats, self.cls)
+            ],
+            dim=2,
+        )
 
         anchors, strides = self._make_anchors(feats)
         left_top, right_bottom = self.dfl(box_logits).chunk(2, dim=1)
         x1y1 = anchors - left_top
         x2y2 = anchors + right_bottom
-        center_xy = (x1y1 + x2y2) / 2.0
+        center_xy = (x1y1 + x2y2) * 0.5
         size_wh = x2y2 - x1y1
-        boxes = torch.cat((center_xy, size_wh), dim=1) * strides
-        cls_probs = torch.sigmoid(cls_logits)
-        return torch.cat((boxes, cls_probs), dim=1)
+        decoded = torch.cat((center_xy * strides, size_wh * strides, torch.sigmoid(cls_logits)), 1)
+        if self.return_dict:
+            return {
+                "decoded": decoded,
+                "boxes": box_logits,
+                "scores": cls_logits,
+                "feats": list(feats),
+            }
+        return decoded

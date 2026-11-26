@@ -451,6 +451,26 @@ class NeuroPilot(nn.Module):
         }
         torch.save(payload, filename)
 
+    def attach_adapter(
+        self,
+        feat_dim: int = 256,
+        num_commands: int = 4,
+        num_waypoints: int = 10,
+        freeze_base: bool = True,
+    ):
+        """Attach a trainable CommandAdapter head directly onto this loaded model."""
+        from neuro_pilot.engine.zoo import ModelZoo
+
+        if self.model is None:
+            raise RuntimeError("Model not loaded or initialized.")
+        return ModelZoo.attach_adapter(
+            self.model,
+            feat_dim=feat_dim,
+            num_commands=num_commands,
+            num_waypoints=num_waypoints,
+            freeze_base=freeze_base,
+        )
+
     def to(self, *args, **kwargs):
         """Override to move backend as well."""
         device = select_device(args[0]) if args else select_device(kwargs.get("device", ""))

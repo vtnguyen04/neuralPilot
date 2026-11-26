@@ -30,6 +30,10 @@
 !/website/static/img/
 !/website/static/img/**
 
+# Un-ignore BFMC example technical report figures
+!/examples/bfmc/figures/
+!/examples/bfmc/figures/**
+
 # Un-ignore the minio_data directory for .gitkeep tracking
 !/tools/labeler/data/
 /tools/labeler/data/*
