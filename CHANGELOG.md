@@ -6,11 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Sem
 ## [Unreleased]
 
 ### Added
-- Layer-by-layer modular YAML model zoo (`neuro_pilot/cfg/models/zoo/`) with 16 architectures across planning (`pilot_s`, `pilot_l`, `pilot_nav`, `driver`), perception (`cipo`, `lane`, `drive`, `depth`, `seg`, `seg_l`), and world models (`jepa`, `vq_enc`, `vq_dec`, `ae`, `dit`, `gpt`).
-- Generic `GraphModel` YAML executor (`neuro_pilot/nn/zoo/graph.py`) and shared atomic block library (`neuro_pilot/nn/zoo/blocks/`).
+- Layer-by-layer modular YAML model zoo (`neuro_pilot/cfg/models/zoo/`) with 18 architectures across planning (`pilot_s`, `pilot_l`, `pilot_nav`, `pilot_mhp`, `pilot_det`, `driver`), perception (`cipo`, `lane`, `drive`, `depth`, `seg`, `seg_l`), and world models (`jepa`, `vq_enc`, `vq_dec`, `ae`, `dit`, `gpt`).
+- Generic `GraphModel` YAML executor (`neuro_pilot/nn/zoo/graph.py`) and shared atomic block library (`neuro_pilot/nn/zoo/blocks/`), including single-camera trajectory decoders (`YuvSinglePrep`, `TrajHead`, `TrajMHPHead` in `blocks/traj.py`).
+- Training-only DINOv3 dense feature distillation (`DinoV3Teacher`, `DistillProj`, `dense_distill_loss` in `neuro_pilot/nn/zoo/distill.py`).
 - Deterministic ONNX and safetensors weight converters (`neuro_pilot/nn/zoo/converters/`) and numerical parity harness (`neuro_pilot/nn/zoo/parity.py`), verified on 13 converted models including lightweight `seg` (`DDRNet23-Slim`, 5.7M) and `seg_l` (`EoMT-Large` DINOv2 ViT-L, 316M).
-- Two-tier automatic checkpoint hub (`neuro_pilot/nn/zoo/hub.py`) and `neuropilot download` CLI caching pretrained `.pt` weights into `~/.cache/neuro_pilot/weights/` on first use (`NeuroPilot("pilot_l.pt")`, `NeuroPilot("seg.pt")`).
-- Plug-and-play driving tasks (`planner`, `world`, `lane`, `depth`, `seg`, `driver`, `bfmc`) and stateful domain predictors (`neuro_pilot/engine/predictors/`).
+- Automatic checkpoint hub (`neuro_pilot/nn/zoo/hub.py`) and `neuropilot download` CLI fetching all 15 prebuilt `.pt` weights (`pilot_mhp.pt`, `pilot_det.pt`, and 13 upstream checkpoints) from Hugging Face (`ThanhNguyenVo/neuropilot-weights`) into `~/.cache/neuro_pilot/weights/` on first use (`NeuroPilot("pilot_mhp.pt")`, `NeuroPilot("pilot_l.pt")`).
+- Plug-and-play driving tasks (`planner`, `world`, `lane`, `depth`, `seg`, `driver`, `bfmc`), `MultitaskPredictor` (`neuro_pilot/engine/predictors/planner.py`), and `NeuroPilot.attach_adapter()`.
+- BFMC 1:10 multi-task training, evaluation, ONNX demo, and experiment report under `examples/bfmc/` (`dataset.py`, `metrics.py`, `train.py`, `demo.py`, `REPORT.md`, and figures).
 - Multi-backend runtime auto-discovery for PyTorch `.pt`, ONNX Runtime `.onnx`, TorchScript `.torchscript`, and TensorRT 10 `.engine` (`neuro_pilot/engine/backend/`, `neuro_pilot/engine/trt_builder.py`).
 - Standalone camera calibration, virtual view warp, streaming video inference (`NeuroPilot.predict_video`), 3D trajectory corridor, 3D multi-lane, CIPO corner-bracket, semantic segmentation, and depth visualizers (`neuro_pilot/utils/camera.py`, `viz.py`, `overlay.py`, `neuro_pilot/engine/video.py`).
 - Unified demo rendering CLI (`neuro_pilot/tools/demo.py`) and MIT-licensed `comma2k19` demo clips in `assets/demos/`.
@@ -18,7 +20,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Sem
 
 ### Changed
 - Standardized zoo configs, modules, tests, and demo assets to short 1-2 word domain names while keeping backward-compatible aliases in `MODEL_YAML_MAP` and `PREDICTOR_REGISTRY`.
+- Extended `CSPBlock` (`blocks/cnn.py`) and `DFLDetectHead` (`blocks/perception.py`) with optional BatchNorm and training-dict output flags so multi-task YAML graphs reuse existing blocks directly.
 - Updated `pyproject.toml` license metadata to Apache-2.0 and replaced the README and icon assets.
+
+### Fixed
+- Fixed bare `<key>.yaml` loading in `maybe_build_zoo_graph` (`neuro_pilot/engine/tasks.py`) and removed PyTorch 2.4 ONNX `float64` tracing cast in `TrajMHPHead` (`torch.arange` + static `torch.gather`).
 
 ## [1.3.2] - 2026-06-14
 
