@@ -16,7 +16,8 @@ from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_HF_REPO = "vtnguyen04/neuropilot-weights"
+DEFAULT_HF_REPO = "ThanhNguyenVo/neuropilot-weights"
+_HF_SELF = f"https://huggingface.co/{DEFAULT_HF_REPO}/resolve/main"
 _OPENPILOT_LFS_BATCH = "https://huggingface.co/commaai/openpilot-lfs.git/info/lfs/objects/batch"
 _USER_AGENT = "NeuroPilot-Hub/1.3"
 _HF_OP = "https://huggingface.co/commaai/openpilot_driving_models/resolve/main"
@@ -37,7 +38,7 @@ class WeightSpec:
     """Metadata describing an upstream permissive checkpoint source."""
 
     key: str
-    kind: str  # "onnx" | "zip_onnx" | "lfs_onnx" | "gdrive_onnx" | "safetensors"
+    kind: str  # "pt" | "onnx" | "zip_onnx" | "lfs_onnx" | "gdrive_onnx" | "safetensors"
     source: str
     license: str
     inner_path: str = ""
@@ -85,6 +86,8 @@ WEIGHT_SPECS: Dict[str, WeightSpec] = {
     ),
     "vq_enc": WeightSpec("vq_enc", "onnx", f"{_HF_VQ}/encoder.onnx", "MIT"),
     "vq_dec": WeightSpec("vq_dec", "onnx", f"{_HF_VQ}/decoder.onnx", "MIT"),
+    "pilot_mhp": WeightSpec("pilot_mhp", "pt", f"{_HF_SELF}/pilot_mhp.pt", "Apache-2.0"),
+    "pilot_det": WeightSpec("pilot_det", "pt", f"{_HF_SELF}/pilot_det.pt", "Apache-2.0"),
 }
 
 
@@ -226,6 +229,11 @@ def download_weights(
             return pt_path
         except (urllib.error.HTTPError, urllib.error.URLError):
             continue
+
+    if spec.kind == "pt":
+        logger.info("Downloading direct checkpoint '%s' from %s", canonical, spec.source)
+        _stream_download(spec.source, pt_path, timeout=300)
+        return pt_path
 
     logger.info("Fetching upstream %s weights for '%s' -> %s", spec.license, canonical, pt_path)
     from neuro_pilot.nn.zoo import convert_onnx_to_pt, register_all_zoo_models

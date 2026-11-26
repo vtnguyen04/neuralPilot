@@ -59,7 +59,11 @@ MODEL_YAML_MAP: Dict[str, str] = {
     "ae": "ae.yaml",
     "dit": "dit.yaml",
     "gpt": "gpt.yaml",
+    "pilot_det": "pilot_det.yaml",
+    "pilot_mhp": "pilot_mhp.yaml",
     # Backward-compatible aliases for existing checkpoints
+    "bfmc": "pilot_det.yaml",
+    "bfmc_mhp": "pilot_mhp.yaml",
     "openpilot_small": "pilot_s.yaml",
     "openpilot_chestnut_big": "pilot_l.yaml",
     "openpilot_big": "pilot_l.yaml",

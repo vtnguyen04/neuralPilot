@@ -102,7 +102,7 @@ uv sync --group dev
 
 ### Python API
 
-Pass any supported checkpoint name (`pilot_l.pt`, `seg_l.pt`, `cipo.pt`, `depth.pt`, ...) or `pretrained=True` to load pretrained weights automatically from local cache.
+Pass any supported checkpoint name (`pilot_l.pt`, `pilot_mhp.pt`, `seg_l.pt`, `cipo.pt`, `depth.pt`, ...) or `pretrained=True`. Missing weights download and cache automatically on first run.
 
 ```python
 from neuro_pilot import NeuroPilot
@@ -111,22 +111,26 @@ from neuro_pilot import NeuroPilot
 planner = NeuroPilot("pilot_l.pt", device="cuda")
 planner.predict_video("drive.hevc", out_mp4="trajectory.mp4")
 
-# 2. Semantic segmentation (EoMT-Large SOTA, or use "seg.pt" for 88 FPS edge)
+# 2. Single-camera multi-task planning + 13-class detection (BFMC)
+mt = NeuroPilot("pilot_mhp.pt", device="cuda")
+out = mt.predict("frame.jpg", command=0)  # waypoints (10, 2) + detections
+
+# 3. Semantic segmentation (EoMT-Large, or "seg.pt" for 88 FPS edge)
 seg = NeuroPilot("seg_l.pt", device="cuda")
 class_map = seg.predict("frame.jpg")["class_map"]  # (512, 896) uint8
 
-# 3. Vehicle/CIPO detection, monocular 3D depth, ego-lane, and lead distance
+# 4. Vehicle/CIPO detection, monocular 3D depth, ego-lane, and lead distance
 boxes = NeuroPilot("cipo.pt", device="cuda").predict("frame.jpg")["boxes"]
 depth = NeuroPilot("depth.pt", device="cuda").predict("frame.jpg")["depth"]
 lane_pts = NeuroPilot("lane.pt", device="cuda").predict("frame.jpg")["points"]
 lead = NeuroPilot("drive.pt", device="cuda").predict("frame.jpg")  # distance_m, curvature, cipo_prob
 
-# 4. Discrete visual tokenizer (VQGAN encoder + decoder)
+# 5. Discrete visual tokenizer (VQGAN encoder + decoder)
 tokens = NeuroPilot("vq_enc.pt", device="cuda").predict("frame.jpg")["tokens"]
 recon_bgr = NeuroPilot("vq_dec.pt", device="cuda").predict(tokens)["image_bgr"]
 
-# 5. Export any model to ONNX or TorchScript
-planner.export(format="onnx", file="pilot_l.onnx", opset=17)
+# 6. Export any model to ONNX or TorchScript
+mt.export(format="onnx", file="pilot_mhp.onnx", opset=17)
 ```
 
 ### CLI Reference
@@ -161,15 +165,15 @@ python -m neuro_pilot.tools.demo suite \
 
 ## Pretrained Weights
 
-Checkpoints are never committed to Git. [neuro_pilot/nn/zoo/hub.py](neuro_pilot/nn/zoo/hub.py) resolves weights in two tiers when you call `NeuroPilot("<key>.pt")`, `NeuroPilot("<key>", pretrained=True)`, `ModelZoo.download("<key>")`, or `neuropilot download <key>`:
+All 15 prebuilt `.pt` checkpoints are hosted on Hugging Face ([ThanhNguyenVo/neuropilot-weights](https://huggingface.co/ThanhNguyenVo/neuropilot-weights)). Checkpoints are never committed to Git. Calling `NeuroPilot("<key>.pt")`, `NeuroPilot("<key>", pretrained=True)`, or `neuropilot download <key>` resolves weights automatically:
 
-1. **Local cache:** Checks `~/.cache/neuro_pilot/weights/<key>.pt` first and loads immediately with zero network traffic.
-2. **Remote fetch:** Checks any configured `.pt` mirror (`NEUROPILOT_WEIGHTS_URL` or HuggingFace repo `NEUROPILOT_HF_REPO`), then falls back to the official permissive upstream weights (MIT / Apache-2.0) and converts them deterministically into `.pt` on first run.
+1. **Local cache:** Loads `~/.cache/neuro_pilot/weights/<key>.pt` immediately if present.
+2. **Hugging Face download:** Downloads `<key>.pt` directly from `NEUROPILOT_HF_REPO` (or `NEUROPILOT_WEIGHTS_URL`) with no ONNX conversion needed. Upstream MIT/Apache-2.0 ONNX converters remain as a fallback.
 
 | Environment Variable | Default | Purpose |
 | :--- | :--- | :--- |
 | `NEUROPILOT_CACHE_DIR` | `~/.cache/neuro_pilot/weights` | Directory for cached `.pt` checkpoints |
-| `NEUROPILOT_HF_REPO` | `vtnguyen04/neuropilot-weights` | HuggingFace repo hosting prebuilt `.pt` mirrors |
+| `NEUROPILOT_HF_REPO` | `ThanhNguyenVo/neuropilot-weights` | Hugging Face repo hosting prebuilt `.pt` weights |
 | `NEUROPILOT_WEIGHTS_URL` | *(unset)* | Optional custom HTTPS base URL for `.pt` downloads |
 
 ---
@@ -178,13 +182,15 @@ Checkpoints are never committed to Git. [neuro_pilot/nn/zoo/hub.py](neuro_pilot/
 
 ### Modular YAML Graph Models (`neuro_pilot/cfg/models/zoo/`)
 
-All 16 architectures are declared layer-by-layer in YAML and executed by `GraphModel` ([neuro_pilot/nn/zoo/graph.py](neuro_pilot/nn/zoo/graph.py)). Changing layer repeats, channel widths, or heads in YAML modifies the model directly without editing Python code.
+All 18 architectures are declared layer-by-layer in YAML and executed by `GraphModel` ([neuro_pilot/nn/zoo/graph.py](neuro_pilot/nn/zoo/graph.py)). Changing layer repeats, channel widths, or heads in YAML modifies the model directly without editing Python code.
 
 | Key | Family | Params | Auto-Download | License | Description |
 | :--- | :--- | ---: | :---: | :--- | :--- |
 | `pilot_s` | planner | 34.3M | Yes | MIT | Dual-camera E2E planner (FastViT-T12 + 5L Transformer) |
 | `pilot_l` | planner | 381.6M | Yes | MIT | Dual-camera E2E planner + 3D multi-lane & road edges (ConvNeXt-XL + 8L Transformer) |
 | `pilot_nav` | planner | 393.7M | Yes | MIT | Map-guided dual-camera E2E planner with navigation map encoder |
+| `pilot_mhp` | planner | 14.1M | Yes | Apache-2.0 | Single-camera multi-task planner (FastViT-T12 + 13-class DFL det + 5-mode Laplace MHP) |
+| `pilot_det` | planner | 12.9M | Yes | Apache-2.0 | Single-camera multi-task planner (FastViT-T12 + 13-class DFL det + single-mode traj) |
 | `driver` | cabin | 3.6M | Yes | MIT | Cabin driver monitoring (MobileNetV4, LHD/RHD heads) |
 | `cipo` | perception | 9.3M | Yes | Apache-2.0 | 4-class vehicle and CIPO detector (PANet + decoupled DFL head) |
 | `lane` | perception | 8.2M | Yes | Apache-2.0 | Row-anchor ego-lane detector |
@@ -251,21 +257,34 @@ names:
   2: stop_sign
 ```
 
-### 2. Fine-Tune Any Pretrained Zoo Backbone (`CommandAdapter`)
+### 2. Fine-Tune Any Pretrained Backbone (`CommandAdapter`)
 
-Attach a trainable command-conditioned waypoint and control head onto any frozen Zoo backbone (`pilot_s`, `pilot_l`, `jepa`, `driver`, ...):
+Attach a trainable command-conditioned waypoint and control head directly through `NeuroPilot` onto any pretrained model (`pilot_s`, `pilot_l`, `jepa`, `driver`, ...):
 
 ```python
-from neuro_pilot import ModelZoo
+from neuro_pilot import NeuroPilot
 
-base = ModelZoo.load(ModelZoo.download("pilot_s"))
-adapter = ModelZoo.attach_adapter(
-    base,
+model = NeuroPilot("pilot_s.pt")
+adapter = model.attach_adapter(
     feat_dim=256,
-    num_commands=7,
-    num_waypoints=12,
+    num_commands=4,
+    num_waypoints=10,
     freeze_base=True,
 )
+```
+
+### 3. Single-Camera Multi-Task Example (`examples/bfmc/`)
+
+[examples/bfmc/](examples/bfmc/) trains `pilot_mhp` from OpenPilot `pilot_s.pt` with optional DINOv3 feature distillation (`0 ms` at export). Full experiment tables, plots, and ONNX parity results are in [examples/bfmc/REPORT.md](examples/bfmc/REPORT.md) (`Val MSE 0.00440`, `Lat 18.5 px`, `mAP@50 63.2%`, `~59 FPS` on RTX 3060).
+
+```bash
+# Fine-tune directly from pretrained BFMC weights (auto-downloads pilot_mhp.pt)
+python3 -m examples.bfmc.train \
+  --arch pilot_mhp \
+  --resume-weights pilot_mhp.pt \
+  --train-json train.json \
+  --val-json val.json \
+  --save-dir runs/bfmc_ft
 ```
 
 ---
@@ -303,13 +322,14 @@ For edge deployment on NVIDIA Jetson, see [examples/jetson_inference_onnx.py](ex
 neuro_pilot/
 ├── cfg/models/
 │   ├── neuralPilot*.yaml         # Native joint multi-task training architectures
-│   └── zoo/*.yaml                # 16 layer-by-layer modular Zoo YAML graphs
+│   └── zoo/*.yaml                # 18 layer-by-layer modular Zoo YAML graphs
 ├── nn/zoo/
 │   ├── graph.py                  # Generic GraphModel YAML executor
-│   ├── hub.py                    # 2-tier automatic weight downloader & cache
+│   ├── hub.py                    # Automatic Hugging Face weight downloader & cache
+│   ├── distill.py                # Training-only DINOv3 dense feature distillation
 │   ├── parity.py                 # ONNX-to-PyTorch conversion & numerical parity verifier
 │   ├── losses.py                 # LaplaceNLL, MHPLaplaceLoss, FlowMatchingLoss, WaypointLoss
-│   ├── blocks/                   # Shared atomic blocks (CNN, ViT, EoMT, VQ, EffNet, Planner)
+│   ├── blocks/                   # Shared atomic blocks (CNN, ViT, EoMT, VQ, EffNet, Planner, Traj)
 │   └── converters/               # Deterministic ONNX & safetensors weight converters
 ├── engine/
 │   ├── model.py                  # Unified NeuroPilot entry point
@@ -324,6 +344,11 @@ neuro_pilot/
 │   ├── viz.py                    # 2x supersampled 3D drivable trajectory corridor renderer
 │   └── overlay.py                # 3D multi-lane, AR CIPO brackets, segmentation & depth overlays
 └── tools/demo.py                 # CLI for single/dual trajectory and 4-clip demo suite rendering
+
+examples/
+├── train.py / train_temporal.py  # Native multi-task & temporal clip training scripts
+├── jetson_inference_*.py         # ONNX Runtime & TensorRT edge inference scripts
+└── bfmc/                         # BFMC 1:10 multi-task example, training pipeline & REPORT.md
 ```
 
 ---
@@ -353,7 +378,7 @@ Register any `BaseDrivingDataset` subclass with `@register_dataset("my_dataset")
 pytest tests/zoo/ -k "not parity" -v
 
 # Lint check
-ruff check neuro_pilot/nn/zoo neuro_pilot/engine/predictors neuro_pilot/utils/viz.py neuro_pilot/utils/overlay.py neuro_pilot/tools/demo.py tests/zoo
+ruff check neuro_pilot/nn/zoo neuro_pilot/engine/predictors neuro_pilot/utils/viz.py neuro_pilot/utils/overlay.py neuro_pilot/tools/demo.py examples/bfmc tests/zoo
 ```
 
 ---
