@@ -1,0 +1,42 @@
+# Cabin Driver Monitoring (MobileNetV4 FusedIB/UIB + Dual LHD/RHD Heads)
+
+name: driver
+family: cabin
+
+inputs:
+  input_img: {shape: [1, 1382400], dtype: uint8, dist: randint, low: 0, high: 256}
+  calib:     {shape: [1, 3], dtype: float32, dist: randn, scale: 0.001}
+
+outputs:
+  outputs: 17
+
+backbone:
+  # Input Unshuffle & Calibration Normalization
+  - [[input_img, calib], 1, DMonPreproc, []]                      # 0  - 4x4 unshuffle + calib norm
+
+  # MobileNetV4 Stem & Fused Inverted Bottlenecks
+  - [0.img, 1, ConvBNAct, [16, 32, 3, 2, 1, gelu_tanh]]           # 1  - Stem P1/2
+  - [-1,    1, FusedIB,   [32, 32, 32, 3, 2, gelu_tanh]]          # 2  - Stage 0 P2/4
+  - [-1,    1, FusedIB,   [32, 96, 64, 3, 2, gelu_tanh]]          # 3  - Stage 1 P3/8
+
+  # Stage 2 (P4/16): 6 Universal Inverted Bottlenecks
+  - [-1,    1, UIB,       [64, 192, 96, 5, 5, 2, false]]          # 4  - Stage 2.0 downsample
+  - [-1,    4, UIB,       [96, 192, 96, null, 3, 1, true]]        # 5  - Stage 2.1..4
+  - [-1,    1, UIB,       [96, 384, 96, 3, null, 1, true]]        # 6  - Stage 2.5
+
+  # Stage 3 (P5/32): 6 Universal Inverted Bottlenecks
+  - [-1,    1, UIB,       [96, 576, 128, 3, 3, 2, false]]         # 7  - Stage 3.0 downsample
+  - [-1,    1, UIB,       [128, 512, 128, 5, 5, 1, true]]         # 8  - Stage 3.1
+  - [-1,    1, UIB,       [128, 512, 128, null, 5, 1, true]]      # 9  - Stage 3.2
+  - [-1,    1, UIB,       [128, 384, 128, null, 5, 1, true]]      # 10 - Stage 3.3
+  - [-1,    2, UIB,       [128, 512, 128, null, 3, 1, true]]      # 11 - Stage 3.4..5
+
+  # Final Expansion, Global Pool & Projection
+  - [-1,    1, ConvBNAct, [128, 960, 1, 1, 0, gelu_tanh]]         # 12 - Stage 4 expand
+  - [-1,    1, MeanPool,  [[-1, -2], true]]                       # 13 - Global average pool
+  - [-1,    1, ConvBNAct, [960, 1280, 1, 1, 0, gelu_tanh]]        # 14 - Conv head
+  - [-1,    1, Flatten,   [1]]                                    # 15 - Flatten [B, 1280]
+  - [-1,    1, Linear,    [1280, 512]]                            # 16 - Backbone embedding [B, 512]
+
+head:
+  - [[16, 0.calib_norm], 1, DMonHeads, []]                        # 17 - LHD + RHD + summary + feat

@@ -4,6 +4,55 @@ import onnx
 from neuro_pilot.utils.logger import logger
 
 
+class TRTEfficientNMS(torch.autograd.Function):
+    """TensorRT EfficientNMS plugin wrapper for ONNX export."""
+
+    @staticmethod
+    def forward(
+        ctx,
+        boxes,
+        scores,
+        score_threshold=0.25,
+        iou_threshold=0.45,
+        max_output_boxes=100,
+        background_class=-1,
+        score_activation=0,
+        box_coding=0,
+    ):
+        B = boxes.shape[0]
+        device = boxes.device
+        num_dets = torch.zeros((B, 1), dtype=torch.int32, device=device)
+        det_boxes = torch.zeros((B, max_output_boxes, 4), dtype=torch.float32, device=device)
+        det_scores = torch.zeros((B, max_output_boxes), dtype=torch.float32, device=device)
+        det_classes = torch.zeros((B, max_output_boxes), dtype=torch.int32, device=device)
+        return num_dets, det_boxes, det_scores, det_classes
+
+    @staticmethod
+    def symbolic(
+        g,
+        boxes,
+        scores,
+        score_threshold=0.25,
+        iou_threshold=0.45,
+        max_output_boxes=100,
+        background_class=-1,
+        score_activation=0,
+        box_coding=0,
+    ):
+        return g.op(
+            "TRT::EfficientNMS_TRT",
+            boxes,
+            scores,
+            score_threshold_f=float(score_threshold),
+            iou_threshold_f=float(iou_threshold),
+            max_output_boxes_i=int(max_output_boxes),
+            background_class_i=int(background_class),
+            score_activation_i=int(score_activation),
+            box_coding_i=int(box_coding),
+            outputs=4,
+        )
+
+
 class Exporter:
     """
     Unified Exporter for Neuro Pilot.
@@ -29,21 +78,52 @@ class Exporter:
         format = format.lower()
         if format == "onnx":
             path = self.export_onnx(imgsz, **kwargs)
-        elif format == "engine":
+        elif format in {"engine", "trt", "tensorrt"}:
             path = self.export_engine(imgsz, **kwargs)
+        elif format in {"torchscript", "ts"}:
+            path = self.export_torchscript(**kwargs)
         else:
             raise NotImplementedError(f"Format {format} is not supported yet.")
         self.callbacks.on_export_end(self)
         return path
 
+    def export_torchscript(self, **kwargs):
+        """Export a GraphModel to a self-describing `.torchscript` file."""
+        from neuro_pilot.nn.zoo.graph import GraphModel
+
+        output_path = kwargs.get("file", "neuro_pilot_model.torchscript")
+        if isinstance(self.model, GraphModel):
+            out = self.model.export_torchscript(
+                output_path, sample_inputs=kwargs.get("sample_inputs")
+            )
+            logger.info(f"Exported GraphModel TorchScript: {out}")
+            return str(out)
+        raise NotImplementedError("TorchScript export is currently implemented for GraphModel.")
+
     def export_onnx(self, imgsz=None, simplify=True, opset=17, end2end=False, **kwargs):
-        """Export to ONNX with proper multi-head output handling."""
+        """Export to ONNX with proper multi-head output handling and optional EfficientNMS."""
+        from neuro_pilot.nn.zoo.graph import GraphModel
+
+        output_path = kwargs.get("file", "neuro_pilot_model.onnx")
+        if isinstance(self.model, GraphModel):
+            out = self.model.export_onnx(
+                output_path,
+                opset=opset,
+                sample_inputs=kwargs.get("sample_inputs"),
+                dynamic_axes=kwargs.get("dynamic_axes"),
+            )
+            logger.info(f"Exported GraphModel ONNX: {out}")
+            return str(out)
+
         imgsz = imgsz or getattr(self.cfg.data, "image_size", 320) if hasattr(self.cfg, "data") else 320
         if isinstance(imgsz, int):
             imgsz = (imgsz, imgsz)
 
-        output_path = kwargs.get("file", "neuro_pilot_model.onnx")
         skip_heatmap = kwargs.get("skip_heatmap", False)
+        end2end = kwargs.get("end2end", end2end)
+        score_thresh = kwargs.get("score_thresh", 0.25)
+        iou_thresh = kwargs.get("iou_thresh", 0.45)
+        max_det = kwargs.get("max_det", 100)
 
         from neuro_pilot.cfg.schema import HeadConfig
 
@@ -56,10 +136,22 @@ class Exporter:
         class ExportAdapter(nn.Module):
             """Flattens NeuroPilot dict outputs into ordered tuple for ONNX export."""
 
-            def __init__(self, model, skip_heatmap=False):
+            def __init__(
+                self,
+                model,
+                skip_heatmap=False,
+                end2end=False,
+                score_thresh=0.25,
+                iou_thresh=0.45,
+                max_det=100,
+            ):
                 super().__init__()
                 self.model = model
                 self.skip_heatmap = skip_heatmap
+                self.end2end = end2end
+                self.score_thresh = score_thresh
+                self.iou_thresh = iou_thresh
+                self.max_det = max_det
 
             def forward(self, x, cmd):
                 out = self.model(x, cmd)
@@ -89,26 +181,83 @@ class Exporter:
                     if classes is None:
                         classes = torch.zeros(B, _head.num_commands, device=device)
 
+                    if self.end2end:
+                        # bboxes shape: (B, 4 + nc, num_anchors) -> transpose to (B, num_anchors, 4 + nc)
+                        bboxes_t = bboxes.permute(0, 2, 1)
+                        cxcywh = bboxes_t[..., :4]
+                        scores = bboxes_t[..., 4:]
+
+                        # Convert cx, cy, w, h -> x1, y1, x2, y2 (BoxCorner, box_coding=0)
+                        x1 = cxcywh[..., 0] - cxcywh[..., 2] / 2
+                        y1 = cxcywh[..., 1] - cxcywh[..., 3] / 2
+                        x2 = cxcywh[..., 0] + cxcywh[..., 2] / 2
+                        y2 = cxcywh[..., 1] + cxcywh[..., 3] / 2
+                        boxes_xyxy = torch.stack([x1, y1, x2, y2], dim=-1)
+
+                        num_dets, det_boxes, det_scores, det_classes = TRTEfficientNMS.apply(
+                            boxes_xyxy,
+                            scores,
+                            self.score_thresh,
+                            self.iou_thresh,
+                            self.max_det,
+                            -1,  # background_class
+                            0,   # score_activation = 0 (already sigmoid)
+                            0,   # box_coding = 0 (BoxCorner x1,y1,x2,y2)
+                        )
+                        return num_dets, det_boxes, det_scores, det_classes, waypoints, hm, classes
+
                     return bboxes, waypoints, hm, classes
 
                 return out
 
-        model_wrapper = ExportAdapter(self.model, skip_heatmap=skip_heatmap).to(self.device)
+        model_wrapper = ExportAdapter(
+            self.model,
+            skip_heatmap=skip_heatmap,
+            end2end=end2end,
+            score_thresh=score_thresh,
+            iou_thresh=iou_thresh,
+            max_det=max_det,
+        ).to(self.device)
         model_wrapper.eval()
 
-        output_names = ["bboxes", "trajectory", "heatmap", "classes"]
         dynamic_axes = None
-        if kwargs.get("dynamic", False):
-            dynamic_axes = {
-                "image": {0: "batch"},
-                "command": {0: "batch"},
-                "bboxes": {0: "batch"},
-                "trajectory": {0: "batch"},
-                "heatmap": {0: "batch"},
-                "classes": {0: "batch"},
-            }
+        if end2end:
+            output_names = [
+                "num_dets",
+                "det_boxes",
+                "det_scores",
+                "det_classes",
+                "trajectory",
+                "heatmap",
+                "classes",
+            ]
+            if kwargs.get("dynamic", False):
+                dynamic_axes = {
+                    "image": {0: "batch"},
+                    "command": {0: "batch"},
+                    "num_dets": {0: "batch"},
+                    "det_boxes": {0: "batch"},
+                    "det_scores": {0: "batch"},
+                    "det_classes": {0: "batch"},
+                    "trajectory": {0: "batch"},
+                    "heatmap": {0: "batch"},
+                    "classes": {0: "batch"},
+                }
+        else:
+            output_names = ["bboxes", "trajectory", "heatmap", "classes"]
+            if kwargs.get("dynamic", False):
+                dynamic_axes = {
+                    "image": {0: "batch"},
+                    "command": {0: "batch"},
+                    "bboxes": {0: "batch"},
+                    "trajectory": {0: "batch"},
+                    "heatmap": {0: "batch"},
+                    "classes": {0: "batch"},
+                }
 
-        logger.info(f"Exporting ONNX: imgsz={imgsz}, opset={opset}, skip_heatmap={skip_heatmap}")
+        logger.info(
+            f"Exporting ONNX: imgsz={imgsz}, opset={opset}, end2end={end2end}, skip_heatmap={skip_heatmap}"
+        )
         torch.onnx.export(
             model_wrapper,
             (im, cmd),
@@ -121,7 +270,7 @@ class Exporter:
             dynamic_axes=dynamic_axes,
         )
 
-        if simplify:
+        if simplify and not end2end:
             try:
                 from onnxsim import simplify as onnx_simplify
 
@@ -132,6 +281,8 @@ class Exporter:
                     logger.info("ONNX simplification success.")
             except ImportError:
                 logger.warning("onnx-simplifier not found. Skipping simplification.")
+            except Exception as e:
+                logger.warning(f"onnx-simplifier skipped: {e}")
 
         try:
             model_onnx = onnx.load(output_path)
@@ -160,46 +311,55 @@ class Exporter:
 
         return output_path
 
-    def export_engine(self, imgsz=None, half=True, dynamic=False, workspace=4, **kwargs):
-        """
-        Export to TensorRT engine.
-        Converts PyTorch → ONNX → TensorRT Engine via trtexec.
-        """
-        onnx_path = self.export_onnx(imgsz=imgsz, simplify=True, dynamic=dynamic, **kwargs)
-        engine_path = onnx_path.replace(".onnx", ".engine")
+    def export_engine(
+        self, imgsz=None, half=True, int8=False, dynamic=False, workspace=4, **kwargs
+    ):
+        """Export to TensorRT `.engine` (ONNX -> TensorRT via `trtexec` or Python TRT API)."""
+        from pathlib import Path
+        from neuro_pilot.engine.trt_builder import build_tensorrt_engine
+        from neuro_pilot.nn.zoo.graph import GraphModel
 
-        logger.info(f"Converting {onnx_path} to TensorRT engine...")
+        simplify = kwargs.pop("simplify", not kwargs.get("end2end", False))
+        raw_file = str(kwargs.pop("file", "neuro_pilot_model.engine"))
+        engine_path = Path(raw_file if raw_file.endswith((".engine", ".plan")) else f"{raw_file}.engine")
+        onnx_path = Path(
+            self.export_onnx(
+                imgsz=imgsz,
+                simplify=simplify,
+                dynamic=dynamic,
+                file=str(engine_path.with_suffix(".onnx")),
+                **kwargs,
+            )
+        )
 
-        try:
-            import tensorrt as trt
-            import subprocess
+        input_specs = None
+        metadata = None
+        if isinstance(self.model, GraphModel):
+            input_specs = self.model.input_specs
+            metadata = {
+                "model_key": self.model.model_key,
+                "family": self.model.family,
+                "input_specs": self.model.input_specs,
+            }
+        else:
+            from neuro_pilot.cfg.schema import HeadConfig
 
-            trt_imgsz = imgsz or 320
-            if isinstance(trt_imgsz, tuple):
-                trt_imgsz = trt_imgsz[0]
+            trt_sz = imgsz or 320
+            h, w = trt_sz if isinstance(trt_sz, tuple) else (trt_sz, trt_sz)
+            input_specs = {
+                "image": {"shape": [1, 3, h, w]},
+                "command": {"shape": [1, HeadConfig().num_commands]},
+            }
 
-            cmd = [
-                "trtexec",
-                f"--onnx={onnx_path}",
-                f"--saveEngine={engine_path}",
-                f"--workspace={workspace * 1024}",
-            ]
-            if half:
-                cmd.append("--fp16")
-            if dynamic:
-                from neuro_pilot.cfg.schema import HeadConfig
-
-                num_cmd = HeadConfig().num_commands
-                cmd.append(f"--minShapes=image:1x3x{trt_imgsz}x{trt_imgsz},command:1x{num_cmd}")
-                cmd.append(f"--optShapes=image:4x3x{trt_imgsz}x{trt_imgsz},command:4x{num_cmd}")
-                cmd.append(f"--maxShapes=image:8x3x{trt_imgsz}x{trt_imgsz},command:8x{num_cmd}")
-
-            logger.info(f"Running: {' '.join(cmd)}")
-            subprocess.run(cmd, check=True, capture_output=True)
-            logger.info(f"TensorRT export success: {engine_path}")
-            return engine_path
-
-        except (ImportError, Exception) as e:
-            logger.error(f"TensorRT export failed: {e}")
-            logger.warning("Make sure 'tensorrt' is installed and 'trtexec' is in your PATH.")
-            return None
+        built = build_tensorrt_engine(
+            onnx_path=onnx_path,
+            engine_path=engine_path,
+            half=half,
+            int8=int8,
+            dynamic=dynamic,
+            workspace_gb=workspace,
+            input_specs=input_specs,
+            metadata=metadata,
+            max_batch=int(kwargs.get("max_batch", 4)),
+        )
+        return str(built)

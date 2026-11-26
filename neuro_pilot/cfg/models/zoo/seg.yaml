@@ -1,0 +1,34 @@
+# DDRNet23-Slim 19-Class Semantic Driving Segmentation (5.7M params, MIT)
+
+name: seg
+family: perception
+
+inputs:
+  image: {shape: [1, 3, 1024, 2048], dtype: float32, dist: rand, low: 0.0, high: 1.0}
+
+outputs:
+  mask: -1
+
+backbone:
+  - [image, 1, ImgNorm, [[0.485, 0.456, 0.406], [0.229, 0.224, 0.225]]]   # 0: normalize
+  - [-1, 1, Conv2d, [3, 32, 3, 2, 1, "relu", true]]                       # 1: stem 1/2
+  - [-1, 1, Conv2d, [32, 32, 3, 2, 1, "relu", true]]                      # 2: stem 1/4
+  - [-1, 2, ResBasic, [32, 32, 1, true]]                                  # 3: stage1 1/4
+  - [-1, 1, ResBasic, [32, 64, 2, true]]                                  # 4: stage2.0 1/8
+  - [-1, 1, ResBasic, [64, 64, 1, true]]                                  # 5: stage2.1 1/8
+  - [-1, 1, ResBasic, [64, 128, 2, true]]                                 # 6: low3.0 1/16
+  - [-1, 1, ResBasic, [128, 128, 1, false]]                               # 7: low3.1 1/16
+  - [5,  1, ResBasic, [64, 64, 1, true]]                                  # 8: high3.0 1/8
+  - [-1, 1, ResBasic, [64, 64, 1, false]]                                 # 9: high3.1 1/8
+  - [[7, 9], 1, BilateralFuse, [128, 64, 1]]                              # 10: fuse 1
+  - ["10.low", 1, ResBasic, [128, 256, 2, true]]                          # 11: low4.0 1/32
+  - [-1, 1, ResBasic, [256, 256, 1, false]]                               # 12: low4.1 1/32
+  - ["10.high", 1, ResBasic, [64, 64, 1, true]]                           # 13: high4.0 1/8
+  - [-1, 1, ResBasic, [64, 64, 1, false]]                                 # 14: high4.1 1/8
+  - [[12, 14], 1, BilateralFuse, [256, 64, 2]]                            # 15: fuse 2
+  - ["15.high", 1, ResBottleneck, [64, 64, 128, 1, false]]                # 16: high5 1/8
+  - ["15.low",  1, ResBottleneck, [256, 256, 512, 2, false]]              # 17: low5 1/64
+
+head:
+  - [17, 1, DAPPM, [512, 128, 128]]                                       # 18: context pyramid
+  - [[18, 16], 1, SegHead, [128, 64, 19]]                                 # 19: 19-cls logits

@@ -1,0 +1,30 @@
+# Monocular 3D Depth (EfficientNet-B1 OS16 + Separable DeepLabV3+ Depth Head)
+
+name: depth
+family: perception
+
+inputs:
+  input: [1, 3, 320, 640]
+
+outputs:
+  output: 15
+
+backbone:
+  - [-1, 1, Conv2d, [3, 32, 3, 2, 1, silu]]          # 0  - stem (s2)
+  - [-1, 2, MBConv, [32, 16, 1, 3, 1]]               # 1  - stage 0 (2x)
+  - [-1, 3, MBConv, [16, 24, 6, 3, 2]]               # 2  - stage 1 (3x, s4 skip)
+  - [-1, 3, MBConv, [24, 40, 6, 5, 2]]               # 3  - stage 2 (3x, s8)
+  - [-1, 4, MBConv, [40, 80, 6, 3, 2]]               # 4  - stage 3 (4x, s16)
+  - [-1, 4, MBConv, [80, 112, 6, 5, 1]]              # 5  - stage 4 (4x)
+  - [-1, 5, MBConv, [112, 192, 6, 5, 1, 2]]          # 6  - stage 5 (5x, dil=2)
+  - [-1, 2, MBConv, [192, 320, 6, 3, 1, 2]]          # 7  - stage 6 (2x, s16 out)
+
+head:
+  - [-1, 1, SeparableASPP, [320, 256, [12, 24, 36]]] # 8  - 5-branch separable ASPP
+  - [-1, 1, SepConv, [256, 256, 3, 1, 1, relu]]      # 9  - ASPP refine sep-conv
+  - [-1, 1, Upsample, [4.0, bilinear, true]]         # 10 - upsample s16 -> s4
+  - [2, 1, Conv2d, [24, 48, 1, 1, 0, relu]]          # 11 - s4 skip projection
+  - [[10, 11], 1, Concat, [1]]                       # 12 - cat (aspp_up, skip)
+  - [-1, 1, SepConv, [304, 256, 3, 1, 1, relu]]      # 13 - decoder fusion sep-conv
+  - [-1, 1, Conv2d, [256, 1, 3, 1, 1]]               # 14 - monocular depth head
+  - [-1, 1, Upsample, [4.0, bilinear, true]]         # 15 - upsample s4 -> full res

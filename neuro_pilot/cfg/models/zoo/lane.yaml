@@ -1,0 +1,33 @@
+# Ego-Lane Detector (Spatial-Context Backbone + Top-Down FPN + Row-Anchor Lane Head)
+
+name: lane
+family: perception
+
+inputs:
+  input: [1, 3, 512, 1024]
+
+outputs:
+  lane_value: 17.lane_value
+  height: 17.height
+
+backbone:
+  - [-1, 1, VPConv, [3, 16, 3, 2, 1]]               # 0  - P1/2
+  - [-1, 1, VPConv, [16, 32, 3, 2, 1]]              # 1  - P2/4 conv
+  - [-1, 1, SpatialContext, [32, 64, 128, 256]]     # 2  - P2/4 context
+  - [-1, 1, VPConv, [64, 64, 3, 2, 1]]              # 3  - P3/8 conv
+  - [-1, 1, SpatialContext, [64, 128, 64, 128]]     # 4  - P3/8 context
+  - [-1, 1, VPConv, [128, 128, 3, 2, 1]]            # 5  - P4/16 conv
+  - [-1, 1, SpatialContext, [128, 128, 32, 64]]     # 6  - P4/16 context
+  - [-1, 1, VPConv, [128, 256, 3, 2, 1]]            # 7  - P5/32 conv
+  - [-1, 1, SpatialContext, [256, 256, 16, 32]]     # 8  - P5/32 context
+  - [-1, 1, VPSPPF, [256, 256]]                     # 9  - P5 SPPF
+  - [-1, 1, VPC2PSA, [256]]                         # 10 - P5 C2PSA
+
+head:
+  - [-1, 1, Upsample, [2.0, nearest]]               # 11 - P5 upsample x2
+  - [[-1, 6], 1, Concat, [1]]                       # 12 - cat (P5_up, P4)
+  - [-1, 1, CSPBlock, [384, 128, 32, false]]        # 13 - FPN h1
+  - [-1, 1, Upsample, [2.0, nearest]]               # 14 - h1 upsample x2
+  - [[-1, 4], 1, Concat, [1]]                       # 15 - cat (h1_up, P3)
+  - [-1, 1, CSPBlock, [256, 64, 16, false]]         # 16 - FPN h2
+  - [[2, -1], 1, AutoSteerHead, [256]]              # 17 - row-anchor lane & height

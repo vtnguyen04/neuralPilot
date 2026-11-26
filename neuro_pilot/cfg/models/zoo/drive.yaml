@@ -1,0 +1,35 @@
+# Temporal Lead Distance & Curvature (Siamese Spatial-Context + Temporal Fusion MLP)
+
+name: drive
+family: perception
+
+inputs:
+  image_prev: [1, 3, 512, 1024]
+  image_curr: [1, 3, 512, 1024]
+
+outputs:
+  distance: 17.distance
+  curvature: 17.curvature
+  flag_logit: 17.flag_logit
+
+backbone:
+  - [[image_prev, image_curr], 1, Concat, [0]]             # 0  - Siamese batch stack
+  - [-1, 1, VPConv, [3, 16, 3, 2, 1, 1, true, true]]       # 1  - P1/2 (BN)
+  - [-1, 1, VPConv, [16, 32, 3, 2, 1, 1, true, true]]      # 2  - P2/4 conv (BN)
+  - [-1, 1, SpatialContext, [32, 64, 128, 256]]            # 3  - P2/4 context
+  - [-1, 1, VPConv, [64, 64, 3, 2, 1, 1, true, true]]      # 4  - P3/8 conv (BN)
+  - [-1, 1, SpatialContext, [64, 128, 64, 128]]            # 5  - P3/8 context
+  - [-1, 1, VPConv, [128, 128, 3, 2, 1, 1, true, true]]    # 6  - P4/16 conv (BN)
+  - [-1, 1, SpatialContext, [128, 128, 32, 64]]            # 7  - P4/16 context
+  - [-1, 1, VPConv, [128, 256, 3, 2, 1, 1, true, true]]    # 8  - P5/32 conv (BN)
+  - [-1, 1, SpatialContext, [256, 256, 16, 32]]            # 9  - P5/32 context
+  - [-1, 1, VPSPPF, [256, 256, true]]                      # 10 - P5 SPPF (BN)
+  - [-1, 1, VPC2PSA, [256, true]]                          # 11 - P5 C2PSA (BN)
+
+head:
+  - [-1, 1, SplitCat, [2, 0, 1]]                           # 12 - Siamese unstack & cat
+  - [-1, 1, Conv2d, [512, 256, 3, 1, 1, silu]]             # 13 - temporal conv 1
+  - [-1, 1, Conv2d, [256, 64, 3, 1, 1, silu]]              # 14 - temporal conv 2
+  - [-1, 1, Conv2d, [64, 2, 3, 1, 1, silu]]                # 15 - temporal conv 3
+  - [-1, 1, Flatten, [1]]                                  # 16 - flatten to [B, 1024]
+  - [-1, 1, AutoDriveMLP, [1024, 768, 512]]                # 17 - distance, curvature, flag
