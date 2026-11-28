@@ -15,7 +15,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
-from examples.bfmc.dataset import BFMCDataset, UnlabeledFrameDataset, bfmc_collate_fn
+from examples.bfmc.dataset import (
+    BFMCDataset,
+    UnlabeledFrameDataset,
+    bfmc_collate_fn,
+    build_balanced_sampler,
+)
 from examples.bfmc.metrics import evaluate_bfmc, sym_curve_dist
 from neuro_pilot.nn.zoo import MHPLaplaceLoss, build_zoo_model, download_weights, resolve_weight_key
 from neuro_pilot.nn.zoo.distill import DinoV3Teacher, DistillProj, dense_distill_loss
@@ -85,52 +90,74 @@ def _mhp_traj_loss(
     hm_fn: HeatmapLoss,
     smooth_weight: float,
 ) -> torch.Tensor:
+    wp_final = traj_out["waypoints"].float()
     mu, mu0 = traj_out["mu"].float(), traj_out["mu0"].float()
     log_b, m_logits = traj_out["log_b"].float(), traj_out["mode_logits"].float()
     gt = gt_wp.float()
+    t_len = gt.shape[1]
+    scale_t = max(1.0, (t_len - 1) / 9.0)
+    w_h = torch.linspace(0.85, 1.85, t_len, device=gt.device, dtype=gt.dtype).view(1, t_len, 1)
+    w_h = w_h / w_h.mean()
+
     mhp = mhp_fn(mu, log_b, m_logits, gt)
     with torch.no_grad():
-        mode_err = torch.abs(mu - gt.unsqueeze(1)).mean(dim=(-2, -1))
-        best_k = mode_err.argmin(dim=1)
-        soft_tgt = F.softmax(-mode_err / 0.012, dim=-1)
-    l_mode_kl = F.kl_div(F.log_softmax(m_logits, dim=-1), soft_tgt, reduction="batchmean")
+        mode_mse_w = (((mu - gt.unsqueeze(1)) ** 2) * w_h.unsqueeze(1)).mean(dim=(-2, -1))
+        best_k = mode_mse_w.argmin(dim=1)
+        soft_tgt = F.softmax(-mode_mse_w / 0.003, dim=-1)
+    cmd_w = torch.where(cmd != 0, 2.0, 1.0)
+    kl_per = F.kl_div(F.log_softmax(m_logits, dim=-1), soft_tgt, reduction="none").sum(dim=-1)
+    l_mode_kl = (kl_per * cmd_w).mean()
     b_idx = torch.arange(mu.shape[0], device=mu.device)
     mu_best, mu0_best = mu[b_idx, best_k], mu0[b_idx, best_k]
 
-    cmd_w = torch.where(cmd != 0, 1.5, 1.0)
-    if epoch > 8:
+    if epoch > 6:
         with torch.no_grad():
-            hard_w = 1.0 + (torch.abs(mu_best - gt).mean(dim=(1, 2)) / 0.06).clamp(0.0, 1.5)
+            hard_w = 1.0 + (torch.abs(wp_final - gt).mean(dim=(1, 2)) / 0.05).clamp(0.0, 2.0)
         cmd_w = cmd_w * hard_w
-    gate = (cmd != 0).float()
-    l_fdat = (fdat_fn(mu_best, gt, gate) * cmd_w).mean()
-    l_l1 = (F.smooth_l1_loss(mu_best, gt, beta=0.005, reduction="none").mean(dim=(1, 2)) * cmd_w).mean()
-    l_mse = (((mu_best - gt) ** 2).mean(dim=(1, 2)) * cmd_w).mean()
-    l_crv = sym_curve_dist(mu_best, gt).mean()
-    l_mono = F.relu(mu_best[:, 1:, 1] - mu_best[:, :-1, 1] + 0.005).mean()
-    l_c0 = F.smooth_l1_loss(mu0_best, gt, beta=0.02)
 
-    # S-curve-safe physics smoothness: match GT 1st/2nd derivatives + all-K 3rd-order jerk
-    v_p, v_g = mu_best[:, 1:] - mu_best[:, :-1], gt[:, 1:] - gt[:, :-1]
-    a_p, a_g = v_p[:, 1:] - v_p[:, :-1], v_g[:, 1:] - v_g[:, :-1]
+    gate = (cmd != 0).float()
+    tail_k = max(2, t_len // 4)
+    # Direct end-to-end MMSE + Entry-Lane + Geometry supervision on fused & P3-refined final waypoints!
+    l_fdat = (fdat_fn(wp_final, gt, gate) * cmd_w).mean()
+    l_l1 = ((F.smooth_l1_loss(wp_final, gt, beta=0.005, reduction="none") * w_h).mean(dim=(1, 2)) * cmd_w).mean()
+    l_mse = ((((wp_final - gt) ** 2) * w_h).mean(dim=(1, 2)) * cmd_w).mean()
+    l_entry_mse = ((((wp_final[:, -tail_k:] - gt[:, -tail_k:]) ** 2)).mean(dim=(1, 2)) * cmd_w).mean()
+    l_entry_l1 = (F.smooth_l1_loss(wp_final[:, -tail_k:], gt[:, -tail_k:], beta=0.005, reduction="none").mean(dim=(1, 2)) * cmd_w).mean()
+    l_crv = sym_curve_dist(wp_final, gt).mean()
+    l_mono = F.relu(wp_final[:, 1:, 1] - wp_final[:, :-1, 1]).mean()
+    # Auxiliary winner-expert supervision keeps all K=5 experts sharp & diverse
+    l_wta_aux = (
+        8.0 * ((F.smooth_l1_loss(mu_best, gt, beta=0.005, reduction="none") * w_h).mean(dim=(1, 2)) * cmd_w).mean()
+        + 40.0 * ((((mu_best - gt) ** 2) * w_h).mean(dim=(1, 2)) * cmd_w).mean()
+        + 4.0 * F.smooth_l1_loss(mu0_best, gt, beta=0.02)
+    )
+
+    # Density-invariant S-curve-safe physics smoothness on final output + all K=5 experts
+    v_p = (wp_final[:, 1:] - wp_final[:, :-1]) * scale_t
+    v_g = (gt[:, 1:] - gt[:, :-1]) * scale_t
+    a_p = (v_p[:, 1:] - v_p[:, :-1]) * scale_t
+    a_g = (v_g[:, 1:] - v_g[:, :-1]) * scale_t
+    j_p = (a_p[:, 1:] - a_p[:, :-1]) * scale_t
     seg_cos = 1.0 - (F.normalize(v_p, dim=-1, eps=1e-5) * F.normalize(v_g, dim=-1, eps=1e-5)).sum(-1)
     seg_w = torch.ones_like(seg_cos)
-    seg_w[:, -2:] = 2.5
-    v_all = mu[:, :, 1:] - mu[:, :, :-1]
-    a_all = v_all[:, :, 1:] - v_all[:, :, :-1]
-    j_all = a_all[:, :, 1:] - a_all[:, :, :-1]
+    seg_w[:, -max(2, t_len // 5) :] = 2.5
+    v_all = (mu[:, :, 1:] - mu[:, :, :-1]) * scale_t
+    a_all = (v_all[:, :, 1:] - v_all[:, :, :-1]) * scale_t
+    j_all = (a_all[:, :, 1:] - a_all[:, :, :-1]) * scale_t
     l_smooth = (
-        20.0 * F.smooth_l1_loss(v_p, v_g, beta=0.005)
-        + 35.0 * F.smooth_l1_loss(a_p, a_g, beta=0.005)
-        + 3.5 * (seg_cos * seg_w).mean()
-        + 25.0 * F.smooth_l1_loss(j_all, torch.zeros_like(j_all), beta=0.004)
+        20.0 * F.smooth_l1_loss(v_p, v_g, beta=0.008)
+        + 32.0 * F.smooth_l1_loss(a_p, a_g, beta=0.008)
+        + 4.0 * (seg_cos * seg_w).mean()
+        + 25.0 * F.smooth_l1_loss(j_p, torch.zeros_like(j_p), beta=0.005)
+        + 10.0 * F.smooth_l1_loss(j_all, torch.zeros_like(j_all), beta=0.006)
     )
     hm_logits = traj_out["heatmap"].float().clamp(-15.0, 15.0)
     gt_hm = hm_fn.generate_heatmap(gt * 2.0 - 1.0, hm_logits.shape[-2], hm_logits.shape[-1])
     l_hm = hm_fn(hm_logits, gt_hm).mean()
-    return 0.75 * (
-        0.8 * (mhp["loss"] + 3.5) + 2.5 * l_mode_kl + 3.0 * l_fdat + 15.0 * l_l1 + 25.0 * l_mse
-        + 10.0 * l_crv + 15.0 * l_mono + 5.0 * l_c0 + 1.2 * l_hm + smooth_weight * l_smooth
+    return 0.70 * (
+        0.45 * (mhp["loss"] + 3.5) + 2.0 * l_mode_kl + l_wta_aux
+        + 3.0 * l_fdat + 12.0 * l_l1 + 160.0 * l_mse + 100.0 * l_entry_mse + 8.0 * l_entry_l1
+        + 10.0 * l_crv + 12.0 * l_mono + 1.2 * l_hm + smooth_weight * l_smooth
     )
 
 
@@ -140,10 +167,22 @@ def train(args: argparse.Namespace) -> Dict[str, Any]:
     save_dir = Path(args.save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
 
+    train_ds = BFMCDataset(
+        args.train_json, args.img_w, args.img_h, augment=True,
+        copy_paste_prob=args.copy_paste,
+        affine_prob=args.affine_prob,
+        affine_strength=args.affine_strength,
+    )
+    sampler = build_balanced_sampler(train_ds.records) if args.balance_commands else None
     train_loader = DataLoader(
-        BFMCDataset(args.train_json, args.img_w, args.img_h, augment=True, copy_paste_prob=args.copy_paste),
-        batch_size=args.batch_size, shuffle=True, num_workers=4, pin_memory=True,
-        drop_last=True, collate_fn=bfmc_collate_fn,
+        train_ds,
+        batch_size=args.batch_size,
+        shuffle=(sampler is None),
+        sampler=sampler,
+        num_workers=4,
+        pin_memory=True,
+        drop_last=True,
+        collate_fn=bfmc_collate_fn,
     )
     val_loader = DataLoader(
         BFMCDataset(args.val_json, args.img_w, args.img_h, augment=False),
@@ -157,14 +196,15 @@ def train(args: argparse.Namespace) -> Dict[str, Any]:
         )
         unlab_iter = iter(unlab_loader)
 
-    model = build_zoo_model(args.arch).to(device)
+    model_cfg = {"scale": args.scale} if args.scale else {}
+    model = build_zoo_model(args.arch, **model_cfg).to(device)
     if args.resume_weights:
         n_ok = _load_matching_weights(model, args.resume_weights)
-        print(f"[INIT] Warm-started {args.arch} ({n_ok}/{len(model.state_dict())} tensors) from {args.resume_weights}")
+        print(f"[INIT] Warm-started {args.arch}({args.scale}) ({n_ok}/{len(model.state_dict())} tensors) from {args.resume_weights}")
     else:
         prefixes = tuple(f"layers.{i}." for i in range(1, 10))
         n_ok = _load_matching_weights(model, args.pilot_s_pt, prefixes=prefixes)
-        print(f"[INIT] Loaded {n_ok} OpenPilot pilot_s backbone tensors into {args.arch}")
+        print(f"[INIT] Loaded {n_ok} OpenPilot pilot_s backbone tensors into {args.arch}({args.scale})")
 
     use_bf16 = device.type == "cuda" and torch.cuda.is_bf16_supported()
     amp_dtype = torch.bfloat16 if use_bf16 else torch.float16
@@ -174,7 +214,7 @@ def train(args: argparse.Namespace) -> Dict[str, Any]:
     det_proxy = SimpleNamespace(
         heads={"detect": model.layers[23]}, parameters=model.layers[23].parameters
     )
-    det_loss_fn = DetectionLoss(det_proxy, config=SimpleNamespace(box=7.5, cls_det=0.6, dfl=1.5))
+    det_loss_fn = DetectionLoss(det_proxy, config=SimpleNamespace(box=7.5, cls_det=args.det_cls_weight, dfl=1.5))
     fdat_fn = FDATLoss(base_loss_type="wing").to(device)
     mhp_fn = MHPLaplaceLoss(cls_weight=1.5, min_log_b=-3.5, max_log_b=1.0).to(device)
     hm_fn = HeatmapLoss(dice_weight=5.0, device=device).to(device)
@@ -187,10 +227,16 @@ def train(args: argparse.Namespace) -> Dict[str, Any]:
     lr_traj = args.lr_head * 0.5 if args.arch in ("pilot_mhp", "bfmc_mhp") else args.lr_head
     opt = torch.optim.AdamW([
         {"params": bb_params, "lr": args.lr_backbone, "weight_decay": 1e-2},
-        {"params": det_params, "lr": args.lr_head, "weight_decay": 1e-2},
+        {"params": det_params, "lr": args.lr_head, "weight_decay": 2e-2},
         {"params": traj_params, "lr": lr_traj, "weight_decay": 1e-2},
     ])
-    sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=args.epochs, eta_min=1e-5)
+    warmup_ep = max(0, int(args.warmup_epochs))
+    def _lr_lambda(ep: int) -> float:
+        if warmup_ep > 0 and ep < warmup_ep:
+            return float(ep + 1) / float(warmup_ep)
+        progress = float(ep - warmup_ep) / max(1.0, float(args.epochs - warmup_ep))
+        return 0.02 + 0.98 * 0.5 * (1.0 + math.cos(math.pi * min(1.0, progress)))
+    sched = torch.optim.lr_scheduler.LambdaLR(opt, lr_lambda=_lr_lambda)
     scaler = torch.amp.GradScaler("cuda", enabled=(device.type == "cuda" and not use_bf16))
     ema = ModelEMA(model, decay=args.ema_decay, tau=300)
 
@@ -200,6 +246,10 @@ def train(args: argparse.Namespace) -> Dict[str, Any]:
     for epoch in range(1, args.epochs + 1):
         for p in bb_params:
             p.requires_grad_(epoch > args.freeze_epochs)
+        # Built-in YOLOX-style final-epoch mild-affine polish (when cosine LR is already low)
+        if args.polish_epochs > 0 and epoch > (args.epochs - args.polish_epochs):
+            train_ds.affine_prob = min(args.affine_prob, 0.25)
+            train_ds.affine_strength = min(args.affine_strength, 0.35)
         model.train()
         if proj is not None:
             proj.train()
@@ -226,7 +276,8 @@ def train(args: argparse.Namespace) -> Dict[str, Any]:
                     }
                     l_det = det_loss_fn(det_fp32, batch)[0].sum()
                 if isinstance(traj_out, dict):
-                    l_traj = _mhp_traj_loss(traj_out, gt_wp, cmd, epoch, mhp_fn, fdat_fn, hm_fn, args.smooth_weight)
+                    eff_ep = epoch + (3 if args.resume_weights else 0)
+                    l_traj = _mhp_traj_loss(traj_out, gt_wp, cmd, eff_ep, mhp_fn, fdat_fn, hm_fn, args.smooth_weight)
                 else:
                     gt = gt_wp.float()
                     l_traj = (
@@ -260,7 +311,9 @@ def train(args: argparse.Namespace) -> Dict[str, Any]:
             nan_streak = 0
             scaler.scale(loss).backward()
             scaler.unscale_(opt)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 2.0)
+            torch.nn.utils.clip_grad_norm_(bb_params, 2.0)
+            torch.nn.utils.clip_grad_norm_(det_params, 5.0)
+            torch.nn.utils.clip_grad_norm_(traj_params, 2.0)
             scaler.step(opt)
             scaler.update()
             ema.update(model)
@@ -276,15 +329,23 @@ def train(args: argparse.Namespace) -> Dict[str, Any]:
             print(
                 f"Ep {epoch:02d}/{args.epochs} ({time.perf_counter() - t0:5.0f}s) | "
                 f"L_det={sum_det/n_steps:.3f} L_traj={sum_traj/n_steps:.3f} L_dist={sum_dist/n_steps:.3f} | "
-                f"Score={m['score']:.2f} MSE={m['mse']:.5f} ADE={m['ade']:.4f} Lat={m['lat_err']:.4f} "
-                f"Kink={m['end_kink_deg']:.1f}deg mAP50={m['map50']:.4f}",
+                f"Score={m['score']:.2f} MSE={m['mse']:.5f} ADE={m['ade_px640']:.1f}px "
+                f"Lat={m['lat_px640']:.1f}px Kink={m['end_kink_deg']:.1f}deg mAP50={m['map50']:.4f}",
                 flush=True,
             )
+            cm = m.get("cmd_metrics", {})
+            if cm:
+                parts = [
+                    f"{k.replace('FOLLOW_LANE', 'FL').replace('TURN_', 'T_').replace('STRAIGHT', 'ST')}="
+                    f"{v['ade_px']:.1f}/{v['entry25_px']:.1f}px({v['kink_deg']:.1f}d)"
+                    for k, v in cm.items()
+                ]
+                print(f"  Cmd ADE/Ent25(Kink): {' | '.join(parts)}", flush=True)
             history.append({"epoch": epoch, **m})
             if epoch >= 5 and (not math.isfinite(m["mse"]) or m["mse"] > 0.25):
                 raise RuntimeError(f"Early-stop guardrail triggered at Ep {epoch}: Val MSE={m['mse']}")
             payload = {
-                "model_key": model.model_key, "state_dict": ev_model.state_dict(),
+                "model_key": model.model_key, "config": model_cfg, "state_dict": ev_model.state_dict(),
                 "img_w": args.img_w, "img_h": args.img_h, "metrics": {"epoch": epoch, **m},
             }
             if m["mse"] < best_mse:
@@ -302,6 +363,7 @@ def train(args: argparse.Namespace) -> Dict[str, Any]:
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--arch", default="pilot_mhp", choices=["pilot_det", "pilot_mhp", "bfmc", "bfmc_mhp"])
+    p.add_argument("--scale", default="v2", choices=["v1", "v2", ""])
     p.add_argument("--train-json", required=True)
     p.add_argument("--val-json", required=True)
     p.add_argument("--unlabeled-json", default="")
@@ -316,12 +378,19 @@ def main() -> None:
     p.add_argument("--lr-backbone", type=float, default=2e-4)
     p.add_argument("--lr-head", type=float, default=1.2e-3)
     p.add_argument("--freeze-epochs", type=int, default=3)
-    p.add_argument("--copy-paste", type=float, default=0.45)
+    p.add_argument("--warmup-epochs", type=int, default=3)
+    p.add_argument("--copy-paste", type=float, default=0.50)
+    p.add_argument("--affine-prob", type=float, default=0.75)
+    p.add_argument("--affine-strength", type=float, default=1.0)
+    p.add_argument("--polish-epochs", type=int, default=8)
+    p.add_argument("--no-balance-commands", dest="balance_commands", action="store_false")
+    p.set_defaults(balance_commands=True)
     p.add_argument("--distill", action="store_true")
     p.add_argument("--distill-weight", type=float, default=1.2)
-    p.add_argument("--det-weight", type=float, default=1.25)
+    p.add_argument("--det-weight", type=float, default=1.8)
+    p.add_argument("--det-cls-weight", type=float, default=0.85)
     p.add_argument("--smooth-weight", type=float, default=1.0)
-    p.add_argument("--ema-decay", type=float, default=0.992)
+    p.add_argument("--ema-decay", type=float, default=0.994)
     p.add_argument("--eval-every", type=int, default=3)
     p.add_argument("--seed", type=int, default=42)
     train(p.parse_args())

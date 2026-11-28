@@ -119,7 +119,8 @@ class GraphModel(BaseZooModel):
         layers: List[nn.Module] = []
         sources: List[Any] = []
         for idx, row in enumerate(rows):
-            src, rep_raw, mod_name, args_raw = row
+            src_raw, rep_raw, mod_name, args_raw = row
+            src = _subst(src_raw, scale_vars)
             rep = int(_subst(rep_raw, scale_vars))
             args = _subst(list(args_raw), scale_vars)
             ctor = _resolve_block(str(mod_name))

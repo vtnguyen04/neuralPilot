@@ -87,6 +87,7 @@ WEIGHT_SPECS: Dict[str, WeightSpec] = {
     "vq_enc": WeightSpec("vq_enc", "onnx", f"{_HF_VQ}/encoder.onnx", "MIT"),
     "vq_dec": WeightSpec("vq_dec", "onnx", f"{_HF_VQ}/decoder.onnx", "MIT"),
     "pilot_mhp": WeightSpec("pilot_mhp", "pt", f"{_HF_SELF}/pilot_mhp.pt", "Apache-2.0"),
+    "pilot_mhp_v2": WeightSpec("pilot_mhp_v2", "pt", f"{_HF_SELF}/pilot_mhp_v2.pt", "Apache-2.0"),
     "pilot_det": WeightSpec("pilot_det", "pt", f"{_HF_SELF}/pilot_det.pt", "Apache-2.0"),
 }
 

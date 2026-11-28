@@ -10,13 +10,13 @@ from typing import Any, Dict, List, Tuple
 import cv2
 import numpy as np
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, WeightedRandomSampler
 
 from neuro_pilot.engine.predictors.utils import bgr_to_yuv6
 
 # Train-only copy-paste classes (symmetric patches allow safe horizontal flip)
-_COPY_PASTE_IDS = {0, 1, 2, 3, 4, 5, 7, 8, 10, 11, 12}
-_SYM_PATCH_IDS = {1, 2, 3, 4, 11}
+_COPY_PASTE_IDS = {0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12}
+_SYM_PATCH_IDS = {1, 2, 3, 4, 9, 11}
 
 
 def _bgr_to_tensors(bgr: np.ndarray, w: int, h: int) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -75,22 +75,31 @@ class BFMCDataset(Dataset):
         img_h: int = 512,
         augment: bool = False,
         copy_paste_prob: float = 0.45,
+        affine_prob: float = 0.75,
+        affine_strength: float = 1.0,
     ) -> None:
+        self.manifest_dir = Path(manifest_path).resolve().parent
         self.records: List[Dict[str, Any]] = json.loads(Path(manifest_path).read_text())
         self.img_w = int(img_w)
         self.img_h = int(img_h)
         self.augment = bool(augment)
         self.copy_paste_prob = float(copy_paste_prob) if augment else 0.0
+        self.affine_prob = float(affine_prob) if augment else 0.0
+        self.affine_strength = float(affine_strength)
         self.crop_bank: Dict[int, List[Tuple[np.ndarray, float, float]]] = {}
         if self.copy_paste_prob > 0:
             self._build_crop_bank()
+
+    def _resolve_img(self, img_path: str) -> str:
+        p = Path(img_path)
+        return str(p if p.is_absolute() else (self.manifest_dir / p))
 
     def _build_crop_bank(self) -> None:
         for rec in self.records:
             rare = [b for b in rec["bboxes"] if int(b[0]) in _COPY_PASTE_IDS]
             if not rare:
                 continue
-            bgr = cv2.imread(rec["img_path"], cv2.IMREAD_COLOR)
+            bgr = cv2.imread(self._resolve_img(rec["img_path"]), cv2.IMREAD_COLOR)
             if bgr is None:
                 continue
             h, w = bgr.shape[:2]
@@ -108,9 +117,11 @@ class BFMCDataset(Dataset):
     def _apply_affine(
         self, bgr: np.ndarray, wps: np.ndarray, boxes: np.ndarray
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        sx, sy = random.uniform(0.86, 1.14), random.uniform(0.88, 1.12)
-        tx, ty = random.uniform(-0.08, 0.08), random.uniform(-0.06, 0.06)
-        rad = np.deg2rad(random.uniform(-5.5, 5.5) if random.random() < 0.6 else 0.0)
+        k = self.affine_strength
+        sx = random.uniform(1.0 - 0.14 * k, 1.0 + 0.14 * k)
+        sy = random.uniform(1.0 - 0.12 * k, 1.0 + 0.12 * k)
+        tx, ty = random.uniform(-0.08 * k, 0.08 * k), random.uniform(-0.06 * k, 0.06 * k)
+        rad = np.deg2rad(random.uniform(-5.5 * k, 5.5 * k) if random.random() < 0.6 else 0.0)
         ca, sa = float(np.cos(rad)), float(np.sin(rad))
 
         dx, dy = (wps[:, 0] - 0.5) * sx, (wps[:, 1] - 0.5) * sy
@@ -185,7 +196,7 @@ class BFMCDataset(Dataset):
 
     def __getitem__(self, idx: int) -> Dict[str, Any]:
         rec = self.records[idx]
-        bgr = cv2.resize(cv2.imread(rec["img_path"], cv2.IMREAD_COLOR), (self.img_w, self.img_h))
+        bgr = cv2.resize(cv2.imread(self._resolve_img(rec["img_path"]), cv2.IMREAD_COLOR), (self.img_w, self.img_h))
         wps = np.asarray(rec["waypoints"], dtype=np.float32).copy()
         boxes = (
             np.asarray(rec["bboxes"], dtype=np.float32).reshape(-1, 5).copy()
@@ -194,7 +205,7 @@ class BFMCDataset(Dataset):
         )
         if self.augment:
             # Never flip the full road image: BFMC enforces right-hand traffic & CCW roundabouts
-            if random.random() < 0.75:
+            if random.random() < self.affine_prob:
                 bgr, wps, boxes = self._apply_affine(bgr, wps, boxes)
             if random.random() < self.copy_paste_prob:
                 bgr, boxes = self._apply_copy_paste(bgr, boxes)
@@ -223,6 +234,43 @@ class UnlabeledFrameDataset(Dataset):
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         bgr = cv2.resize(cv2.imread(self.paths[idx], cv2.IMREAD_COLOR), (self.img_w, self.img_h))
         return _bgr_to_tensors(_photometric_aug(bgr), self.img_w, self.img_h)
+
+
+def build_balanced_sampler(
+    records: List[Dict[str, Any]], cmd_power: float = 0.55, box_boost: float = 1.25
+) -> WeightedRandomSampler:
+    """Inverse-frequency sampler boosting minority commands, annotated boxes, and curved/roundabout arcs."""
+    counts = [0, 0, 0, 0]
+    for r in records:
+        c = int(r["command"])
+        if 0 <= c < 4:
+            counts[c] += 1
+    weights = []
+    for r in records:
+        c = int(r["command"])
+        w = (1.0 / max(1, counts[c])) ** cmd_power
+        boxes = r.get("bboxes") or []
+        if boxes:
+            w *= box_boost
+            if any(int(b[0]) == 9 for b in boxes):
+                w *= 1.45  # Roundabout sign presence
+        wps = r.get("waypoints") or []
+        if len(wps) >= 4:
+            pts = np.asarray(wps, dtype=np.float32)
+            chord = pts[-1] - pts[0]
+            clen = float(np.linalg.norm(chord)) + 1e-6
+            perp = np.abs(np.cross(pts - pts[0], chord)) / clen
+            dev = float(perp.max())
+            if dev > 0.045:
+                w *= min(1.8, 1.0 + (dev - 0.045) * 6.0)
+            # Counter-clockwise roundabout C-arc geometry (bows right before sweeping left)
+            x_max = float(pts[:, 0].max())
+            if (x_max - float(pts[0, 0])) > 0.06 and float(pts[-1, 0]) < x_max - 0.03:
+                w *= 1.85
+        weights.append(w)
+    arr = np.asarray(weights, dtype=np.float64)
+    arr = np.clip(arr, arr.min(), np.median(arr) * 4.5)
+    return WeightedRandomSampler(arr.tolist(), num_samples=len(records), replacement=True)
 
 
 def bfmc_collate_fn(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:

@@ -39,11 +39,9 @@ class _TrajAttnBlock(nn.Module):
 
     def __init__(self, dim: int = 256, num_heads: int = 4, drop: float = 0.05) -> None:
         super().__init__()
-        self.n1 = nn.LayerNorm(dim)
+        self.n1, self.n2, self.n3 = nn.LayerNorm(dim), nn.LayerNorm(dim), nn.LayerNorm(dim)
         self.sa = nn.MultiheadAttention(dim, num_heads, dropout=drop, batch_first=True)
-        self.n2 = nn.LayerNorm(dim)
         self.ca = nn.MultiheadAttention(dim, num_heads, dropout=drop, batch_first=True)
-        self.n3 = nn.LayerNorm(dim)
         self.ffn = nn.Sequential(
             nn.Linear(dim, dim * 2), nn.GELU(), nn.Dropout(drop), nn.Linear(dim * 2, dim)
         )
@@ -61,9 +59,8 @@ class _RefineStage(nn.Module):
     def __init__(self, dim: int = 256, fine_ch: int = 128, num_heads: int = 4) -> None:
         super().__init__()
         self.fuse = nn.Sequential(nn.Linear(dim + fine_ch + 2, dim), nn.LayerNorm(dim), nn.GELU())
-        self.n1 = nn.LayerNorm(dim)
+        self.n1, self.n2 = nn.LayerNorm(dim), nn.LayerNorm(dim)
         self.sa = nn.MultiheadAttention(dim, num_heads, dropout=0.05, batch_first=True)
-        self.n2 = nn.LayerNorm(dim)
         self.ffn = nn.Sequential(nn.Linear(dim, dim * 2), nn.GELU(), nn.Linear(dim * 2, dim))
         self.delta = nn.Linear(dim, 2)
         nn.init.zeros_(self.delta.weight)
@@ -102,12 +99,10 @@ class TrajHead(nn.Module):
         )
         self.global_proj = nn.Sequential(nn.Linear(global_ch, dim), nn.LayerNorm(dim), nn.GELU())
         self.cmd_embed = nn.Embedding(num_commands, dim)
-        self.film_kv = nn.Linear(dim * 2, dim * 2)
-        self.film_q = nn.Linear(dim * 2, dim * 2)
+        self.film_kv, self.film_q = nn.Linear(dim * 2, dim * 2), nn.Linear(dim * 2, dim * 2)
         self.wp_queries = nn.Parameter(torch.randn(1, num_waypoints, dim) * 0.02)
         self.layers = nn.ModuleList([_TrajAttnBlock(dim, 4, 0.1) for _ in range(num_layers)])
-        self.out_norm = nn.LayerNorm(dim)
-        self.out_head = nn.Linear(dim, 2)
+        self.out_norm, self.out_head = nn.LayerNorm(dim), nn.Linear(dim, 2)
         nn.init.zeros_(self.out_head.weight)
         nn.init.zeros_(self.out_head.bias)
         y_init = torch.linspace(0.84, 0.36, num_waypoints)
@@ -146,42 +141,48 @@ class TrajMHPHead(nn.Module):
         self, p3_ch: int = 96, p4_ch: int = 160, p5_ch: int = 256, s3_ch: int = 512,
         global_ch: int = 512, num_modes: int = 5, num_waypoints: int = 10,
         num_commands: int = 4, dim: int = 256, fine_ch: int = 128,
+        cmd_score: bool = False, hi_res: bool = False,
     ) -> None:
         super().__init__()
         self.num_modes, self.num_waypoints, self.dim = int(num_modes), int(num_waypoints), int(dim)
-        self.p3_down = VPConv(p3_ch, 64, kernel_size=3, stride=2, padding=1, with_bn=True)
-        self.fine_proj = VPConv(p4_ch + 64, fine_ch, kernel_size=3, padding=1, with_bn=True)
+        self.cmd_score, self.hi_res = bool(cmd_score), bool(hi_res)
+        self.p3_down = VPConv(p3_ch, 64, 3, 2, 1, with_bn=True)
+        self.fine_proj = VPConv(p4_ch + 64, fine_ch, 3, 1, 1, with_bn=True)
+        if self.hi_res:
+            self.p3_fine_proj = VPConv(p3_ch + fine_ch, fine_ch, 3, 1, 1, with_bn=True)
+            self.film_p3 = nn.Linear(dim * 2, fine_ch * 2)
+            self.score_vis, self.mode_cmd_drop = nn.Conv2d(fine_ch, 32, 1), nn.Dropout(0.15)
         self.heatmap_head = nn.Conv2d(fine_ch, 1, kernel_size=1)
-        self.p4_down = VPConv(p4_ch, 128, kernel_size=3, stride=2, padding=1, with_bn=True)
-        self.s3_proj = VPConv(s3_ch, 128, kernel_size=1, with_bn=True)
+        self.p4_down = VPConv(p4_ch, 128, 3, 2, 1, with_bn=True)
+        self.s3_proj = VPConv(s3_ch, 128, 1, 1, 0, with_bn=True)
         self.ctx_proj = nn.Sequential(
-            nn.Conv2d(p5_ch + 258, dim, kernel_size=1, bias=False), nn.BatchNorm2d(dim), nn.GELU()
+            nn.Conv2d(p5_ch + 258, dim, 1, bias=False), nn.BatchNorm2d(dim), nn.GELU()
         )
         self.global_proj = nn.Sequential(nn.Linear(global_ch, dim), nn.LayerNorm(dim), nn.GELU())
         self.cmd_embed = nn.Embedding(num_commands, dim)
         self.film_fine = nn.Linear(dim * 2, fine_ch * 2)
-        self.film_kv = nn.Linear(dim * 2, dim * 2)
-        self.film_q = nn.Linear(dim * 2, dim * 2)
+        self.film_kv, self.film_q = nn.Linear(dim * 2, dim * 2), nn.Linear(dim * 2, dim * 2)
         self.mode_embed = nn.Parameter(torch.randn(1, num_modes, 1, dim) * 0.02)
         self.wp_embed = nn.Parameter(torch.randn(1, 1, num_waypoints, dim) * 0.02)
-        self.coarse_layers = nn.ModuleList([_TrajAttnBlock(dim, 4, 0.05) for _ in range(2)])
+        n_c = 3 if self.hi_res else 2
+        self.coarse_layers = nn.ModuleList([_TrajAttnBlock(dim, 4, 0.05) for _ in range(n_c)])
         self.coarse_delta = nn.Linear(dim, 2)
         nn.init.zeros_(self.coarse_delta.weight)
         nn.init.zeros_(self.coarse_delta.bias)
-        self.refine1 = _RefineStage(dim, fine_ch, 4)
-        self.refine2 = _RefineStage(dim, fine_ch, 4)
-        self.out_norm = nn.LayerNorm(dim)
-        self.log_b_head = nn.Linear(dim, 2)
+        self.refine1, self.refine2 = _RefineStage(dim, fine_ch, 4), _RefineStage(dim, fine_ch, 4)
+        self.out_norm, self.log_b_head = nn.LayerNorm(dim), nn.Linear(dim, 2)
         nn.init.zeros_(self.log_b_head.weight)
         nn.init.constant_(self.log_b_head.bias, -1.8)
+        ex = (dim if self.cmd_score else 0) + (dim * 2 + 96 if self.hi_res else 0)
         self.mode_fuse = nn.Sequential(
-            nn.Linear(dim + num_waypoints * 3, dim), nn.LayerNorm(dim), nn.GELU()
+            nn.Linear(dim + ex + num_waypoints * 3, dim), nn.LayerNorm(dim), nn.GELU()
         )
         self.mode_attn = nn.MultiheadAttention(dim, 4, dropout=0.05, batch_first=True)
         self.mode_norm = nn.LayerNorm(dim)
-        self.mode_score = nn.Sequential(
-            nn.Linear(dim, dim // 2), nn.GELU(), nn.Linear(dim // 2, 1)
-        )
+        if self.hi_res:
+            self.mode_block = _TrajAttnBlock(dim, 4, 0.05)
+            self.refine_out = _RefineStage(dim, fine_ch, 4)
+        self.mode_score = nn.Sequential(nn.Linear(dim, dim // 2), nn.GELU(), nn.Linear(dim // 2, 1))
         self._init_anchors(num_modes, num_waypoints)
 
     def _init_anchors(self, num_modes: int, num_waypoints: int) -> None:
@@ -195,16 +196,36 @@ class TrajMHPHead(nn.Module):
         self.register_buffer("anchors", anchors.unsqueeze(0))
 
     def _score_modes(
-        self, qn: torch.Tensor, heatmap: torch.Tensor, mu: torch.Tensor
+        self, qn: torch.Tensor, heatmap: torch.Tensor, mu: torch.Tensor,
+        cmd_emb: torch.Tensor, g_feat: torch.Tensor, fine_hi: torch.Tensor, kv: torch.Tensor,
     ) -> torch.Tensor:
         hm_prob = torch.sigmoid(heatmap.clamp(-12.0, 12.0))
+        mu_s = mu.detach() if self.hi_res else mu
+        grid_s = mu_s.clamp(0.0, 1.0) * 2.0 - 1.0
         hm_vals = F.grid_sample(
-            hm_prob, mu.clamp(0.0, 1.0) * 2.0 - 1.0, mode="bilinear",
-            padding_mode="zeros", align_corners=True,
+            hm_prob, grid_s, mode="bilinear", padding_mode="zeros", align_corners=True
         ).squeeze(1)
-        m_tok = self.mode_fuse(torch.cat((qn.mean(dim=2), hm_vals, mu.flatten(2)), dim=-1))
+        parts = [qn.mean(dim=2)]
+        if self.hi_res:
+            tk = max(2, self.num_waypoints // 4)
+            vm = F.grid_sample(
+                self.score_vis(fine_hi), grid_s, mode="bilinear",
+                padding_mode="border", align_corners=True,
+            ).permute(0, 2, 3, 1)
+            parts.extend([
+                qn[:, :, -tk:].mean(dim=2),
+                g_feat.unsqueeze(1).expand(-1, self.num_modes, -1),
+                vm.mean(dim=2), vm[:, :, tk:-tk].mean(dim=2), vm[:, :, -tk:].mean(dim=2),
+            ])
+        if self.cmd_score:
+            ce = self.mode_cmd_drop(cmd_emb) if self.hi_res else cmd_emb
+            parts.append(ce.unsqueeze(1).expand(-1, self.num_modes, -1))
+        parts.extend([hm_vals, mu_s.flatten(2)])
+        m_tok = self.mode_fuse(torch.cat(parts, dim=-1))
         m_n = self.mode_norm(m_tok)
         m_tok = m_tok + self.mode_attn(m_n, m_n, m_n, need_weights=False)[0]
+        if self.hi_res:
+            m_tok = self.mode_block(m_tok, kv)
         return self.mode_score(m_tok).squeeze(-1)
 
     def forward(
@@ -222,8 +243,8 @@ class TrajMHPHead(nn.Module):
     ) -> Dict[str, torch.Tensor]:
         bsz, h5, w5 = p5.shape[0], p5.shape[-2], p5.shape[-1]
         g_vec = global_feat.mean(dim=1) if global_feat.ndim == 3 else global_feat
-        ctx = torch.cat((self.global_proj(g_vec), self.cmd_embed(command.long().view(-1))), dim=-1)
-
+        g_feat, cmd_emb = self.global_proj(g_vec), self.cmd_embed(command.long().view(-1))
+        ctx = torch.cat((g_feat, cmd_emb), dim=-1)
         p3_d = self.p3_down(p3)
         if p3_d.shape[-2:] != p4.shape[-2:]:
             p3_d = F.interpolate(p3_d, size=p4.shape[-2:], mode="bilinear", align_corners=False)
@@ -231,7 +252,13 @@ class TrajMHPHead(nn.Module):
         gf, bf = self.film_fine(ctx).unsqueeze(-1).unsqueeze(-1).chunk(2, dim=1)
         fine = fine * (1.0 + torch.tanh(gf)) + bf
         heatmap = self.heatmap_head(fine)
-
+        if self.hi_res:
+            fine_up = F.interpolate(fine, size=p3.shape[-2:], mode="bilinear", align_corners=False)
+            fine_hi = self.p3_fine_proj(torch.cat((p3, fine_up), dim=1))
+            gp3, bp3 = self.film_p3(ctx).unsqueeze(-1).unsqueeze(-1).chunk(2, dim=1)
+            fine_hi = fine_hi * (1.0 + torch.tanh(gp3)) + bp3
+        else:
+            fine_hi = fine
         p4_d = self.p4_down(p4)
         if p4_d.shape[-2:] != (h5, w5):
             p4_d = F.interpolate(p4_d, size=(h5, w5), mode="bilinear", align_corners=False)
@@ -243,7 +270,6 @@ class TrajMHPHead(nn.Module):
         kv = self.ctx_proj(torch.cat((p5, p4_d, s3_u, coords), dim=1)).flatten(2).transpose(1, 2)
         g_kv, b_kv = self.film_kv(ctx).unsqueeze(1).chunk(2, dim=-1)
         kv = kv * (1.0 + torch.tanh(g_kv)) + b_kv
-
         q = (self.mode_embed + self.wp_embed).expand(bsz, -1, -1, -1)
         g_q, b_q = self.film_q(ctx).view(bsz, 1, 1, self.dim * 2).chunk(2, dim=-1)
         q = (q * (1.0 + torch.tanh(g_q)) + b_q).reshape(bsz * self.num_modes, -1, self.dim)
@@ -254,16 +280,18 @@ class TrajMHPHead(nn.Module):
             q = blk(q, kv_rep)
         q = q.reshape(bsz, self.num_modes, self.num_waypoints, self.dim)
         mu0 = self.anchors.to(p5.dtype) + 0.55 * torch.tanh(self.coarse_delta(q))
-
         q, mu1 = self.refine1(q, mu0, fine)
-        q, mu = self.refine2(q, mu1, fine)
+        q, mu = self.refine2(q, mu1, fine_hi)
         qn = self.out_norm(q)
         log_b = self.log_b_head(qn).clamp(-3.5, 1.0)
-        mode_logits = self._score_modes(qn, heatmap, mu)
-        gather_idx = mode_logits.argmax(dim=1).view(bsz, 1, 1, 1).expand(
-            -1, 1, self.num_waypoints, 2
-        )
-        best_wp = torch.gather(mu, 1, gather_idx).squeeze(1)
+        mode_logits = self._score_modes(qn, heatmap, mu, cmd_emb, g_feat, fine_hi, kv)
+        if self.hi_res:
+            p = F.softmax(mode_logits, dim=-1).view(bsz, self.num_modes, 1, 1)
+            qm, mm = (p * qn).sum(1, keepdim=True), (p * mu).sum(1, keepdim=True)
+            best_wp = self.refine_out(qm, mm, fine_hi)[1].squeeze(1)
+        else:
+            idx = mode_logits.argmax(dim=1).view(bsz, 1, 1, 1).expand(-1, 1, self.num_waypoints, 2)
+            best_wp = torch.gather(mu, 1, idx).squeeze(1)
         return {
             "waypoints": best_wp, "mu": mu, "mu0": mu0,
             "log_b": log_b, "mode_logits": mode_logits, "heatmap": heatmap,

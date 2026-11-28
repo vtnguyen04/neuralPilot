@@ -295,10 +295,15 @@ def test_weight_hub_cache_and_auto_resolution(tmp_path: Path, monkeypatch) -> No
         resolve_weight_key,
     )
 
-    assert len(list_downloadable()) == 15
-    assert set(WEIGHT_SPECS.keys()) == set(EXPECTED_CONVERTERS) | {"pilot_mhp", "pilot_det"}
+    assert len(list_downloadable()) == 16
+    assert set(WEIGHT_SPECS.keys()) == set(EXPECTED_CONVERTERS) | {
+        "pilot_mhp",
+        "pilot_mhp_v2",
+        "pilot_det",
+    }
     assert resolve_weight_key("pilot_l.pt") == "pilot_l"
     assert resolve_weight_key("pilot_mhp.pt") == "pilot_mhp"
+    assert resolve_weight_key("pilot_mhp_v2.pt") == "pilot_mhp_v2"
     assert resolve_weight_key("bfmc_mhp.pt") == "pilot_mhp"
     assert resolve_weight_key("openpilot_chestnut_big.pt") == "pilot_l"
     assert resolve_weight_key("seg_l.pt") == "seg_l"

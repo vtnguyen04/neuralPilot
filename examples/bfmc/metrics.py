@@ -41,13 +41,19 @@ def frenet_lateral_err(pred: np.ndarray, gt: np.ndarray) -> np.ndarray:
 
 
 def traj_smoothness(pred: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    """Compute per-sample mean 2nd-order jerk L2 and final-segment kink angle (deg)."""
-    d1 = pred[:, 1:, :] - pred[:, :-1, :]
-    d2 = d1[:, 1:, :] - d1[:, :-1, :]
+    """Compute scale-invariant 2nd-order jerk L2 and final-quarter chord kink angle (deg)."""
+    t_len = pred.shape[1]
+    scale = max(1.0, (t_len - 1) / 9.0)
+    d1 = (pred[:, 1:, :] - pred[:, :-1, :]) * scale
+    d2 = (d1[:, 1:, :] - d1[:, :-1, :]) * scale
     jerk = np.linalg.norm(d2, axis=-1).mean(axis=-1)
-    seg = np.linalg.norm(d1, axis=-1, keepdims=True) + 1e-6
-    v7, v8 = d1[:, -2, :] / seg[:, -2, :], d1[:, -1, :] / seg[:, -1, :]
-    end_kink = np.degrees(np.arccos(np.clip((v7 * v8).sum(axis=-1), -1.0, 1.0)))
+    # Compare last two equal chords (1-seg at T=10, 4-seg at T=33) so kink angle is density-invariant
+    span = max(1, (t_len - 1) // 8)
+    v_prev = pred[:, -1 - span, :] - pred[:, -1 - 2 * span, :]
+    v_last = pred[:, -1, :] - pred[:, -1 - span, :]
+    v_prev = v_prev / (np.linalg.norm(v_prev, axis=-1, keepdims=True) + 1e-6)
+    v_last = v_last / (np.linalg.norm(v_last, axis=-1, keepdims=True) + 1e-6)
+    end_kink = np.degrees(np.arccos(np.clip((v_prev * v_last).sum(axis=-1), -1.0, 1.0)))
     return jerk, end_kink
 
 
@@ -169,7 +175,7 @@ def evaluate_bfmc(
     """Run frozen video-grouped BFMC evaluation (Trajectory ADE/FDE/Lat/Curve/Kink + COCO mAP)."""
     was_training = model.training
     model.eval()
-    ades, fdes, lats, mses, curves, jerks, kinks, min_mses, cmds = [], [], [], [], [], [], [], [], []
+    ades, fdes, entries, lats, mses, curves, jerks, kinks, min_mses, cmds = [], [], [], [], [], [], [], [], [], []
     all_preds: List[np.ndarray] = []
     all_gts: List[Tuple[np.ndarray, np.ndarray]] = []
     use_bf16 = device.type == "cuda" and torch.cuda.is_bf16_supported()
@@ -185,8 +191,10 @@ def evaluate_bfmc(
         pred_wp = pred_t.numpy()
         diff = pred_wp - gt_wp
         dist = np.linalg.norm(diff, axis=-1)
+        tail = max(2, gt_wp.shape[1] // 4)
         ades.append(dist.mean(axis=-1))
         fdes.append(dist[:, -1])
+        entries.append(dist[:, -tail:].mean(axis=-1))
         lats.append(frenet_lateral_err(pred_wp, gt_wp))
         mses.append((diff ** 2).mean(axis=(1, 2)))
         curves.append(sym_curve_dist(pred_t, gt_t.float()).numpy())
@@ -215,11 +223,37 @@ def evaluate_bfmc(
     if was_training:
         model.train()
 
-    ade_arr, cmd_arr = np.concatenate(ades), np.concatenate(cmds)
-    ade, fde = float(ade_arr.mean()), float(np.concatenate(fdes).mean())
-    lat, mse = float(np.concatenate(lats).mean()), float(np.concatenate(mses).mean())
-    crv = float(np.concatenate(curves).mean())
+    ade_arr, fde_arr, cmd_arr = np.concatenate(ades), np.concatenate(fdes), np.concatenate(cmds)
+    lat_arr, mse_arr = np.concatenate(lats), np.concatenate(mses)
+    crv_arr, jerk_arr, kink_arr = np.concatenate(curves), np.concatenate(jerks), np.concatenate(kinks)
+    min_mse_arr = np.concatenate(min_mses) if min_mses else None
+    entry_arr = np.concatenate(entries)
+    ade, fde = float(ade_arr.mean()), float(fde_arr.mean())
+    inter_mask = cmd_arr != 0
+    inter_ade = float(ade_arr[inter_mask].mean()) if np.any(inter_mask) else ade
+    inter_fde = float(fde_arr[inter_mask].mean()) if np.any(inter_mask) else fde
+    lat, mse = float(lat_arr.mean()), float(mse_arr.mean())
+    crv = float(crv_arr.mean())
     det_res = _evaluate_detection(all_preds, all_gts)
+    cmd_metrics: Dict[str, Dict[str, Any]] = {}
+    for c in range(4):
+        m_c = cmd_arr == c
+        if not np.any(m_c):
+            continue
+        cm: Dict[str, Any] = {
+            "n": int(m_c.sum()),
+            "ade_px": round(float(ade_arr[m_c].mean()) * 640.0, 2),
+            "med_px": round(float(np.median(ade_arr[m_c])) * 640.0, 2),
+            "p90_px": round(float(np.percentile(ade_arr[m_c], 90)) * 640.0, 2),
+            "fde_px": round(float(fde_arr[m_c].mean()) * 640.0, 2),
+            "entry25_px": round(float(entry_arr[m_c].mean()) * 640.0, 2),
+            "lat_px": round(float(lat_arr[m_c].mean()) * 640.0, 2),
+            "mse": round(float(mse_arr[m_c].mean()), 6),
+            "kink_deg": round(float(kink_arr[m_c].mean()), 2),
+        }
+        if min_mse_arr is not None:
+            cm["min_mse5"] = round(float(min_mse_arr[m_c].mean()), 6)
+        cmd_metrics[CMD_NAMES[c]] = cm
     res: Dict[str, Any] = {
         "score": round(50.0 * det_res["map50"] + 50.0 * max(0.0, 1.0 - ade / 0.12), 3),
         "mse": round(mse, 6),
@@ -227,18 +261,21 @@ def evaluate_bfmc(
         "ade_px640": round(ade * 640.0, 2),
         "fde": round(fde, 5),
         "fde_px640": round(fde * 640.0, 2),
+        "inter_ade": round(inter_ade, 5),
+        "inter_fde": round(inter_fde, 5),
         "lat_err": round(lat, 5),
         "lat_px640": round(lat * 640.0, 2),
         "curve_err": round(crv, 5),
         "curve_px640": round(crv * 640.0, 2),
-        "jerk_l2": round(float(np.concatenate(jerks).mean()), 5),
-        "end_kink_deg": round(float(np.concatenate(kinks).mean()), 2),
+        "jerk_l2": round(float(jerk_arr.mean()), 5),
+        "end_kink_deg": round(float(kink_arr.mean()), 2),
         "cmd_ade": {
             CMD_NAMES[c]: round(float(ade_arr[cmd_arr == c].mean()), 5)
             for c in range(4) if np.any(cmd_arr == c)
         },
+        "cmd_metrics": cmd_metrics,
         **{k: (round(v, 4) if isinstance(v, float) else v) for k, v in det_res.items()},
     }
-    if min_mses:
-        res["min_mse5"] = round(float(np.concatenate(min_mses).mean()), 6)
+    if min_mse_arr is not None:
+        res["min_mse5"] = round(float(min_mse_arr.mean()), 6)
     return res

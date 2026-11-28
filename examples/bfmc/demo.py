@@ -53,8 +53,11 @@ def draw_bfmc_overlay(
     cv2.addWeighted(overlay, 0.28, vis, 0.72, 0.0, vis)
     for i in range(len(pts) - 1):
         cv2.line(vis, tuple(pts[i]), tuple(pts[i + 1]), (255, 235, 90), 3, cv2.LINE_AA)
-    for px, py in pts:
+    dot_step = max(1, len(pts) // 11)
+    for idx in range(0, len(pts), dot_step):
+        px, py = pts[idx]
         cv2.circle(vis, (int(px), int(py)), 3, (255, 255, 255), -1, cv2.LINE_AA)
+    cv2.circle(vis, (int(pts[-1][0]), int(pts[-1][1])), 3, (255, 255, 255), -1, cv2.LINE_AA)
 
     for x1, y1, x2, y2, conf, cid in dets:
         if conf < conf_thres:
@@ -81,6 +84,7 @@ def render_val_grid(
     model: torch.nn.Module, val_json: str | Path, out_jpg: str | Path,
     device: torch.device, conf_thres: float = 0.30, img_w: int = 640, img_h: int = 512,
 ) -> None:
+    val_dir = Path(val_json).resolve().parent
     recs = json.loads(Path(val_json).read_text())
     picks, seen = [], set()
     for target_cmd in (0, 1, 2, 3):
@@ -93,7 +97,8 @@ def render_val_grid(
     use_bf16 = device.type == "cuda" and torch.cuda.is_bf16_supported()
     tiles: List[np.ndarray] = []
     for rec in picks[:12]:
-        bgr = cv2.imread(rec["img_path"], cv2.IMREAD_COLOR)
+        ip = Path(rec["img_path"])
+        bgr = cv2.imread(str(ip if ip.is_absolute() else (val_dir / ip)), cv2.IMREAD_COLOR)
         yuv = torch.from_numpy(bgr_to_yuv6(bgr, img_w, img_h)).unsqueeze(0).to(device)
         cmd = torch.tensor([int(rec["command"])], dtype=torch.long, device=device)
         with torch.amp.autocast("cuda", dtype=torch.bfloat16, enabled=use_bf16):
@@ -111,21 +116,25 @@ def render_val_grid(
 @torch.no_grad()
 def render_video_demo(
     model: torch.nn.Module, video_path: str | Path, out_mp4: str | Path,
-    device: torch.device, max_frames: int = 450, stride: int = 2,
+    device: torch.device, max_frames: int = 0, stride: int = 1,
     conf_thres: float = 0.30, img_w: int = 640, img_h: int = 512,
 ) -> float:
     cap = cv2.VideoCapture(str(video_path))
-    out_fps = max(15.0, (cap.get(cv2.CAP_PROP_FPS) or 30.0) / stride)
+    in_fps = float(cap.get(cv2.CAP_PROP_FPS) or 30.0)
+    out_fps = max(15.0, in_fps / max(1, stride))
+    src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 640)
+    src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 384)
+    out_w, out_h = src_w - (src_w % 2), src_h - (src_h % 2)
     tmp_mp4 = str(Path(out_mp4).with_suffix(".raw.mp4"))
-    writer = cv2.VideoWriter(tmp_mp4, cv2.VideoWriter_fourcc(*"mp4v"), out_fps, (640, 384))
+    writer = cv2.VideoWriter(tmp_mp4, cv2.VideoWriter_fourcc(*"mp4v"), out_fps, (out_w, out_h))
     cmd = torch.zeros((1,), dtype=torch.long, device=device)
     use_bf16 = device.type == "cuda" and torch.cuda.is_bf16_supported()
     lat_ms, idx, written = [], 0, 0
-    while written < max_frames:
+    while max_frames <= 0 or written < max_frames:
         ok, frame = cap.read()
         if not ok:
             break
-        if idx % stride == 0:
+        if idx % max(1, stride) == 0:
             yuv = torch.from_numpy(bgr_to_yuv6(frame, img_w, img_h)).unsqueeze(0).to(device)
             if device.type == "cuda":
                 torch.cuda.synchronize()
@@ -137,13 +146,14 @@ def render_video_demo(
             lat_ms.append((time.perf_counter() - t0) * 1000.0)
             wp = out["waypoints"][0].float().cpu().numpy()
             dets = decode_nms(out["det"].float(), img_w=img_w, img_h=img_h, conf_thres=conf_thres)[0]
-            writer.write(draw_bfmc_overlay(cv2.resize(frame, (640, 384)), wp, dets, 0, conf_thres=conf_thres))
+            vis = frame if (frame.shape[1], frame.shape[0]) == (out_w, out_h) else cv2.resize(frame, (out_w, out_h))
+            writer.write(draw_bfmc_overlay(vis, wp, dets, 0, conf_thres=conf_thres, tag=f"#{idx:04d}"))
             written += 1
         idx += 1
     cap.release()
     writer.release()
     subprocess.run(
-        ["ffmpeg", "-y", "-i", tmp_mp4, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "23", str(out_mp4)],
+        ["ffmpeg", "-y", "-i", tmp_mp4, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "22", str(out_mp4)],
         check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
     Path(tmp_mp4).unlink(missing_ok=True)
@@ -152,12 +162,14 @@ def render_video_demo(
 
 def main() -> None:
     p = argparse.ArgumentParser()
-    p.add_argument("--ckpt", default="pilot_mhp.pt")
+    p.add_argument("--ckpt", default="pilot_mhp_v2.pt")
     p.add_argument("--val-json", default="")
     p.add_argument("--out-grid", default="")
     p.add_argument("--video", default="")
     p.add_argument("--out-mp4", default="")
     p.add_argument("--export-onnx", default="")
+    p.add_argument("--max-frames", type=int, default=0, help="0 = full video")
+    p.add_argument("--stride", type=int, default=1)
     p.add_argument("--conf", type=float, default=0.30)
     args = p.parse_args()
 
@@ -173,7 +185,11 @@ def main() -> None:
     if args.val_json and args.out_grid:
         render_val_grid(model, args.val_json, args.out_grid, device, args.conf, img_w, img_h)
     if args.video and args.out_mp4:
-        ms = render_video_demo(model, args.video, args.out_mp4, device, conf_thres=args.conf, img_w=img_w, img_h=img_h)
+        ms = render_video_demo(
+            model, args.video, args.out_mp4, device,
+            max_frames=args.max_frames, stride=args.stride,
+            conf_thres=args.conf, img_w=img_w, img_h=img_h,
+        )
         print(f"Saved video: {args.out_mp4} | mean GPU latency={ms:.2f} ms ({1000.0/max(ms,0.1):.1f} FPS)")
     if args.export_onnx:
         model.cpu().export_onnx(args.export_onnx, opset=17)
