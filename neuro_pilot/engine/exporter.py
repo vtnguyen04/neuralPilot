@@ -312,7 +312,14 @@ class Exporter:
         return output_path
 
     def export_engine(
-        self, imgsz=None, half=True, int8=False, dynamic=False, workspace=4, **kwargs
+        self,
+        imgsz=None,
+        half=True,
+        bf16=False,
+        int8=False,
+        dynamic=False,
+        workspace=4,
+        **kwargs,
     ):
         """Export to TensorRT `.engine` (ONNX -> TensorRT via `trtexec` or Python TRT API)."""
         from pathlib import Path
@@ -320,6 +327,8 @@ class Exporter:
         from neuro_pilot.nn.zoo.graph import GraphModel
 
         simplify = kwargs.pop("simplify", not kwargs.get("end2end", False))
+        workspace_mb = kwargs.pop("workspace_mb", None)
+        trtexec_bin = kwargs.pop("trtexec", None)
         raw_file = str(kwargs.pop("file", "neuro_pilot_model.engine"))
         engine_path = Path(raw_file if raw_file.endswith((".engine", ".plan")) else f"{raw_file}.engine")
         onnx_path = Path(
@@ -354,12 +363,15 @@ class Exporter:
         built = build_tensorrt_engine(
             onnx_path=onnx_path,
             engine_path=engine_path,
-            half=half,
+            half=False if bf16 else half,
+            bf16=bf16,
             int8=int8,
             dynamic=dynamic,
             workspace_gb=workspace,
+            workspace_mb=workspace_mb,
             input_specs=input_specs,
             metadata=metadata,
             max_batch=int(kwargs.get("max_batch", 4)),
+            trtexec_bin=trtexec_bin,
         )
         return str(built)

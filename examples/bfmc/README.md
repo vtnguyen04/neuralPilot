@@ -76,7 +76,7 @@ python3 -m examples.bfmc.train \
   --distill --distill-weight 1.2 --save-dir runs/bfmc_moe_final
 ```
 
-## 4. Full-Video Demo, Val Grid & ONNX Export
+## 4. Full-Video Demo, ONNX / TensorRT Export & Jetson Deploy
 
 ```bash
 python3 -m examples.bfmc.demo \
@@ -84,4 +84,29 @@ python3 -m examples.bfmc.demo \
   --val-json datasets/bfmc_33wp/test.json --out-grid test_grid.jpg \
   --video bfmc.mp4 --out-mp4 bfmc_v2_demo.mp4 --max-frames 0 --stride 1 \
   --export-onnx pilot_mhp_v2.onnx
+```
+
+Build a local TensorRT BF16 engine or deploy directly to a Jetson Orin over SSH (exports ONNX, uploads via `scp`, and compiles the native `.engine` on Jetson):
+
+```bash
+# Local TensorRT BF16 engine (run on the target GPU)
+neuropilot export --model pilot_mhp_v2.pt --format engine --file pilot_mhp_v2.engine --bf16 --workspace-mb 1024
+
+# One-command Jetson Orin deploy over SSH
+neuropilot deploy \
+  --model pilot_mhp_v2.pt \
+  --host user@<jetson-ip> \
+  --remote-dir ~/BFMC2026/Code/Brain/models \
+  --precision bf16 --workspace-mb 1024
+```
+
+```python
+from neuro_pilot import NeuroPilot
+
+NeuroPilot("pilot_mhp_v2.pt").deploy(
+    host="user@<jetson-ip>",
+    remote_dir="~/BFMC2026/Code/Brain/models",
+    precision="bf16",
+    workspace_mb=1024,
+)
 ```

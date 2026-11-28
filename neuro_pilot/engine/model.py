@@ -407,6 +407,31 @@ class NeuroPilot(nn.Module):
         exporter = Exporter(getattr(self, "cfg_obj", None), self.model, self.device)
         return exporter(**kwargs)
 
+    def deploy(
+        self,
+        host: str,
+        remote_dir: str,
+        precision: str = "bf16",
+        workspace_mb: int = 1024,
+        port: int = 22,
+        trtexec: str = "/usr/src/tensorrt/bin/trtexec",
+        ssh_key: str | None = None,
+        **kwargs,
+    ):
+        """Export ONNX, upload via SCP, and compile a native TensorRT engine on a Jetson host."""
+        from neuro_pilot.deploy.jetson import JetsonTarget, deploy_to_jetson
+
+        target = JetsonTarget(
+            host=host,
+            remote_dir=remote_dir,
+            port=port,
+            trtexec=trtexec,
+            precision=precision,
+            workspace_mb=workspace_mb,
+            ssh_key=ssh_key,
+        )
+        return deploy_to_jetson(self, target, **kwargs)
+
     def val(self, **kwargs):
         """Validate locally using the task's validator."""
         from neuro_pilot.tasks.base import GraphDrivingTask

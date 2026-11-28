@@ -75,6 +75,12 @@ def main() -> None:
     p.add_argument("--video", default="")
     p.add_argument("--out-mp4", default="")
     p.add_argument("--export-onnx", default="")
+    p.add_argument("--export-engine", default="")
+    p.add_argument("--bf16", action="store_true", help="Build TensorRT engine in BF16")
+    p.add_argument("--deploy-host", default="", help="SSH target (e.g. orin@192.168.115.78)")
+    p.add_argument("--deploy-dir", default="", help="Remote Jetson directory for ONNX/engine")
+    p.add_argument("--precision", default="bf16", choices=["bf16", "fp16", "fp32", "int8"])
+    p.add_argument("--dry-run", action="store_true")
     p.add_argument("--command", type=int, default=0)
     p.add_argument("--max-frames", type=int, default=0, help="0 = full video")
     p.add_argument("--stride", type=int, default=1)
@@ -99,6 +105,19 @@ def main() -> None:
     if args.export_onnx:
         out = model.export(format="onnx", file=args.export_onnx, opset=17)
         logger.info(f"Exported ONNX: {out}")
+    if args.export_engine:
+        out = model.export(
+            format="engine", file=args.export_engine, opset=17, bf16=args.bf16, half=not args.bf16
+        )
+        logger.info(f"Exported TensorRT engine: {out}")
+    if args.deploy_host and args.deploy_dir:
+        res = model.deploy(
+            host=args.deploy_host,
+            remote_dir=args.deploy_dir,
+            precision=args.precision,
+            dry_run=args.dry_run,
+        )
+        logger.info(f"Jetson deploy target: {args.deploy_host}:{res['remote_engine']}")
 
 
 if __name__ == "__main__":
