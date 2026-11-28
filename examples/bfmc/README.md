@@ -1,7 +1,10 @@
 # BFMC 1:10 Driving Example (`pilot_mhp_v2`)
 
 Single-camera multi-task driving model (`FastViT-T12` + PANet `DFLDetectHead` + 33-waypoint End-to-End MoE `TrajMHPHead`).
-Full dataset audit, architecture diff (`v1` vs `v2`), all 19 experiments (`EXP-016` → `EXP-034`), plots, ONNX parity, and edge benchmarks are in [REPORT.md](REPORT.md).
+
+- **V2 Report (Latest, 33-pt MoE, `EXP-029` → `EXP-034`):** [REPORT_V2.md](REPORT_V2.md)
+- **V1 Report (Legacy 10-pt + Jetson Orin BF16 TRT, `EXP-016` → `EXP-028`):** [REPORT_V1.md](REPORT_V1.md)
+- **Side-by-Side Index:** [REPORT.md](REPORT.md)
 
 - **Weights (HuggingFace):** [`ThanhNguyenVo/neuropilot-weights`](https://huggingface.co/ThanhNguyenVo/neuropilot-weights) (`pilot_mhp_v2.pt`, `pilot_mhp_v2_traj.pt`, `pilot_mhp_v2.onnx`; legacy 10-pt `pilot_mhp.pt` kept intact)
 - **Dataset (HuggingFace):** [`ThanhNguyenVo/bfmc-33wp`](https://huggingface.co/datasets/ThanhNguyenVo/bfmc-33wp) (`4,225` frames, 3-way zero-leakage split, `dHash >= 7`)
