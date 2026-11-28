@@ -322,14 +322,76 @@ def test_weight_hub_cache_and_auto_resolution(tmp_path: Path, monkeypatch) -> No
     assert loaded_flag.task_name == "driver"
 
 
+def test_all_tasks_monitor_and_visualize(tmp_path: Path) -> None:
+    import numpy as np
+
+    from neuro_pilot import NeuroPilot
+    from neuro_pilot.data.datasets import DATASET_REGISTRY
+    from neuro_pilot.engine.monitor import RunMonitor
+
+    register_driving_tasks()
+    for name in (
+        "multitask",
+        "detection",
+        "trajectory",
+        "heatmap",
+        "planner",
+        "bfmc",
+        "seg",
+        "depth",
+        "lane",
+        "cipo",
+        "drive",
+        "world",
+        "driver",
+    ):
+        assert Registry.get_task(name) is not None
+    assert "planner_json" in DATASET_REGISTRY
+
+    frame = np.full((320, 512, 3), 80, dtype=np.uint8)
+    for model_key, kw in (
+        ("pilot_mhp", {"command": 0}),
+        ("depth", {}),
+        ("seg", {"width": 256, "height": 128}),
+        ("lane", {}),
+        ("cipo", {}),
+        ("driver", {}),
+    ):
+        m = NeuroPilot(model_key, device="cpu")
+        vis = m.visualize(frame, **kw)
+        assert vis.shape[:2] == frame.shape[:2] and vis.dtype == np.uint8
+
+    mon = RunMonitor(tmp_path / "run", task_name="planner")
+    mon.start(total_epochs=2, meta={"model_key": "pilot_mhp"})
+    mon.log_epoch(1, 2, {"det": 1.5, "traj": 2.0}, {"score": 50.0, "mse": 0.01, "map50": 0.4})
+    mon.log_epoch(2, 2, {"det": 1.0, "traj": 1.2}, {"score": 65.0, "mse": 0.004, "map50": 0.6})
+    mon.finish({"epoch": 2, "score": 65.0})
+    assert (tmp_path / "run" / "metrics.csv").is_file()
+    assert (tmp_path / "run" / "history.jsonl").is_file()
+    assert (tmp_path / "run" / "best_metrics.json").is_file()
+    assert (tmp_path / "run" / "training_curves.png").is_file()
+
+
 def test_clean_code_and_zero_dry_guardrails() -> None:
     py_files = sorted(
         list(ZOO_DIR.rglob("*.py"))
+        + list((ROOT / "neuro_pilot" / "tasks").rglob("*.py"))
         + list((ROOT / "neuro_pilot" / "engine" / "predictors").rglob("*.py"))
         + list((ROOT / "neuro_pilot" / "engine" / "backend").rglob("*.py"))
-        + [ROOT / "neuro_pilot" / "engine" / "zoo.py"]
-        + [ROOT / "neuro_pilot" / "engine" / "tasks.py"]
-        + [ROOT / "neuro_pilot" / "engine" / "trt_builder.py"]
+        + [
+            ROOT / "neuro_pilot" / "engine" / "zoo.py",
+            ROOT / "neuro_pilot" / "engine" / "task.py",
+            ROOT / "neuro_pilot" / "engine" / "tasks.py",
+            ROOT / "neuro_pilot" / "engine" / "monitor.py",
+            ROOT / "neuro_pilot" / "engine" / "planner_eval.py",
+            ROOT / "neuro_pilot" / "engine" / "planner_trainer.py",
+            ROOT / "neuro_pilot" / "engine" / "trt_builder.py",
+            ROOT / "neuro_pilot" / "utils" / "visualize.py",
+            ROOT / "neuro_pilot" / "utils" / "planner_metrics.py",
+            ROOT / "neuro_pilot" / "data" / "datasets" / "planner.py",
+            ROOT / "examples" / "bfmc" / "train.py",
+            ROOT / "examples" / "bfmc" / "demo.py",
+        ]
     )
     assert len(py_files) >= 15
     block_classes = {}

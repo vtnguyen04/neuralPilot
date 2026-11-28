@@ -5,7 +5,7 @@
 - **Model:** [`pilot_mhp.yaml`](../../neuro_pilot/cfg/models/zoo/pilot_mhp.yaml) (`scale: v2`, `16.79M` params, `64.25 MB` `.pt`, `64.52 MB` FP32 ONNX)
 - **Weights:** `NeuroPilot("pilot_mhp_v2.pt")` (auto-downloaded from [`ThanhNguyenVo/neuropilot-weights`](https://huggingface.co/ThanhNguyenVo/neuropilot-weights))
 - **Dataset:** [`ThanhNguyenVo/bfmc-33wp`](https://huggingface.co/datasets/ThanhNguyenVo/bfmc-33wp) (`4,225` frames, 3-way zero-leakage split, `33` B-spline waypoints)
-- **Code:** [`export_dataset.py`](export_dataset.py) | [`dataset.py`](dataset.py) | [`train.py`](train.py) | [`metrics.py`](metrics.py) | [`demo.py`](demo.py)
+- **Code:** [`train.py`](train.py) | [`demo.py`](demo.py) | [`export_dataset.py`](export_dataset.py) (uses core [`PlannerTrainer`](../../neuro_pilot/engine/planner_trainer.py), [`PlannerValidator`](../../neuro_pilot/engine/planner_eval.py), [`PlannerDataset`](../../neuro_pilot/data/datasets/planner.py), [`RunMonitor`](../../neuro_pilot/engine/monitor.py), and [`visualize.py`](../../neuro_pilot/utils/visualize.py))
 
 ---
 
@@ -90,7 +90,7 @@ $$\mathcal{L} = \lambda_{\text{det}}\,\mathcal{L}_{\text{det}} + \mathcal{L}_{\t
 
 ## 4. Training Pipeline & Stages
 
-- **Balanced Curvature Sampler ([`dataset.py`](dataset.py)):** Weights frames by `(1/N_c)^0.55`, `×1.25` for boxes, `×1.45` for `Roundabout`, up to `×1.8` for high curvature, and `×1.85` for CCW roundabout C-arcs (capped at `4.5×` median).
+- **Balanced Curvature Sampler ([`planner.py`](../../neuro_pilot/data/datasets/planner.py)):** Weights frames by `(1/N_c)^0.55`, `×1.25` for boxes, `×1.45` for `Roundabout`, up to `×1.8` for high curvature, and `×1.85` for CCW roundabout C-arcs (capped at `4.5×` median).
 - **Right-Hand-Safe Augmentations & Stability:** Synchronized affine (`±5.5°`, `p=0.65`), symmetric-only patch copy-paste (`p=0.55`), HSV/glare/noise, **no full-frame HFlip**; 3-group AdamW (`det_wd=2e-2`), per-group `clip_grad_norm_(bb=2, det=5, traj=2)`, and `EMA(0.994)`.
 
 | Stage | Init | Precision | LR & Schedule | Augmentations & Weights | Runtime (RTX 3060) |

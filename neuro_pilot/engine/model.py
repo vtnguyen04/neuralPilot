@@ -7,8 +7,7 @@ from typing import Union
 
 from neuro_pilot.utils.logger import logger, log_system_info
 from neuro_pilot.core.registry import Registry
-import neuro_pilot.engine.task  # triggers @Registry.register_task dynamically
-import neuro_pilot.engine.tasks  # registers self-driving GraphModel tasks
+import neuro_pilot.tasks  # registers all native and Zoo driving tasks
 from neuro_pilot.engine.backend.factory import AutoBackend
 from neuro_pilot.utils.torch_utils import select_device, default_names
 
@@ -142,7 +141,8 @@ class NeuroPilot(nn.Module):
 
     def _load_compiled(self, model_path: Path, task: str | None = None) -> None:
         """Load compiled ONNX, TensorRT `.engine`, or TorchScript runtime artifact."""
-        from neuro_pilot.engine.tasks import load_compiled_zoo_backend
+        from neuro_pilot.cfg.schema import load_config
+        from neuro_pilot.tasks import load_compiled_zoo_backend
 
         backend, task_name, wrapper = load_compiled_zoo_backend(
             model_path, self.target_device, self.overrides, task=task
@@ -150,20 +150,27 @@ class NeuroPilot(nn.Module):
         self.backend = backend
         self.task_name = task_name
         if wrapper is not None:
-            self.model, self.task_wrapper = backend, wrapper
+            self.cfg_obj = load_config()
+            wrapper.cfg = self.cfg_obj
+            self.model, self.task_wrapper, self.predictor = backend, wrapper, None
             return
         self.model = str(model_path)
         self._init_task(self.task_name)
 
     def _bind_graph_model(self, graph_model) -> None:
         """Bind a Zoo GraphModel to its inferred driving task and device."""
-        from neuro_pilot.engine.tasks import infer_driving_task
+        from neuro_pilot.cfg.schema import load_config
+        from neuro_pilot.tasks import infer_driving_task
 
         self.model = graph_model.to(self.target_device)
+        self.cfg_obj = load_config()
+        self.predictor = None
         self.task_name = self.overrides.get("task") or infer_driving_task(
             graph_model.model_key, graph_model.family
         )
-        self.task_wrapper = Registry.get_task(self.task_name)(overrides=self.overrides)
+        self.task_wrapper = Registry.get_task(self.task_name)(
+            self.cfg_obj, overrides=dict(self.overrides)
+        )
         self.task_wrapper.model = self.model
 
     def _new(self, cfg_path: Union[str, Path], scale: str = "n"):
@@ -189,6 +196,7 @@ class NeuroPilot(nn.Module):
         if isinstance(ckpt, dict) and "model_key" in ckpt:
             from neuro_pilot.nn.zoo import load_zoo_pt
 
+            self.overrides["_warm_started"] = True
             self._bind_graph_model(load_zoo_pt(weights_path, device=str(self.target_device)))
             return
         model_cfg = ckpt.get("model_cfg")
@@ -242,6 +250,18 @@ class NeuroPilot(nn.Module):
 
         if not self.task_wrapper:
             raise RuntimeError("Task not initialized.")
+
+        from neuro_pilot.tasks.base import GraphDrivingTask
+
+        if isinstance(self.task_wrapper, GraphDrivingTask):
+            self.overrides.update(kwargs)
+            self.task_wrapper.overrides.update(kwargs)
+            trainer = self.task_wrapper.get_trainer()
+            metrics = trainer.train()
+            best = getattr(trainer, "best", None)
+            if best is not None and Path(best).exists():
+                self._load(best)
+            return metrics
 
         from neuro_pilot.cfg.schema import deep_update, AppConfig
 
@@ -389,13 +409,31 @@ class NeuroPilot(nn.Module):
 
     def val(self, **kwargs):
         """Validate locally using the task's validator."""
+        from neuro_pilot.tasks.base import GraphDrivingTask
+
         validator = self.task_wrapper.get_validator()
+        if isinstance(self.task_wrapper, GraphDrivingTask):
+            return validator(**kwargs)
         dataloader = kwargs.get("dataloader")
         if dataloader is None:
             from neuro_pilot.data import prepare_dataloaders
 
             _, dataloader = prepare_dataloaders(self.cfg_obj)
         return validator(dataloader)
+
+    def visualize(self, source, output=None, **kwargs):
+        """Render task-specific visual overlay for an image path or BGR frame."""
+        from neuro_pilot.engine.predictors.utils import load_bgr
+        from neuro_pilot.tasks.base import GraphDrivingTask
+
+        bgr = load_bgr(source)
+        if output is None:
+            output = (
+                self.predict(bgr, **kwargs)
+                if isinstance(self.task_wrapper, GraphDrivingTask)
+                else self.predict(bgr)
+            )
+        return self.task_wrapper.visualize(bgr, output, **kwargs)
 
     def benchmark(self, imgsz=640, half=True, batch=1, device=None):
         """Benchmark model performance."""

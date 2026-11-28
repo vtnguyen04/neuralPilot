@@ -42,16 +42,20 @@ def _resolve_block(name: str) -> Any:
 
 def is_zoo_yaml(cfg: Any) -> bool:
     """Return True when a parsed YAML dict defines a Zoo layer graph."""
-    if not isinstance(cfg, dict):
+    if not isinstance(cfg, dict) or not cfg.get("inputs"):
         return False
     rows = list(cfg.get("backbone") or []) + list(cfg.get("head") or [])
     if not rows:
         return False
-    if not BLOCK_REGISTRY.keys():
-        from neuro_pilot.nn.zoo.blocks import register_all_blocks
+    from neuro_pilot.nn.zoo.blocks import register_all_blocks
 
-        register_all_blocks()
-    return any(isinstance(r, list) and len(r) >= 3 and r[2] in BLOCK_REGISTRY for r in rows)
+    register_all_blocks()
+    return all(
+        isinstance(r, list)
+        and len(r) >= 3
+        and (r[2] in BLOCK_REGISTRY or str(r[2]).startswith("nn."))
+        for r in rows
+    )
 
 
 def _make_tensor(spec: Any, gen: torch.Generator) -> torch.Tensor:
@@ -105,10 +109,12 @@ class GraphModel(BaseZooModel):
         self.family = str(raw.get("family", ""))
 
         scale_vars: Dict[str, Any] = {}
+        self.scale: Optional[str] = None
         if isinstance(raw.get("scales"), dict):
             chosen = scale or raw.get("scale") or next(iter(raw["scales"]))
             if chosen not in raw["scales"]:
                 raise ValueError(f"Unknown scale '{chosen}'. Available: {list(raw['scales'])}")
+            self.scale = str(chosen)
             scale_vars.update(raw["scales"][chosen])
         scale_vars.update(overrides)
         self.scale_vars = scale_vars

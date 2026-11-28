@@ -217,7 +217,25 @@ class MultitaskPredictor(BaseGraphPredictor):
     ) -> Dict[str, Any]:
         conf = float(kwargs.get("conf", 0.30))
         iou = float(kwargs.get("iou", 0.50))
+        img_shape = self.model.input_specs.get("img", {}).get("shape", [1, 6, 256, 320])
+        h_in, w_in = float(int(img_shape[-2]) * 2), float(int(img_shape[-1]) * 2)
         det_np = raw_outputs["det"].detach().float().cpu().numpy()
         wps = raw_outputs["waypoints"].detach().float().cpu().numpy()[0]
-        boxes = nms_xywh(det_np, conf_thres=conf, iou_thres=iou)
-        return {"waypoints": wps, "detections": boxes, "raw_det": det_np}
+        raw_boxes = nms_xywh(det_np, conf_thres=conf, iou_thres=iou)
+        boxes = [
+            (
+                max(0.0, min(1.0, x1 / w_in)),
+                max(0.0, min(1.0, y1 / h_in)),
+                max(0.0, min(1.0, x2 / w_in)),
+                max(0.0, min(1.0, y2 / h_in)),
+                score,
+                cls_id,
+            )
+            for x1, y1, x2, y2, score, cls_id in raw_boxes
+        ]
+        return {
+            "waypoints": wps,
+            "detections": boxes,
+            "raw_det": det_np,
+            "img_wh": (int(w_in), int(h_in)),
+        }

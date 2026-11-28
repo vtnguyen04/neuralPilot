@@ -17,14 +17,23 @@ Single-camera multi-task driving model (`FastViT-T12` + PANet `DFLDetectHead` + 
 | `pilot_mhp.pt` (`v1`) | `10` | `14.07M` | PANet-coupled MHP + discrete `argmax` | `0.00440` / `63.2%` *(313 val)* | — | `59.0 FPS` |
 | **`pilot_mhp_v2.pt` (`v2`)** | **`33`** | **`16.79M`** | **Decoupled backbone + `64×80` P3 + Differentiable MoE** | **`0.00223` / `66.3%`** *(512 val)* | **`0.00146` / `81.0%`** *(352 test)* | **`63.5 FPS`** |
 
-## 1. Quick Inference (Auto-Downloads Weights)
+## 1. Quick Inference & Visualization (Auto-Downloads Weights)
 
 ```python
 from neuro_pilot import NeuroPilot
 
 model = NeuroPilot("pilot_mhp_v2.pt")  # downloads automatically on first run
 out = model.predict(frame_bgr, command=0)  # 0=FOLLOW_LANE, 1=TURN_LEFT, 2=TURN_RIGHT, 3=STRAIGHT
-waypoints, detections = out["waypoints"], out["detections"]  # (33, 2) + 13-class boxes
+vis = model.visualize(frame_bgr, out, command=0)  # smooth 2D corridor + 13-class boxes + HUD
+```
+
+You can also run training, validation, and export straight from Python without any CLI wrapper:
+
+```python
+model = NeuroPilot("pilot_mhp", scale="v2")
+model.train(train_json="datasets/bfmc_33wp/train.json", val_json="datasets/bfmc_33wp/val.json", save_dir="runs/bfmc")
+metrics = model.val(val_json="datasets/bfmc_33wp/test.json", save_grid="test_grid.jpg")
+model.export(format="onnx", file="pilot_mhp_v2.onnx", opset=17)
 ```
 
 ## 2. Export Clean 3-Way Dataset (or Download from HuggingFace)
