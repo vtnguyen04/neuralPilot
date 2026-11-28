@@ -111,9 +111,9 @@ from neuro_pilot import NeuroPilot
 planner = NeuroPilot("pilot_l.pt", device="cuda")
 planner.predict_video("drive.hevc", out_mp4="trajectory.mp4")
 
-# 2. Single-camera multi-task planning + 13-class detection (BFMC)
-mt = NeuroPilot("pilot_mhp.pt", device="cuda")
-out = mt.predict("frame.jpg", command=0)  # waypoints (10, 2) + detections
+# 2. Single-camera multi-task planning + 13-class detection (BFMC V2, 33-pt MoE)
+mt = NeuroPilot("pilot_mhp_v2.pt", device="cuda")
+out = mt.predict("frame.jpg", command=0)  # waypoints (33, 2) + detections
 
 # 3. Semantic segmentation (EoMT-Large, or "seg.pt" for 88 FPS edge)
 seg = NeuroPilot("seg_l.pt", device="cuda")
@@ -165,7 +165,7 @@ python -m neuro_pilot.tools.demo suite \
 
 ## Pretrained Weights
 
-All 15 prebuilt `.pt` checkpoints are hosted on Hugging Face ([ThanhNguyenVo/neuropilot-weights](https://huggingface.co/ThanhNguyenVo/neuropilot-weights)). Checkpoints are never committed to Git. Calling `NeuroPilot("<key>.pt")`, `NeuroPilot("<key>", pretrained=True)`, or `neuropilot download <key>` resolves weights automatically:
+All 16 prebuilt `.pt` checkpoints are hosted on Hugging Face ([ThanhNguyenVo/neuropilot-weights](https://huggingface.co/ThanhNguyenVo/neuropilot-weights)). Checkpoints are never committed to Git. Calling `NeuroPilot("<key>.pt")`, `NeuroPilot("<key>", pretrained=True)`, or `neuropilot download <key>` resolves weights automatically:
 
 1. **Local cache:** Loads `~/.cache/neuro_pilot/weights/<key>.pt` immediately if present.
 2. **Hugging Face download:** Downloads `<key>.pt` directly from `NEUROPILOT_HF_REPO` (or `NEUROPILOT_WEIGHTS_URL`) with no ONNX conversion needed. Upstream MIT/Apache-2.0 ONNX converters remain as a fallback.
@@ -189,7 +189,8 @@ All 18 architectures are declared layer-by-layer in YAML and executed by `GraphM
 | `pilot_s` | planner | 34.3M | Yes | MIT | Dual-camera E2E planner (FastViT-T12 + 5L Transformer) |
 | `pilot_l` | planner | 381.6M | Yes | MIT | Dual-camera E2E planner + 3D multi-lane & road edges (ConvNeXt-XL + 8L Transformer) |
 | `pilot_nav` | planner | 393.7M | Yes | MIT | Map-guided dual-camera E2E planner with navigation map encoder |
-| `pilot_mhp` | planner | 14.1M | Yes | Apache-2.0 | Single-camera multi-task planner (FastViT-T12 + 13-class DFL det + 5-mode Laplace MHP) |
+| `pilot_mhp_v2` | planner | 16.8M | Yes | Apache-2.0 | Single-camera 33-pt MoE planner (decoupled FastViT-T12 + 13-class DFL det + P3 `64x80` refine) |
+| `pilot_mhp` | planner | 14.1M | Yes | Apache-2.0 | Legacy 10-pt single-camera planner (FastViT-T12 + 13-class DFL det + 5-mode Laplace MHP) |
 | `pilot_det` | planner | 12.9M | Yes | Apache-2.0 | Single-camera multi-task planner (FastViT-T12 + 13-class DFL det + single-mode traj) |
 | `driver` | cabin | 3.6M | Yes | MIT | Cabin driver monitoring (MobileNetV4, LHD/RHD heads) |
 | `cipo` | perception | 9.3M | Yes | Apache-2.0 | 4-class vehicle and CIPO detector (PANet + decoupled DFL head) |
@@ -275,15 +276,22 @@ adapter = model.attach_adapter(
 
 ### 3. Single-Camera Multi-Task Example (`examples/bfmc/`)
 
-[examples/bfmc/](examples/bfmc/) trains `pilot_mhp` from OpenPilot `pilot_s.pt` with optional DINOv3 feature distillation (`0 ms` at export). Full experiment tables, plots, and ONNX parity results are in [examples/bfmc/REPORT.md](examples/bfmc/REPORT.md) (`Val MSE 0.00440`, `Lat 18.5 px`, `mAP@50 63.2%`, `~59 FPS` on RTX 3060).
+[examples/bfmc/](examples/bfmc/) trains `pilot_mhp` (`v1` 10-pt and `v2` 33-pt End-to-End MoE) from OpenPilot `pilot_s.pt` with DINOv3-B feature distillation (`0 ms` at export) on the 3-way zero-leakage dataset [ThanhNguyenVo/bfmc-33wp](https://huggingface.co/datasets/ThanhNguyenVo/bfmc-33wp). Full experiment tables (`EXP-016` → `EXP-034`), plots, ONNX parity, and Jetson Orin BF16 benchmarks are in [examples/bfmc/REPORT.md](examples/bfmc/REPORT.md) (`pilot_mhp_v2.pt`: Untouched Test `Score 74.42`, `MSE 0.00146`, `Lat 13.2 px`, `mAP@50 81.0%`; Val `Score 66.53`, `MSE 0.00223`, `mAP@50 66.3%`; `63.5 FPS` on RTX 3060).
 
 ```bash
-# Fine-tune directly from pretrained BFMC weights (auto-downloads pilot_mhp.pt)
+# Train V2 33-waypoint End-to-End MoE from OpenPilot pilot_s.pt
 python3 -m examples.bfmc.train \
-  --arch pilot_mhp \
-  --resume-weights pilot_mhp.pt \
-  --train-json train.json \
-  --val-json val.json \
+  --arch pilot_mhp --scale v2 \
+  --pilot-s-pt pilot_s.pt \
+  --train-json train.json --val-json val.json \
+  --epochs 40 --save-dir runs/bfmc_moe
+
+# Fine-tune directly from pretrained BFMC v2 weights (auto-downloads pilot_mhp_v2.pt)
+python3 -m examples.bfmc.train \
+  --arch pilot_mhp --scale v2 \
+  --resume-weights pilot_mhp_v2.pt \
+  --train-json train.json --val-json val.json \
+  --epochs 12 --freeze-epochs 0 \
   --save-dir runs/bfmc_ft
 ```
 

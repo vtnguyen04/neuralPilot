@@ -10,7 +10,7 @@
 
 ## 1. Summary of Results
 
-Final `pilot_mhp_v2` models were initialized from OpenPilot `pilot_s.pt` (`134/134` backbone tensors), selected strictly on the 512-frame Val split, and evaluated once on the untouched 352-frame Test split. Both splits enforce zero exact or near-duplicate overlap (`shared_sha = 0`, `min_dhash_hamming >= 7`).
+Final `pilot_mhp_v2` checkpoints were initialized from OpenPilot `pilot_s.pt` (`134/134` backbone tensors), selected strictly on the 512-frame Val split, and evaluated once on the untouched 352-frame Test split. Both splits enforce zero exact or near-duplicate overlap (`shared_sha = 0`, `min_dhash_hamming >= 7`).
 
 | Model / Eval Split | Score (↑) | MSE (↓) | `minMSE@5` (↓) | ADE / Lat (`px@640`) | Curve (`px@640`) | End Kink | Jerk `L2` | `mAP@50` | `mAP@50:95` | `Car` AP50 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -25,7 +25,7 @@ Final `pilot_mhp_v2` models were initialized from OpenPilot `pilot_s.pt` (`134/1
 | **V8 MoE Untouched Test 352 (`pilot_mhp_v2.pt`)** | **`74.42`** | **`0.00146`** | **`0.00096`** | **`24.7` / `13.2`** | **`14.4`** | **`6.9°`** | **`0.0078`** | **`81.0%`** | **`44.8%`** | `66.8%` |
 | V8 MoE Untouched Test 352 (`pilot_mhp_v2_traj.pt`) | `73.03` | **`0.00155`** | `0.00102` | `25.6` / `13.6` | `14.8` | `7.0°` | `0.0081` | `79.5%` | `44.0%` | `65.5%` |
 
-- **Combined 864-frame held-out (`512 val + 352 test`):** `pilot_mhp_v2.pt` achieves weighted **`MSE = 0.00192`** (`pilot_mhp_v2_traj.pt`: **`0.00188`**), both below the `0.0020` target with no overfitting on untouched sessions.
+- **Combined 864-frame held-out (`512 val + 352 test`):** `pilot_mhp_v2.pt` achieves weighted **`MSE = 0.00192`** (`pilot_mhp_v2_traj.pt`: **`0.00188`**), both below the `0.0020` target with zero overfitting on untouched sessions.
 
 ### Per-Command Trajectory Breakdown (`pilot_mhp_v2.pt`)
 
@@ -66,23 +66,37 @@ The dataset is published at [`ThanhNguyenVo/bfmc-33wp`](https://huggingface.co/d
   - **Val (`val.json`, sha256 `fc4b193ec4787294`):** `512` frames (`448` images, `359` boxes; `FL:269, L:91, R:79, ST:73`).
   - **Untouched Test (`test.json`, sha256 `50df812d6339b98f`):** `352` frames (`336` images, `257` boxes; `FL:219, L:76, R:38, ST:19`).
   - **Unlabeled REPA bank (local train videos):** `1,280` frames from train-side sessions (`video1..4.mp4`).
-  - **Unseen test video:** `bfmc.mp4` (`3,250` frames, excluded from all splits).
+  - **Unseen test video:** `bfmc.mp4` (`3,250` frames, `54.17s @ 60 FPS`, excluded from all splits).
 - **Zero-leakage audit:** Dropped `55` temporal boundary frames and `196` near-duplicate repeat-lap frames. Independent verification confirmed `shared_sha = 0` across all split pairs and `min_dhash_hamming >= 7` (`train↔val = 7`, `train↔test = 7`, `val↔test = 8`).
 
 ---
 
-## 3. Model & Loss Design
+## 3. Model & Method Upgrades (`v1` → `v2`)
 
-### 3.1 Architecture (`pilot_mhp.yaml`, `scale: v2`)
+### 3.1 What Changed from `v1` (`pilot_mhp.pt`) to `v2` (`pilot_mhp_v2.pt`)
+
+`scale: v1` remains 100% unchanged for backward compatibility with `pilot_mhp.pt`. All architectural upgrades live under `scale: v2` in [`pilot_mhp.yaml`](../../neuro_pilot/cfg/models/zoo/pilot_mhp.yaml) and [`traj.py`](../../neuro_pilot/nn/zoo/blocks/traj.py).
+
+| Component | `v1` (`pilot_mhp.pt`, `14.07M`) | `v2` (`pilot_mhp_v2.pt`, `16.79M`) | Measured Effect |
+|---|---|---|---|
+| Feature taps | Coupled to PANet `[16, 19, 22]` | Decoupled backbone `[2, 4, 6, 8, 9]` | Removes det/traj gradient conflict; `+4.5 FPS` GPU, `+6.4 FPS` CPU |
+| Waypoints | `10` points | `33` arc-length C² B-spline points | Accurate tight intersection and roundabout curvature |
+| Spatial refine | `32×40` only (`2` coarse blocks) | `32×40` + `64×80` P3 `fine_hi` (`3` coarse blocks) | Sharper far lane-entry alignment |
+| Mode scorer | Heatmap + inter-mode attn | `+` command token + visual path features + `mu.detach()` | Stops `grad_norm=162` instability (`EXP-030`) |
+| Mode output | Discrete `argmax` over `K=5` | **Differentiable MoE `(p·μ, p·q)` + P3 `64×80` `refine_out`** | Cuts Val MSE `-28.6%` (`0.00294 → 0.00210`), Test `0.00146` |
+| Supervision | WTA MHP + `25·MSE` | Direct MoE `160·MSE + 100·EntryMSE + L_smooth` + `0.45·MHP` | Eliminates 70% discrete argmax selection gap |
+| Optimization | Global `clip_grad_norm_(2.0)` | Per-group clip (`bb=2/det=5/traj=2`), `det_wd=2e-2`, strong aug polish | Zero late-epoch overfitting through 52 total epochs |
+
+### 3.2 Architecture (`pilot_mhp.yaml`, `scale: v2`)
 
 - **Backbone (`layers 0..9`):** `YuvSinglePrep` + OpenPilot pretrained `FastViT-T12` (`pilot_s.pt`).
 - **Detection (`layers 10..23`):** PANet (`VPSPPF` + `CSPBlock`) + `DFLDetectHead` for 13 classes on `P3/P4/P5`.
 - **Decoupled Trajectory Head (`layer 24`, `TrajMHPHead` with `hi_res=True, cmd_score=True`):**
   - Taps backbone `[2, 4, 6, 8, 9]` directly so trajectory gradients do not fight PANet detection features.
   - Predicts `K = 5` candidate `33`-point paths through 3 coarse cross-attention blocks and 2 FP32 bilinear `grid_sample` stages (`refine1` at `32×40`, `refine2` at `64×80` P3+P4).
-  - Scores modes using command-conditioned attention, path-aligned visual features (`score_vis`), `32×40` path heatmap sampling, and inter-mode self-attention with `mu.detach()` to prevent scorer gradient spikes.
-  - **End-to-end differentiable MoE fusion:** Replaces brittle discrete `argmax` with posterior expectation `(p·μ, p·q)` followed by a final P3 `64×80` residual refiner (`refine_out`). This closed 70% of the mode-selection MSE gap without hurting multi-modal coverage.
-- **Training-Only Distillation ([`distill.py`](../../neuro_pilot/nn/zoo/distill.py)):** Aligns `P4/P5` to frozen DINOv3-B (`32×40` grid). Dropped at export (`0 ms` runtime overhead).
+  - Scores modes with command conditioning, path-aligned visual features (`score_vis`), `32×40` path heatmap sampling, and inter-mode self-attention using `mu.detach()`.
+  - Fuses hypotheses via posterior expectation `(p·μ, p·q)` and runs a final P3 `64×80` residual refiner (`refine_out`).
+- **Training-Only Distillation ([`distill.py`](../../neuro_pilot/nn/zoo/distill.py)):** Aligns `P4/P5` to frozen DINOv3-B (`32×40` grid). Dropped at export (`0 ms` runtime cost).
 
 ```mermaid
 flowchart LR
@@ -95,14 +109,14 @@ flowchart LR
     MHP --> OUT["waypoints [1,33,2]<br/>mu, log_b, mode_logits"]
 ```
 
-### 3.2 Loss Terms
+### 3.3 Loss Terms
 
 $$\mathcal{L} = \lambda_{\text{det}}\,\mathcal{L}_{\text{det}} + \mathcal{L}_{\text{traj}} + \lambda_{\text{dist}}\,\mathcal{L}_{\text{REPA}}$$
 
 - **Detection (`DetectionLoss`):** Task-Aligned Assigner with `7.5·CIoU + 0.6·BCE + 1.5·DFL`.
-- **Direct MoE Trajectory Supervision:** Supervises the fused output `waypoints` directly with `160·MSE + 100·EntryMSE` (far 25% intersection lane entry) `+ 12·SmoothL1 + 8·SymCurve + 8·MonoY + L_smooth` (velocity, acceleration, direction cosine, and 3rd-order jerk).
-- **Auxiliary Multi-Modal Diversity (`0.45·MHP`):** Keeps all `K = 5` hypotheses calibrated via winner-takes-all Laplace NLL, mode KL/CE, and `32×40` path heatmap focal loss.
-- **Stability & Anti-Overfitting:** Per-group gradient clipping (`bb=2.0, det=5.0, traj=2.0`), `det_wd=2e-2`, command-balanced + curvature-weighted sampling (`cmd_power=0.55`), no horizontal flip (preserves right-hand traffic and CCW roundabouts), and persistent DINOv3-B REPA (`w=1.2–1.5`).
+- **Direct MoE Trajectory Supervision:** Supervises fused `waypoints` directly with `160·MSE + 100·EntryMSE` (far 25% intersection lane entry) `+ 12·SmoothL1 + 8·SymCurve + 8·MonoY + L_smooth` (velocity, acceleration, direction cosine, and 3rd-order jerk).
+- **Auxiliary Multi-Modal Diversity (`0.45·MHP`):** Keeps all `K = 5` modes calibrated via winner-takes-all Laplace NLL, mode KL/CE, and `32×40` path heatmap focal loss.
+- **Anti-Overfitting Regularization:** Per-group gradient clipping (`bb=2.0, det=5.0, traj=2.0`), `det_wd=2e-2`, command-balanced + curvature-weighted sampling (`cmd_power=0.55`), no horizontal flip (preserves right-hand traffic and CCW roundabouts), and persistent DINOv3-B REPA (`w=1.2–1.5`).
 
 ---
 
@@ -111,26 +125,40 @@ $$\mathcal{L} = \lambda_{\text{det}}\,\mathcal{L}_{\text{det}} + \mathcal{L}_{\t
 | Stage | Init | Resolution & Precision | Schedule & LR | Augmentations & Regularization | Runtime (RTX 3060) |
 |---|---|---|---|---|---|
 | **1. End-to-End MoE (`EXP-033`)** | OpenPilot `pilot_s.pt` (`134/134`) | `512×640` BF16 + FP32 head | `40 ep` (`freeze=3`), `bb=2e-4`, `det=1.2e-3`, `traj=6e-4`, Cosine, `EMA(0.995)` | Affine `p=0.65`, glare, copy-paste `0.55`, **no HFlip**, DINOv3-B REPA `1.5` | `123 min` |
-| **2. Anti-Overfit Polish (`EXP-034`)** | `EXP-033` Ep 30 `best_traj.pt` | `512×640` BF16 + FP32 head | `12 ep` (`freeze=0`), `bb=4e-5`, `det=3e-4`, `traj=1.2e-4`, Cosine, `EMA(0.992)` | Keep strong aug (`affine_p=0.65`, `copy_paste=0.55`, REPA `1.2`), `smooth_w=2.2`, `det_w=1.65` | `37 min` |
+| **2. Anti-Overfit Polish (`EXP-034`)** | `EXP-033` Ep 30 `best_traj.pt` | `512×640` BF16 + FP32 head | `12 ep` (`freeze=0`), `bb=4e-5`, `det=3e-4`, `traj=1.5e-4`, Cosine, `EMA(0.994)` | Keep strong aug (`affine_p=0.65`, `copy_paste=0.55`, REPA `1.2`), `smooth_w=2.2`, `det_w=1.65` | `37 min` |
 
 ---
 
-## 5. Experiment Log (`EXP-016` → `EXP-034`)
+## 5. Complete Experiment Log (`EXP-016` → `EXP-034`)
+
+### 5.1 Training & Architecture Experiments
 
 | ID | Change | Status | Ep | Score | MSE | Lat (`px`) | Kink | `mAP@50` | Outcome / Root Cause |
 |---|---|---|---:|---:|---:|---:|---:|---:|---|
-| `016` | Baseline `pilot_det` (`320×512`, no REPA) | Keep | 30 | `42.96` | `0.00659` | `28.0` | — | `57.2%` | Overfit after Ep 30; small signs missed |
-| `018` | V2: `512×640` + DINOv3-B REPA + fixed labels | Keep | 45 | `51.10` | `0.00528` | `27.7` | `5.7°` | `66.1%` | Stopped overfit; `Car 76.8%` |
+| `016` | Baseline `pilot_det` (`320×512`, no REPA) | Keep | 30 | `42.96` | `0.00659` | `28.0` | — | `57.2%` | Overfit after Ep 30 (`→51.2%`); small signs missed |
+| `017` | +DINOv3-B REPA at `320×512` | Stop | 10 | `30.80` | `0.00860` | — | — | `41.3%` | Beat baseline at Ep 10; switched to `512×640` |
+| `018` | V2: `512×640` + DINOv3-B REPA + 74 fixed labels | Keep | 45 | `51.10` | `0.00528` | `27.7` | `5.7°` | `66.1%` | Stopped overfit; `Priority 0.5%→52.4%`, `Car 76.8%` |
+| `019` | V3 MHP (unbounded Δ, `log_b=-5`, FP16) | Fail | 4 | — | `NaN` | — | — | — | Exploded at Ep 5; fixed with `tanh` bounds + FP32 head |
 | `020` | V3 Stable MHP `K=5` + **No-HFlip** | Keep | 25 | `53.30` | `0.00495` | `20.2` | — | `63.0%` | Removing HFlip cut Lat `-27%` (right-hand traffic) |
+| `021` | V4 Inter-Mode Attn in FP16 | Fail | 15 | — | `NaN` | — | — | — | FastViT Stage-3 `running_var=48.4M` overflowed FP16 |
 | `022` | V4 **BF16 + `GroupNorm(s3, 1)`** | Keep | 35 | `53.00` | `0.00518` | `20.9` | `17.3°` | `61.8%` | 0 NaNs in 60 ep; exposed `17.3°` endpoint kink |
-| `023` | V5 Hard cubic projection + DINOv3-L | Drop | 15 | `42.92` | `0.00573` | `21.4` | — | `51.9%` | Degree-3 polynomial restricted S-curves |
-| `024` | V6: `L_smooth` + `Car` copy-paste (`pilot_mhp.pt`) | Keep | 12 | `54.46` | `0.00440` | `18.5` | `7.8°` | `63.2%` | Kink `-55%`, MSE `-15%`, `Car +10.3%` |
-| `029` | V7: `33-pt` decoupled PANet + `cmd_score` (780 val) | Keep | 30 | `63.32` | `0.00298` | `17.7` | `4.9°` | `67.3%` | `TURN_LEFT` ADE `-37.9%`, `Car 85.4%` |
-| `030` | S1 Attempt 1: undetached `mu` mode scorer + `64×80` HM | Fail | 10 | `47.15` | `0.00629` | — | `8.0°` | `59.3%` | Early-killed; scorer `grad_norm=162` starved det/traj |
+| `023` | V5 Hard cubic projection + DINOv3-L | Stop | 15 | `42.92` | `0.00573` | `21.4` | — | `51.9%` | Dropped: degree-3 polynomial restricted S-curves |
+| `024` | V6: `L_smooth` + `Car` copy-paste (`pilot_mhp.pt`) | Keep | 12 | `54.46` | `0.00440` | `18.5` | `7.8°` | `63.2%` | Kink `-55%`, MSE `-15%`, `Car +10.3%` (Ep 21 MSE `0.00421`) |
+| `029` | V7: `33-pt` decoupled PANet + `cmd_score` (780 val) | Keep | 30 | `63.32` | `0.00298` | `17.7` | `4.9°` | `67.3%` | `TURN_LEFT` ADE `-37.9%`, `Car 85.4%`, `Priority 70.0%` |
+| `030` | S1 Attempt 1: undetached `mu` scorer + `64×80` HM | Fail | 10 | `47.15` | `0.00629` | — | `8.0°` | `59.3%` | Early-killed; scorer `grad_norm=162` starved det/traj |
 | `031` | S1: 3-way zero-leakage `bfmc_final` (512 val) | Keep | 20 | `65.89` | `0.00308` | `15.1` | `6.0°` | `68.6%` | Oracle `minMSE@5=0.00092`; 70% MSE was argmax gap |
 | `032` | S2: Weak-affine (`p=0.30`) discrete argmax polish | Drop | 14 | `65.04` | `0.00294` | `14.8` | `5.3°` | `65.8%` | Overfit after Ep 6; discrete argmax plateaued |
 | `033` | **V8 MoE:** Differentiable MoE + P3 `refine_out` (40 ep) | Keep | 36 | `66.31` | `0.00221` | `13.8` | `6.9°` | `65.9%` | Val MSE `-28.6%` (`0.00210` Ep 30); zero overfit |
 | **`034`** | **V8 Final Polish (`pilot_mhp_v2.pt`, strong aug)** | **Keep** | **10** | **`66.53` / `74.42`** | **`0.00223` / `0.00146`** | **`13.8` / `13.2`** | **`6.9°`** | **`66.3%` / `81.0%`** | **Val / Untouched Test; combined 864-frame MSE `0.00192`** |
+
+### 5.2 Edge & TensorRT Deployment Experiments (`EXP-025` → `EXP-028`)
+
+| ID | Target Hardware & Precision | Model | Measured Speed | Parity / Stability Finding |
+|---|---|---|---|---|
+| `025` | RTX 3060 TensorRT 10.14 FP16 (`32 MB`) | `pilot_mhp` | `160.0 FPS` (`6.06 ms` GPU) | `0` NaNs on 313 val; `0.38 px` mean drift vs PyTorch (`Score 53.66`) |
+| `026` | Jetson Orin Nano `sm87` TRT 10.3 FP16 (`32 MB`) | `pilot_mhp` | `132.8 FPS` GPU / `103.9 FPS` E2E | `0.41 px` max diff vs ONNX across 4 commands (`9.60 ms` full E2E) |
+| `027` | Jetson Orin Nano `sm87` full `3,250`-frame `bfmc.mp4` | `pilot_mhp` | `81.2 FPS` TRT / `72.4 FPS` + ByteTrack | Verified exact RealSense `680×384` YUV6 parity with training |
+| `028` | Jetson Orin Nano `sm87` **TRT 10.3 BF16 (`52.3 MB`)** | `pilot_mhp` | **`76.8 FPS`** (`13.02 ms`, p95 `13.35 ms`) | **Eliminated FP16 NaNs on dark RealSense frames** (`0/229` NaNs vs `7/20` FP16); live UDP stream verified |
 
 ---
 
@@ -162,7 +190,7 @@ Gold line = ground truth, cyan corridor = predicted 33-waypoint trajectory.
 #### Held-Out Multi-Command Overview (Val & Untouched Test)
 ![Held-Out Val and Test Grid](figures/v8_val.jpg)
 
-#### Unseen `bfmc.mp4` Keyframes (3,250 Frames, Zero Overlap)
+#### Unseen `bfmc.mp4` Keyframes (`3,250` Frames, `54.17s @ 60 FPS`, Zero Overlap)
 ![Unseen bfmc.mp4](figures/v8_unseen_bfmc.jpg)
 
 ---
@@ -175,5 +203,41 @@ Exported via `model.export_onnx()` (opset 17, pure FP32) and verified against Py
 |---|---:|---:|---:|---:|---:|---:|
 | `pilot_mhp_v2.onnx` | `16.79M` | `64.52 MB` | `2.98e-7` (`cos=1.0`) | `3.0e-7` / `3.3e-6` / `8.6e-6` | `1.31e-3` (`cos=1.0`) | `2.98e-7` diff (pass) |
 
-- **GPU (RTX 3060, `512×640` BF16):** Forward `14.23 ms` (`70.3 FPS`); full end-to-end incl. YUV6 + NMS `15.76 ms` (`63.5 FPS`).
+- **GPU (RTX 3060, `512×640` BF16):** Forward `14.23 ms` (`70.3 FPS`); full end-to-end incl. YUV6 + NMS `15.76 ms` (`63.5 FPS`); full 3,250-frame `bfmc.mp4` demo rendered at `15.77 ms/frame` (`63.4 FPS`).
 - **CPU (x86 ONNXRuntime):** `53.12 ms` (`18.8 FPS`).
+- **Jetson Orin Nano (`sm87`):** Build TensorRT 10.3 engine with `--bf16` (per `EXP-028`) to match FP32 exponent range and avoid FP16 dark-frame NaNs.
+
+---
+
+## 8. Reproducible V2 CLI Recipe
+
+```bash
+# 1. Export 3-way zero-leakage 33-waypoint dataset (or download ThanhNguyenVo/bfmc-33wp)
+python3 -m examples.bfmc.export_dataset \
+  --db data/labeler.db --out-dir datasets/bfmc_33wp --num-waypoints 33 --dhash-gap 6
+
+# 2. Stage 1: Train 40-epoch End-to-End MoE from OpenPilot pilot_s.pt (EXP-033)
+python3 -m examples.bfmc.train \
+  --arch pilot_mhp --scale v2 --pilot-s-pt pilot_s.pt \
+  --train-json datasets/bfmc_33wp/train.json --val-json datasets/bfmc_33wp/val.json \
+  --epochs 40 --freeze-epochs 3 --batch-size 8 \
+  --lr-backbone 2e-4 --lr-head 1.2e-3 \
+  --affine-prob 0.65 --copy-paste 0.55 --polish-epochs 0 \
+  --distill --distill-weight 1.5 --save-dir runs/bfmc_moe
+
+# 3. Stage 2: 12-epoch anti-overfit smoothness + detection polish (EXP-034)
+python3 -m examples.bfmc.train \
+  --arch pilot_mhp --scale v2 --resume-weights runs/bfmc_moe/best_traj.pt \
+  --train-json datasets/bfmc_33wp/train.json --val-json datasets/bfmc_33wp/val.json \
+  --epochs 12 --freeze-epochs 0 --batch-size 8 \
+  --lr-backbone 4e-5 --lr-head 3e-4 \
+  --affine-prob 0.65 --copy-paste 0.55 --polish-epochs 0 \
+  --det-weight 1.65 --smooth-weight 2.2 \
+  --distill --distill-weight 1.2 --save-dir runs/bfmc_moe_final
+
+# 4. Export FP32 ONNX (opset 17) & render full-length 60 FPS video demo
+python3 -m examples.bfmc.demo \
+  --ckpt pilot_mhp_v2.pt \
+  --video bfmc.mp4 --out-mp4 bfmc_v2_demo.mp4 --max-frames 0 --stride 1 \
+  --export-onnx pilot_mhp_v2.onnx
+```
