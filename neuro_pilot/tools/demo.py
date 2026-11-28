@@ -35,14 +35,30 @@ def _crop_road(frame: np.ndarray) -> np.ndarray:
     return frame[44:700, :] if (w == 1164 and h == 874) else frame
 
 
-def _load_perception(pt_root: Path, device: str) -> Dict[str, NeuroPilot]:
-    seg_l = pt_root / "perception/seg_l.pt"
-    seg_pt = seg_l if seg_l.is_file() else (pt_root / "perception/seg.pt")
+def _resolve_model(pt_root: Optional[Path], rel_path: str, hub_key: str) -> str:
+    """Use a local file under `pt_root` when present, otherwise auto-download `hub_key`."""
+    if pt_root is not None:
+        candidate = pt_root / rel_path
+        if candidate.is_file():
+            return str(candidate)
+    return hub_key
+
+
+def _load_perception(pt_root: Optional[Path], device: str) -> Dict[str, NeuroPilot]:
+    seg_src = _resolve_model(pt_root, "perception/seg_l.pt", "seg_l.pt")
+    if pt_root is not None and not (pt_root / "perception/seg_l.pt").is_file():
+        local_seg = pt_root / "perception/seg.pt"
+        if local_seg.is_file():
+            seg_src = str(local_seg)
     return {
-        "cipo": NeuroPilot(pt_root / "perception/cipo.pt", device=device),
-        "drive": NeuroPilot(pt_root / "perception/drive.pt", device=device),
-        "depth": NeuroPilot(pt_root / "perception/depth.pt", device=device),
-        "seg": NeuroPilot(seg_pt, device=device),
+        "cipo": NeuroPilot(_resolve_model(pt_root, "perception/cipo.pt", "cipo.pt"), device=device),
+        "drive": NeuroPilot(
+            _resolve_model(pt_root, "perception/drive.pt", "drive.pt"), device=device
+        ),
+        "depth": NeuroPilot(
+            _resolve_model(pt_root, "perception/depth.pt", "depth.pt"), device=device
+        ),
+        "seg": NeuroPilot(seg_src, device=device),
     }
 
 
@@ -55,7 +71,7 @@ def render_perception_and_hero(
     plans_night: np.ndarray,
     info_night: Dict,
     extras_night: Dict,
-    pt_root: Path,
+    pt_root: Optional[Path],
     out_dir: Path,
     device: str,
     warmup: int = 30,
@@ -150,15 +166,15 @@ def render_perception_and_hero(
 
 def render_world_vq(
     video: Path,
-    pt_root: Path,
+    pt_root: Optional[Path],
     out_dir: Path,
     device: str,
     warmup: int = 30,
     num_frames: int = 300,
 ) -> Dict[str, object]:
     """Render side-by-side Original | VQ 128-token reconstruction (`world_vq.mp4`)."""
-    enc = NeuroPilot(pt_root / "world/vq_enc.pt", device=device)
-    dec = NeuroPilot(pt_root / "world/vq_dec.pt", device=device)
+    enc = NeuroPilot(_resolve_model(pt_root, "world/vq_enc.pt", "vq_enc.pt"), device=device)
+    dec = NeuroPilot(_resolve_model(pt_root, "world/vq_dec.pt", "vq_dec.pt"), device=device)
     out_mp4, out_jpg = out_dir / "world_vq.mp4", out_dir / "world_vq.jpg"
     pw, ph, div = 512, 256, 4
     proc = _open_ffmpeg_writer(out_mp4, pw * 2 + div, ph, fps=20.0, crf=19)
@@ -221,9 +237,11 @@ def _run_video(args: argparse.Namespace) -> None:
 def _run_suite(args: argparse.Namespace) -> None:
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    pt_root, day_v, night_v = Path(args.pt_root), Path(args.day_video), Path(args.night_video)
+    pt_root = Path(args.pt_root) if args.pt_root else None
+    day_v, night_v = Path(args.day_video), Path(args.night_video)
 
-    pilot = NeuroPilot(pt_root / "planner/pilot_l.pt", device=args.device)
+    pilot_src = _resolve_model(pt_root, "planner/pilot_l.pt", "pilot_l.pt")
+    pilot = NeuroPilot(pilot_src, device=args.device)
     plans_d, info_d, ext_d = infer_driving_video(
         pilot, day_v, calib_rpy=[0.0, args.pitch, 0.0],
         warmup_frames=args.warmup, max_frames=args.max_frames, return_extras=True,
@@ -268,7 +286,7 @@ def main() -> None:
     dev_default = "cuda" if torch.cuda.is_available() else "cpu"
 
     p_vid = sub.add_parser("video", help="Render single or dual-panel 3D trajectory video.")
-    p_vid.add_argument("--pt", required=True)
+    p_vid.add_argument("--pt", default="pilot_l.pt")
     p_vid.add_argument("--video", required=True)
     p_vid.add_argument("--right_video", default=None)
     p_vid.add_argument("--out", required=True)
@@ -285,7 +303,9 @@ def main() -> None:
     p_suite = sub.add_parser("suite", help="Render all 4 MIT multi-task README demos.")
     p_suite.add_argument("--day_video", required=True)
     p_suite.add_argument("--night_video", required=True)
-    p_suite.add_argument("--pt_root", required=True)
+    p_suite.add_argument(
+        "--pt_root", default=None, help="Optional local cache dir; auto-downloads if omitted"
+    )
     p_suite.add_argument("--out_dir", required=True)
     p_suite.add_argument("--pitch", type=float, default=0.045)
     p_suite.add_argument("--warmup", type=int, default=30)

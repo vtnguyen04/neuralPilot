@@ -391,6 +391,10 @@ def test_clean_code_and_zero_dry_guardrails() -> None:
             ROOT / "neuro_pilot" / "utils" / "visualize.py",
             ROOT / "neuro_pilot" / "utils" / "planner_metrics.py",
             ROOT / "neuro_pilot" / "data" / "datasets" / "planner.py",
+            ROOT / "examples" / "planning.py",
+            ROOT / "examples" / "perception.py",
+            ROOT / "examples" / "world_model.py",
+            ROOT / "examples" / "deploy_jetson.py",
             ROOT / "examples" / "bfmc" / "train.py",
             ROOT / "examples" / "bfmc" / "demo.py",
         ]

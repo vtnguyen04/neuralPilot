@@ -41,7 +41,7 @@ model.export(format="onnx", file="pilot_mhp_v2.onnx", opset=17)
 Download the frozen dataset directly from [`ThanhNguyenVo/bfmc-33wp`](https://huggingface.co/datasets/ThanhNguyenVo/bfmc-33wp), or export from a local [NeuroPilot Labeler](https://github.com/vtnguyen04/neuro_pilot_labeler) database with zero-leakage `dHash` filtering:
 
 ```bash
-python3 -m examples.bfmc.export_dataset \
+python3 examples/bfmc/export_dataset.py \
   --db data/labeler.db \
   --out-dir datasets/bfmc_33wp \
   --num-waypoints 33 --dhash-gap 6
@@ -53,7 +53,7 @@ Passing a bare checkpoint name (`pilot_s.pt` or `pilot_mhp_v2.pt`) downloads wei
 
 ```bash
 # Stage 1: End-to-End MoE from OpenPilot pilot_s.pt (40 epochs, BF16 + DINOv3-B REPA)
-python3 -m examples.bfmc.train \
+python3 examples/bfmc/train.py \
   --arch pilot_mhp --scale v2 \
   --pilot-s-pt pilot_s.pt \
   --train-json datasets/bfmc_33wp/train.json \
@@ -64,7 +64,7 @@ python3 -m examples.bfmc.train \
   --distill --distill-weight 1.5 --save-dir runs/bfmc_moe
 
 # Stage 2: Anti-overfit smoothness + detection polish (12 epochs, strong aug kept)
-python3 -m examples.bfmc.train \
+python3 examples/bfmc/train.py \
   --arch pilot_mhp --scale v2 \
   --resume-weights runs/bfmc_moe/best_traj.pt \
   --train-json datasets/bfmc_33wp/train.json \
@@ -79,7 +79,7 @@ python3 -m examples.bfmc.train \
 ## 4. Full-Video Demo, ONNX / TensorRT Export & Jetson Deploy
 
 ```bash
-python3 -m examples.bfmc.demo \
+python3 examples/bfmc/demo.py \
   --ckpt pilot_mhp_v2.pt \
   --val-json datasets/bfmc_33wp/test.json --out-grid test_grid.jpg \
   --video bfmc.mp4 --out-mp4 bfmc_v2_demo.mp4 --max-frames 0 --stride 1 \

@@ -132,3 +132,80 @@ def test_neuropilot_deploy_method_and_cli_dry_run(tmp_path: Path, monkeypatch) -
         ],
     )
     cli_main()
+
+
+def test_examples_run_as_standalone_scripts_and_packaging_clean(tmp_path: Path, monkeypatch) -> None:
+    import runpy
+
+    import cv2
+    import numpy as np
+
+    from neuro_pilot.tools.demo import _resolve_model
+
+    root = Path(__file__).resolve().parents[2]
+
+    # 1. Verify examples/ is NOT an importable Python package and pyproject packages ONLY neuro_pilot
+    assert list((root / "examples").rglob("__init__.py")) == []
+    pyproj = (root / "pyproject.toml").read_text(encoding="utf-8")
+    assert 'include = ["neuro_pilot*"]' in pyproj
+    assert "website*" in pyproj and "examples*" in pyproj
+    assert (root / "MANIFEST.in").is_file()
+
+    # 2. Run standalone example scripts via runpy (exactly how users invoke `python3 examples/*.py`)
+    img_path = tmp_path / "road.jpg"
+    cv2.imwrite(str(img_path), np.full((256, 512, 3), 90, dtype=np.uint8))
+
+    perc_out = tmp_path / "perc_grid.jpg"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "examples/perception.py",
+            "--image", str(img_path),
+            "--out", str(perc_out),
+            "--seg", "seg",
+            "--depth", "depth",
+            "--cipo", "cipo",
+            "--lane", "lane",
+            "--device", "cpu",
+        ],
+    )
+    runpy.run_path(str(root / "examples" / "perception.py"), run_name="__main__")
+    assert perc_out.is_file() and cv2.imread(str(perc_out)).shape == (720, 1280, 3)
+
+    vq_out = tmp_path / "vq.jpg"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "examples/world_model.py",
+            "--image", str(img_path),
+            "--out", str(vq_out),
+            "--enc", "vq_enc",
+            "--dec", "vq_dec",
+            "--scale", "tiny",
+            "--device", "cpu",
+        ],
+    )
+    runpy.run_path(str(root / "examples" / "world_model.py"), run_name="__main__")
+    assert vq_out.is_file()
+
+    # Demo resolver falls back to hub key when pt_root is None or missing file
+    assert _resolve_model(None, "planner/pilot_l.pt", "pilot_l.pt") == "pilot_l.pt"
+    assert _resolve_model(tmp_path, "planner/pilot_l.pt", "pilot_l.pt") == "pilot_l.pt"
+
+    # Deploy example dry-run as standalone script
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "examples/deploy_jetson.py",
+            "--model", "depth",
+            "--host", "orin@10.0.0.2",
+            "--remote-dir", "~/models",
+            "--work-dir", str(tmp_path / "ex_deploy"),
+            "--dry-run",
+        ],
+    )
+    runpy.run_path(str(root / "examples" / "deploy_jetson.py"), run_name="__main__")
+    assert (tmp_path / "ex_deploy" / "depth.onnx").is_file()
