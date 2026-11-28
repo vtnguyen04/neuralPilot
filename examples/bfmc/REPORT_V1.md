@@ -26,7 +26,7 @@ Evaluated on 313 held-out frames from 4 unseen recording sessions across 3 arena
 
 ## 2. Dataset Cleaning & Split (V1)
 
-Raw labels exported from `neuro_pilot_labeler` contained mixed domains and reversed paths.
+Raw labels exported from [`neuro_pilot_labeler`](https://github.com/vtnguyen04/neuro_pilot_labeler) contained mixed domains and reversed paths.
 
 - **Filtered out 139 non-BFMC frames:** 98 CULane (`1640×590`), 40 Udacity (`960×540`, `1280×720`), and 1 empty label.
 - **Kept 1,491 BFMC frames** from 3 arenas: Vietnam NIKI epoxy (`640×640`), Bosch white-hood asphalt (`640×640`), and Roboflow hall (`720×480`).

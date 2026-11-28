@@ -276,7 +276,7 @@ adapter = model.attach_adapter(
 
 ### 3. Single-Camera Multi-Task Example (`examples/bfmc/`)
 
-[examples/bfmc/](examples/bfmc/) trains `pilot_mhp` (`v1` 10-pt and `v2` 33-pt End-to-End MoE) from OpenPilot `pilot_s.pt` with DINOv3-B feature distillation (`0 ms` at export) on the 3-way zero-leakage dataset [ThanhNguyenVo/bfmc-33wp](https://huggingface.co/datasets/ThanhNguyenVo/bfmc-33wp). Separate reports document V2 ([REPORT_V2.md](examples/bfmc/REPORT_V2.md): Untouched Test `Score 74.42`, `MSE 0.00146`, `Lat 13.2 px`, `mAP@50 81.0%`; Val `Score 66.53`, `MSE 0.00223`; `63.5 FPS` on RTX 3060) and legacy V1 + Jetson Orin BF16 TRT ([REPORT_V1.md](examples/bfmc/REPORT_V1.md)).
+[examples/bfmc/](examples/bfmc/) trains `pilot_mhp` (`v1` 10-pt and `v2` 33-pt End-to-End MoE) from OpenPilot `pilot_s.pt` with DINOv3-B feature distillation (`0 ms` at export) on the 3-way zero-leakage dataset [ThanhNguyenVo/bfmc-33wp](https://huggingface.co/datasets/ThanhNguyenVo/bfmc-33wp), annotated with [NeuroPilot Labeler](https://github.com/vtnguyen04/neuro_pilot_labeler). Separate reports document V2 ([REPORT_V2.md](examples/bfmc/REPORT_V2.md): Untouched Test `Score 74.42`, `MSE 0.00146`, `Lat 13.2 px`, `mAP@50 81.0%`; Val `Score 66.53`, `MSE 0.00223`; `63.5 FPS` on RTX 3060) and legacy V1 + Jetson Orin BF16 TRT ([REPORT_V1.md](examples/bfmc/REPORT_V1.md)).
 
 ```bash
 # Train V2 33-waypoint End-to-End MoE from OpenPilot pilot_s.pt

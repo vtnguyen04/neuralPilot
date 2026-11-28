@@ -36,7 +36,7 @@ Initialized from OpenPilot `pilot_s.pt` (`134/134` tensors), selected on the 512
 
 ## 2. Dataset & 3-Way Zero-Leakage Split
 
-Exported by [`export_dataset.py`](export_dataset.py) and published at [`ThanhNguyenVo/bfmc-33wp`](https://huggingface.co/datasets/ThanhNguyenVo/bfmc-33wp).
+Annotated with [`neuro_pilot_labeler`](https://github.com/vtnguyen04/neuro_pilot_labeler), exported by [`export_dataset.py`](export_dataset.py), and published at [`ThanhNguyenVo/bfmc-33wp`](https://huggingface.co/datasets/ThanhNguyenVo/bfmc-33wp).
 
 - **Cleaned & resampled:** Removed `229` non-BFMC frames (CULane/Udacity), fixed reversed paths, and resampled every curve to `33` arc-length C² B-spline waypoints (`y0 > y32`).
 - **Zero-leakage audit:** Dropped `55` session-boundary frames and `196` near-duplicate repeat-lap frames. Verified `shared_sha = 0` and `min_dhash_hamming >= 7` across all split pairs (`train↔val = 7`, `train↔test = 7`, `val↔test = 8`).

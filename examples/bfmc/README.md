@@ -8,6 +8,7 @@ Single-camera multi-task driving model (`FastViT-T12` + PANet `DFLDetectHead` + 
 
 - **Weights (HuggingFace):** [`ThanhNguyenVo/neuropilot-weights`](https://huggingface.co/ThanhNguyenVo/neuropilot-weights) (`pilot_mhp_v2.pt`, `pilot_mhp_v2_traj.pt`, `pilot_mhp_v2.onnx`; legacy 10-pt `pilot_mhp.pt` kept intact)
 - **Dataset (HuggingFace):** [`ThanhNguyenVo/bfmc-33wp`](https://huggingface.co/datasets/ThanhNguyenVo/bfmc-33wp) (`4,225` frames, 3-way zero-leakage split, `dHash >= 7`)
+- **Labeler Tool:** [`vtnguyen04/neuro_pilot_labeler`](https://github.com/vtnguyen04/neuro_pilot_labeler) (33-waypoint C² B-spline & 13-class studio used to annotate and export the dataset)
 
 ## V1 vs V2 Summary
 
@@ -28,7 +29,7 @@ waypoints, detections = out["waypoints"], out["detections"]  # (33, 2) + 13-clas
 
 ## 2. Export Clean 3-Way Dataset (or Download from HuggingFace)
 
-Download the frozen dataset directly from [`ThanhNguyenVo/bfmc-33wp`](https://huggingface.co/datasets/ThanhNguyenVo/bfmc-33wp), or export from a local NeuroPilot Labeler database with zero-leakage `dHash` filtering:
+Download the frozen dataset directly from [`ThanhNguyenVo/bfmc-33wp`](https://huggingface.co/datasets/ThanhNguyenVo/bfmc-33wp), or export from a local [NeuroPilot Labeler](https://github.com/vtnguyen04/neuro_pilot_labeler) database with zero-leakage `dHash` filtering:
 
 ```bash
 python3 -m examples.bfmc.export_dataset \
