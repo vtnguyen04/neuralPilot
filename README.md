@@ -50,12 +50,12 @@ NeuroPilot unifies end-to-end driving planners, multi-task perception, semantic 
 
 All demonstration videos and previews use zero-text overlays on MIT-licensed `comma2k19` driving sequences. Click any GIF to open the full MP4 clip, or view the high-resolution still snapshots.
 
-| Demo | Animated Preview (click for full MP4) | Still | Models & Measured Speed (RTX 3060) |
+| Demo | Animated Preview (click for full MP4) | Still | Models & Runnable Example |
 | :--- | :---: | :---: | :--- |
-| Flagship 2x2 Suite | [<img src="assets/demos/hero.gif" width="380" alt="Flagship 2x2 suite" />](assets/demos/hero.mp4) | [JPG](assets/demos/hero.jpg) | `pilot_l.pt` (day & night E2E) + `seg_l.pt` (`EoMT-Large`) + `cipo.pt` + `drive.pt` + 3D multi-lane. |
-| Day / Night E2E Planning | [<img src="assets/demos/day_night.gif" width="380" alt="Day and night E2E planning" />](assets/demos/day_night.mp4) | [Frames](assets/demos/frames/) | `pilot_l.pt` (381.6M). 58.5s continuous day/night driving at 30 to 35 FPS. |
-| Perception, Seg & Depth | [<img src="assets/demos/perception.gif" width="380" alt="Segmentation, multi-lane, CIPO, and depth" />](assets/demos/perception.mp4) | [JPG](assets/demos/perception.jpg) | `seg_l.pt` (10.4 FPS FP16), `cipo.pt`, `drive.pt`, `depth.pt`, and `pilot_l` 3D multi-lane (day & night). |
-| Discrete World Tokenizer | [<img src="assets/demos/world_vq.gif" width="380" alt="Original vs 128-token VQGAN reconstruction" />](assets/demos/world_vq.mp4) | [JPG](assets/demos/world_vq.jpg) | `vq_enc.pt` + `vq_dec.pt` (72.4M). 128 discrete tokens/frame, 23.78 dB PSNR reconstruction. |
+| Flagship 2x2 Suite | [<img src="assets/demos/hero.gif" width="380" alt="Flagship 2x2 suite" />](assets/demos/hero.mp4) | [JPG](assets/demos/hero.jpg) | `pilot_l.pt` + `seg_l.pt` + `cipo.pt` + `drive.pt` — [tools/demo.py](neuro_pilot/tools/demo.py) |
+| Day / Night E2E Planning | [<img src="assets/demos/day_night.gif" width="380" alt="Day and night E2E planning" />](assets/demos/day_night.mp4) | [Frames](assets/demos/frames/) | `pilot_l.pt` (381.6M, 30–35 FPS RTX 3060) — [examples/planning.py](examples/planning.py) |
+| Perception, Seg & Depth | [<img src="assets/demos/perception.gif" width="380" alt="Segmentation, multi-lane, CIPO, and depth" />](assets/demos/perception.mp4) | [JPG](assets/demos/perception.jpg) | `seg_l.pt`, `cipo.pt`, `drive.pt`, `depth.pt`, `lane.pt` — [examples/perception.py](examples/perception.py) |
+| Discrete World Tokenizer | [<img src="assets/demos/world_vq.gif" width="380" alt="Original vs 128-token VQGAN reconstruction" />](assets/demos/world_vq.mp4) | [JPG](assets/demos/world_vq.jpg) | `vq_enc.pt` + `vq_dec.pt` (72.4M, 23.78 dB PSNR) — [examples/world_model.py](examples/world_model.py) |
 
 ### Day & Night Trajectory Keyframes
 
@@ -80,14 +80,13 @@ All demonstration videos and previews use zero-text overlays on MIT-licensed `co
 Requires Python 3.10+, PyTorch 2.0+, and `ffmpeg` (for video demo rendering). CUDA 11.8/12.x is recommended for GPU inference and training.
 
 ```bash
+# Install directly from GitHub (installs only the neuro_pilot package, excluding website/examples/tests)
+pip install git+https://github.com/vtnguyen04/neuralPilot.git
+
+# Or clone for local development and running standalone examples/
 git clone https://github.com/vtnguyen04/neuralPilot.git
 cd neuralPilot
-
-# Recommended (uv)
-uv sync
-
-# Or standard editable install
-pip install -e .
+uv sync          # or: pip install -e .
 ```
 
 Optional developer dependencies (`pytest`, `ruff`, `mypy`):
@@ -111,9 +110,9 @@ from neuro_pilot import NeuroPilot
 planner = NeuroPilot("pilot_l.pt", device="cuda")
 planner.predict_video("drive.hevc", out_mp4="trajectory.mp4")
 
-# 2. Single-camera multi-task planning + 13-class detection (BFMC)
-mt = NeuroPilot("pilot_mhp.pt", device="cuda")
-out = mt.predict("frame.jpg", command=0)  # waypoints (10, 2) + detections
+# 2. Single-camera multi-task planning + 13-class detection (BFMC V2, 33-pt MoE)
+mt = NeuroPilot("pilot_mhp_v2.pt", device="cuda")
+out = mt.predict("frame.jpg", command=0)  # waypoints (33, 2) + detections
 
 # 3. Semantic segmentation (EoMT-Large, or "seg.pt" for 88 FPS edge)
 seg = NeuroPilot("seg_l.pt", device="cuda")
@@ -165,7 +164,7 @@ python -m neuro_pilot.tools.demo suite \
 
 ## Pretrained Weights
 
-All 15 prebuilt `.pt` checkpoints are hosted on Hugging Face ([ThanhNguyenVo/neuropilot-weights](https://huggingface.co/ThanhNguyenVo/neuropilot-weights)). Checkpoints are never committed to Git. Calling `NeuroPilot("<key>.pt")`, `NeuroPilot("<key>", pretrained=True)`, or `neuropilot download <key>` resolves weights automatically:
+All 16 prebuilt `.pt` checkpoints are hosted on Hugging Face ([ThanhNguyenVo/neuropilot-weights](https://huggingface.co/ThanhNguyenVo/neuropilot-weights)). Checkpoints are never committed to Git. Calling `NeuroPilot("<key>.pt")`, `NeuroPilot("<key>", pretrained=True)`, or `neuropilot download <key>` resolves weights automatically:
 
 1. **Local cache:** Loads `~/.cache/neuro_pilot/weights/<key>.pt` immediately if present.
 2. **Hugging Face download:** Downloads `<key>.pt` directly from `NEUROPILOT_HF_REPO` (or `NEUROPILOT_WEIGHTS_URL`) with no ONNX conversion needed. Upstream MIT/Apache-2.0 ONNX converters remain as a fallback.
@@ -189,7 +188,8 @@ All 18 architectures are declared layer-by-layer in YAML and executed by `GraphM
 | `pilot_s` | planner | 34.3M | Yes | MIT | Dual-camera E2E planner (FastViT-T12 + 5L Transformer) |
 | `pilot_l` | planner | 381.6M | Yes | MIT | Dual-camera E2E planner + 3D multi-lane & road edges (ConvNeXt-XL + 8L Transformer) |
 | `pilot_nav` | planner | 393.7M | Yes | MIT | Map-guided dual-camera E2E planner with navigation map encoder |
-| `pilot_mhp` | planner | 14.1M | Yes | Apache-2.0 | Single-camera multi-task planner (FastViT-T12 + 13-class DFL det + 5-mode Laplace MHP) |
+| `pilot_mhp_v2` | planner | 16.8M | Yes | Apache-2.0 | Single-camera 33-pt MoE planner (decoupled FastViT-T12 + 13-class DFL det + P3 `64x80` refine) |
+| `pilot_mhp` | planner | 14.1M | Yes | Apache-2.0 | Legacy 10-pt single-camera planner (FastViT-T12 + 13-class DFL det + 5-mode Laplace MHP) |
 | `pilot_det` | planner | 12.9M | Yes | Apache-2.0 | Single-camera multi-task planner (FastViT-T12 + 13-class DFL det + single-mode traj) |
 | `driver` | cabin | 3.6M | Yes | MIT | Cabin driver monitoring (MobileNetV4, LHD/RHD heads) |
 | `cipo` | perception | 9.3M | Yes | Apache-2.0 | 4-class vehicle and CIPO detector (PANet + decoupled DFL head) |
@@ -275,15 +275,22 @@ adapter = model.attach_adapter(
 
 ### 3. Single-Camera Multi-Task Example (`examples/bfmc/`)
 
-[examples/bfmc/](examples/bfmc/) trains `pilot_mhp` from OpenPilot `pilot_s.pt` with optional DINOv3 feature distillation (`0 ms` at export). Full experiment tables, plots, and ONNX parity results are in [examples/bfmc/REPORT.md](examples/bfmc/REPORT.md) (`Val MSE 0.00440`, `Lat 18.5 px`, `mAP@50 63.2%`, `~59 FPS` on RTX 3060).
+[examples/bfmc/](examples/bfmc/) trains `pilot_mhp` (`v1` 10-pt and `v2` 33-pt End-to-End MoE) from OpenPilot `pilot_s.pt` with DINOv3-B feature distillation (`0 ms` at export) on the 3-way zero-leakage dataset [ThanhNguyenVo/bfmc-33wp](https://huggingface.co/datasets/ThanhNguyenVo/bfmc-33wp), annotated with [NeuroPilot Labeler](https://github.com/vtnguyen04/neuro_pilot_labeler). Separate reports document V2 ([REPORT_V2.md](examples/bfmc/REPORT_V2.md): Untouched Test `Score 74.42`, `MSE 0.00146`, `Lat 13.2 px`, `mAP@50 81.0%`; Val `Score 66.53`, `MSE 0.00223`; `63.5 FPS` on RTX 3060) and legacy V1 + Jetson Orin BF16 TRT ([REPORT_V1.md](examples/bfmc/REPORT_V1.md)).
 
 ```bash
-# Fine-tune directly from pretrained BFMC weights (auto-downloads pilot_mhp.pt)
-python3 -m examples.bfmc.train \
-  --arch pilot_mhp \
-  --resume-weights pilot_mhp.pt \
-  --train-json train.json \
-  --val-json val.json \
+# Train V2 33-waypoint End-to-End MoE from OpenPilot pilot_s.pt
+python3 examples/bfmc/train.py \
+  --arch pilot_mhp --scale v2 \
+  --pilot-s-pt pilot_s.pt \
+  --train-json train.json --val-json val.json \
+  --epochs 40 --save-dir runs/bfmc_moe
+
+# Fine-tune directly from pretrained BFMC v2 weights (auto-downloads pilot_mhp_v2.pt)
+python3 examples/bfmc/train.py \
+  --arch pilot_mhp --scale v2 \
+  --resume-weights pilot_mhp_v2.pt \
+  --train-json train.json --val-json val.json \
+  --epochs 12 --freeze-epochs 0 \
   --save-dir runs/bfmc_ft
 ```
 
@@ -298,21 +305,20 @@ python3 -m examples.bfmc.train \
 | `.pt` | PyTorch | Training, fine-tuning, and FP32/FP16 inference |
 | `.onnx` | ONNX Runtime | CPU and CUDA providers with automatic task discovery |
 | `.torchscript` | TorchScript | C++ / LibTorch deployment |
-| `.engine` | TensorRT 10 | FP16/INT8 dynamic multi-input profile builds via [trt_builder.py](neuro_pilot/engine/trt_builder.py) |
+| `.engine` | TensorRT 10 | FP16/BF16/INT8 multi-input engine builds via [trt_builder.py](neuro_pilot/engine/trt_builder.py) |
 
 ```python
 from neuro_pilot import NeuroPilot
 
-model = NeuroPilot("depth.pt", device="cuda")
-onnx_path = model.export(format="onnx", file="depth.onnx", opset=17)
-ts_path = model.export(format="torchscript", file="depth.torchscript")
-
-# Reload any compiled artifact directly with the same API
-ort_model = NeuroPilot(onnx_path, device="cuda")
-depth_map = ort_model.predict("frame.jpg")["depth"]
+model = NeuroPilot("pilot_mhp_v2.pt", device="cuda")
+onnx_path = model.export(format="onnx", file="pilot_mhp_v2.onnx", opset=17)
+# Build native BF16 TensorRT engine locally (run on the target GPU)
+engine_path = model.export(format="engine", file="pilot_mhp_v2.engine", bf16=True, workspace_mb=1024)
+# Or deploy over SSH to a Jetson Orin (export ONNX -> SCP -> remote trtexec --bf16)
+model.deploy(host="user@<jetson-ip>", remote_dir="~/models", precision="bf16", workspace_mb=1024)
 ```
 
-For edge deployment on NVIDIA Jetson, see [examples/jetson_inference_onnx.py](examples/jetson_inference_onnx.py) and [examples/jetson_inference_trt.py](examples/jetson_inference_trt.py).
+See [examples/deploy_jetson.py](examples/deploy_jetson.py) (or `neuropilot deploy --help`), plus legacy edge runtime examples [examples/jetson_inference_onnx.py](examples/jetson_inference_onnx.py) and [examples/jetson_inference_trt.py](examples/jetson_inference_trt.py).
 
 ---
 
@@ -323,32 +329,38 @@ neuro_pilot/
 ├── cfg/models/
 │   ├── neuralPilot*.yaml         # Native joint multi-task training architectures
 │   └── zoo/*.yaml                # 18 layer-by-layer modular Zoo YAML graphs
+├── tasks/                        # Unified per-task modules (base, multitask, planner, perception, world)
+├── deploy/jetson.py              # One-command Jetson SSH deployment (ONNX -> SCP -> remote TRT)
 ├── nn/zoo/
 │   ├── graph.py                  # Generic GraphModel YAML executor
 │   ├── hub.py                    # Automatic Hugging Face weight downloader & cache
 │   ├── distill.py                # Training-only DINOv3 dense feature distillation
 │   ├── parity.py                 # ONNX-to-PyTorch conversion & numerical parity verifier
-│   ├── losses.py                 # LaplaceNLL, MHPLaplaceLoss, FlowMatchingLoss, WaypointLoss
+│   ├── losses.py / planner_loss.py
 │   ├── blocks/                   # Shared atomic blocks (CNN, ViT, EoMT, VQ, EffNet, Planner, Traj)
 │   └── converters/               # Deterministic ONNX & safetensors weight converters
 ├── engine/
-│   ├── model.py                  # Unified NeuroPilot entry point
-│   ├── tasks.py                  # Plug-and-play driving tasks (planner, seg, depth, lane, world, driver, bfmc)
+│   ├── model.py                  # Unified NeuroPilot entry point (train/val/predict/visualize/export/deploy)
+│   ├── monitor.py                # RunMonitor (CSV, JSONL, GPU VRAM, ETA, training_curves.png)
+│   ├── planner_trainer.py / planner_eval.py
 │   ├── predictors/               # Stateful domain predictors (planner, perception, world)
 │   ├── backend/                  # AutoBackend (PyTorch, ONNX Runtime, TorchScript, TensorRT 10)
-│   ├── trt_builder.py            # Multi-input TensorRT 10 trtexec builder
+│   ├── trt_builder.py            # TensorRT 10 FP16/BF16/INT8 trtexec & Python API builder
 │   ├── video.py                  # Streaming driving video inference & projection runner
 │   └── zoo.py                    # ModelZoo facade & CommandAdapter fine-tuning head
 ├── utils/
-│   ├── camera.py                 # Intrinsics, extrinsic RPY calibration, virtual view warp
-│   ├── viz.py                    # 2x supersampled 3D drivable trajectory corridor renderer
-│   └── overlay.py                # 3D multi-lane, AR CIPO brackets, segmentation & depth overlays
-└── tools/demo.py                 # CLI for single/dual trajectory and 4-clip demo suite rendering
+│   ├── visualize.py              # Task-aware visualizers for all driving tasks
+│   ├── camera.py / viz.py / overlay.py
+└── tools/demo.py                 # CLI for single/dual trajectory and 4-clip README showcase suite
 
 examples/
+├── planning.py                   # 3D E2E trajectory planning video example (pilot_l.pt)
+├── perception.py                 # 2x2 segmentation + depth + CIPO + lane example
+├── world_model.py                # Discrete VQGAN world tokenizer roundtrip example
+├── deploy_jetson.py              # Local TensorRT BF16 build & SSH Jetson deploy example
+├── bfmc/                         # BFMC 1:10 multi-task example (thin NeuroPilot scripts + reports)
 ├── train.py / train_temporal.py  # Native multi-task & temporal clip training scripts
-├── jetson_inference_*.py         # ONNX Runtime & TensorRT edge inference scripts
-└── bfmc/                         # BFMC 1:10 multi-task example, training pipeline & REPORT.md
+└── jetson_inference_*.py         # Edge ONNX Runtime & TensorRT inference examples
 ```
 
 ---

@@ -5,26 +5,39 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Sem
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-28
+
 ### Added
 - Layer-by-layer modular YAML model zoo (`neuro_pilot/cfg/models/zoo/`) with 18 architectures across planning (`pilot_s`, `pilot_l`, `pilot_nav`, `pilot_mhp`, `pilot_det`, `driver`), perception (`cipo`, `lane`, `drive`, `depth`, `seg`, `seg_l`), and world models (`jepa`, `vq_enc`, `vq_dec`, `ae`, `dit`, `gpt`).
-- Generic `GraphModel` YAML executor (`neuro_pilot/nn/zoo/graph.py`) and shared atomic block library (`neuro_pilot/nn/zoo/blocks/`), including single-camera trajectory decoders (`YuvSinglePrep`, `TrajHead`, `TrajMHPHead` in `blocks/traj.py`).
+- Generic `GraphModel` YAML executor (`neuro_pilot/nn/zoo/graph.py`) and shared atomic block library (`neuro_pilot/nn/zoo/blocks/`), including single-camera trajectory decoders (`YuvSinglePrep`, `TrajHead`, `TrajMHPHead` with `scale: v2` 33-waypoint differentiable MoE and decoupled backbone taps).
+- Unified per-task package under `neuro_pilot/tasks/` (`base.py`, `multitask.py`, `planner.py`, `perception.py`, `world.py`) with per-task `get_trainer()`, `get_validator()`, and `visualize()`.
+- Core multi-task planner training, evaluation, and dataset modules: `PlannerDataset` (`@register_dataset("planner_json")` in `neuro_pilot/data/datasets/planner.py`), `PlannerTrainer` (`neuro_pilot/engine/planner_trainer.py`), `PlannerValidator` (`neuro_pilot/engine/planner_eval.py`), `planner_metrics.py`, and `planner_loss.py`.
+- Unified `RunMonitor` (`neuro_pilot/engine/monitor.py`) logging dynamic CSV, JSONL, GPU VRAM, throughput (`img/s`), ETA, structured console metrics, and auto-plotted `training_curves.png`.
+- Task-aware visualizers (`neuro_pilot/utils/visualize.py`) wired into `NeuroPilot.visualize()`, featuring continuous-normal 2D trajectory corridor rendering (zero sharp-turn twist).
+- TensorRT 10 `--bf16` precision support, `workspace_mb`, and JetPack `/usr/src/tensorrt/bin/trtexec` auto-detection in `neuro_pilot/engine/trt_builder.py` and `Exporter`.
+- One-command Jetson SSH deployment (`neuro_pilot/deploy/jetson.py`, `NeuroPilot.deploy()`, and `neuropilot deploy`) that exports ONNX, uploads via SCP, and compiles the native TensorRT `.engine` directly on the target Jetson GPU.
 - Training-only DINOv3 dense feature distillation (`DinoV3Teacher`, `DistillProj`, `dense_distill_loss` in `neuro_pilot/nn/zoo/distill.py`).
-- Deterministic ONNX and safetensors weight converters (`neuro_pilot/nn/zoo/converters/`) and numerical parity harness (`neuro_pilot/nn/zoo/parity.py`), verified on 13 converted models including lightweight `seg` (`DDRNet23-Slim`, 5.7M) and `seg_l` (`EoMT-Large` DINOv2 ViT-L, 316M).
-- Automatic checkpoint hub (`neuro_pilot/nn/zoo/hub.py`) and `neuropilot download` CLI fetching all 15 prebuilt `.pt` weights (`pilot_mhp.pt`, `pilot_det.pt`, and 13 upstream checkpoints) from Hugging Face (`ThanhNguyenVo/neuropilot-weights`) into `~/.cache/neuro_pilot/weights/` on first use (`NeuroPilot("pilot_mhp.pt")`, `NeuroPilot("pilot_l.pt")`).
-- Plug-and-play driving tasks (`planner`, `world`, `lane`, `depth`, `seg`, `driver`, `bfmc`), `MultitaskPredictor` (`neuro_pilot/engine/predictors/planner.py`), and `NeuroPilot.attach_adapter()`.
-- BFMC 1:10 multi-task training, evaluation, ONNX demo, and experiment report under `examples/bfmc/` (`dataset.py`, `metrics.py`, `train.py`, `demo.py`, `REPORT.md`, and figures).
-- Multi-backend runtime auto-discovery for PyTorch `.pt`, ONNX Runtime `.onnx`, TorchScript `.torchscript`, and TensorRT 10 `.engine` (`neuro_pilot/engine/backend/`, `neuro_pilot/engine/trt_builder.py`).
-- Standalone camera calibration, virtual view warp, streaming video inference (`NeuroPilot.predict_video`), 3D trajectory corridor, 3D multi-lane, CIPO corner-bracket, semantic segmentation, and depth visualizers (`neuro_pilot/utils/camera.py`, `viz.py`, `overlay.py`, `neuro_pilot/engine/video.py`).
-- Unified demo rendering CLI (`neuro_pilot/tools/demo.py`) and MIT-licensed `comma2k19` demo clips in `assets/demos/`.
-- Official Apache License 2.0 (`LICENSE`) and third-party license notices (`THIRD_PARTY_LICENSES.md`).
+- Automatic checkpoint hub (`neuro_pilot/nn/zoo/hub.py`) and `neuropilot download` CLI fetching 16 pretrained `.pt` weights (`pilot_mhp_v2.pt`, `pilot_mhp.pt`, `pilot_det.pt`, and 13 upstream checkpoints) from Hugging Face (`ThanhNguyenVo/neuropilot-weights`) on first use.
+- Deterministic ONNX and safetensors weight converters (`neuro_pilot/nn/zoo/converters/`) and numerical parity harness (`neuro_pilot/nn/zoo/parity.py`).
+- Multi-backend runtime auto-discovery for PyTorch `.pt`, ONNX Runtime `.onnx`, TorchScript `.torchscript`, and TensorRT 10 `.engine`.
+- Standalone user examples (`examples/planning.py`, `examples/perception.py`, `examples/world_model.py`, `examples/deploy_jetson.py`, and thin `examples/bfmc/{train,demo,export_dataset}.py`) plus separate V1 and V2 BFMC reports (`REPORT_V1.md`, `REPORT_V2.md`, `REPORT.md`).
+- Standalone camera calibration, virtual view warp, streaming video inference (`NeuroPilot.predict_video`), 3D trajectory corridor, 3D multi-lane, CIPO corner-bracket, segmentation, and depth overlays (`neuro_pilot/utils/{camera,viz,overlay}.py`, `neuro_pilot/engine/video.py`, `neuro_pilot/tools/demo.py`).
+- Official Apache License 2.0 (`LICENSE`), third-party license notices (`THIRD_PARTY_LICENSES.md`), and strict `neuro_pilot`-only packaging (`MANIFEST.in`).
+- Comprehensive unit, E2E, packaging, and clean-code guardrail tests (`tests/engine/test_tasks_and_monitor.py`, `tests/engine/test_deploy_jetson.py`, `tests/zoo/`).
 
 ### Changed
+- Refactored `examples/bfmc/` to thin standalone scripts using the public `NeuroPilot` API (`model.train()`, `model.val()`, `model.predict()`, `model.visualize()`, `model.export()`, `model.deploy()`) and removed `examples/bfmc/__init__.py`, `dataset.py`, and `metrics.py`.
+- Normalized `MultitaskPredictor` detection outputs to `[0, 1]` coordinates for resolution-independent rendering.
 - Standardized zoo configs, modules, tests, and demo assets to short 1-2 word domain names while keeping backward-compatible aliases in `MODEL_YAML_MAP` and `PREDICTOR_REGISTRY`.
-- Extended `CSPBlock` (`blocks/cnn.py`) and `DFLDetectHead` (`blocks/perception.py`) with optional BatchNorm and training-dict output flags so multi-task YAML graphs reuse existing blocks directly.
-- Updated `pyproject.toml` license metadata to Apache-2.0 and replaced the README and icon assets.
+- Updated `pyproject.toml` to SPDX `license = "Apache-2.0"` and explicit setuptools package exclusions (`tests*`, `examples*`, `website*`, `scripts*`, `tools*`) so `pip install git+...` installs only `neuro_pilot`.
+- Upgraded `.github/workflows/ci.yml` and `.github/workflows/deploy-docs.yml` with `uv` caching, pinned `ruff==0.15.7`, system media libraries (`libgl1`, `ffmpeg`), concurrency groups, manual triggers, and docs typecheck/build verification.
+- Updated `neuro_pilot/tools/demo.py` to fall back to Hugging Face auto-download when `--pt_root` is omitted.
 
 ### Fixed
-- Fixed bare `<key>.yaml` loading in `maybe_build_zoo_graph` (`neuro_pilot/engine/tasks.py`) and removed PyTorch 2.4 ONNX `float64` tracing cast in `TrajMHPHead` (`torch.arange` + static `torch.gather`).
+- Fixed `is_zoo_yaml()` in `neuro_pilot/nn/zoo/graph.py` misclassifying native `neuralPilot.yaml` via the shared `Concat` block name and skipping `register_all_blocks()` when the registry was partially populated.
+- Fixed `GraphModel.scale` persistence so non-default scale checkpoints (such as `scale="v2"`) reload cleanly via `NeuroPilot(path)`.
+- Fixed `infer_driving_task()` mapping for `vq_enc` and `vq_dec`, restored `colorstr()` in `neuro_pilot/utils/logger.py`, and added `dict` checkpoint handling in `MultiTask.load_weights()`.
+- Fixed bare `<key>.yaml` loading in `maybe_build_zoo_graph` and removed PyTorch ONNX `float64` tracing cast in `TrajMHPHead`.
 
 ## [1.3.2] - 2026-06-14
 

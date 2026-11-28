@@ -2,6 +2,11 @@
 
 name: pilot_mhp
 family: planner
+scale: v1
+
+scales:
+  v1: {num_waypoints: 10, traj_p3: 16, traj_p4: 19, traj_p5: 22, p3_ch: 96, p4_ch: 160, p5_ch: 256, cmd_score: false, hi_res: false}
+  v2: {num_waypoints: 33, traj_p3: 2,  traj_p4: 4,  traj_p5: 6,  p3_ch: 64, p4_ch: 128, p5_ch: 256, cmd_score: true,  hi_res: true}
 
 inputs:
   img:     {shape: [1, 6, 256, 320], dtype: uint8, dist: randint, low: 0, high: 256}
@@ -47,4 +52,4 @@ head:
   - [[16, 19, 22], 1, DFLDetectHead, [[96, 160, 256], 13, 16, [8.0, 16.0, 32.0], true, true, true]]  # 23
 
   # Branch 2: OpenPilot-Style K=5 MHP Laplace Decoder with P3/P4 Grid-Sample & Heatmap Scoring
-  - [[16, 19, 22, 8, 9, command], 1, TrajMHPHead, [96, 160, 256, 512, 512, 5, 10, 4, 256, 128]]  # 24
+  - [[traj_p3, traj_p4, traj_p5, 8, 9, command], 1, TrajMHPHead, [p3_ch, p4_ch, p5_ch, 512, 512, 5, num_waypoints, 4, 256, 128, cmd_score, hi_res]]  # 24

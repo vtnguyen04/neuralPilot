@@ -1,0 +1,9 @@
+recursive-include neuro_pilot *.py *.yaml
+include LICENSE README.md pyproject.toml
+prune website
+prune assets
+prune examples
+prune tests
+prune scripts
+prune tools
+prune .github
